@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "confirm": "Confirmer",
     "cancel": "Annuler",
@@ -218,7 +218,7 @@
       "desc": "Cette zone est fixée en haut à droite sur toutes les pages pour les campagnes ou publicités de marque.",
       "action": "Voir les détails"
     },
-    "appName": "Cockpit Tools",
+    "appName": "AI Lemon Tools",
     "collapse": "Réduire",
     "confirmDelete": "Confirmer la suppression",
     "confirmDeleteTag": "Confirmer la suppression du tag",
@@ -543,7 +543,7 @@
   },
   "settings": {
     "title": "Paramètres de l'application",
-    "subtitle": "Personnalisez votre expérience Cockpit Tools.",
+    "subtitle": "Personnalisez votre expérience AI Lemon Tools.",
     "tabs": {
       "general": "Général",
       "network": "Réseau",
@@ -697,7 +697,7 @@
       "sideNavLayoutClassic": "Disposition classique",
       "antigravityDualSwitchNoRestart": "Bascule double sans redémarrage",
       "antigravityDualSwitchNoRestartDesc": "Lors du changement de compte, les données locales sont écrites et la bascule fluide de l’extension est exécutée dans un seul flux, sans redémarrer Antigravity IDE.",
-      "appAutoLaunch": "Lancer Cockpit Tools à la connexion",
+      "appAutoLaunch": "Lancer AI Lemon Tools à la connexion",
       "appAutoLaunchDesc": "Démarrer automatiquement l'application après la connexion au système",
       "startupWakeupDisabled": "Désactivé",
       "startupWakeupImmediate": "Réveiller immédiatement",
@@ -799,7 +799,7 @@
       "proxyUrlRequired": "L'URL du proxy ne peut pas être vide lorsque le proxy global est activé."
     },
     "about": {
-      "appName": "Cockpit Tools",
+      "appName": "AI Lemon Tools",
       "slogan": "Solution professionnelle de gestion de comptes",
       "author": "Auteur",
       "wechat": "WeChat",
@@ -1721,7 +1721,7 @@
     },
     "exportFormat": {
       "label": "Format d’export",
-      "cockpitTools": "Cockpit Tools",
+      "cockpitTools": "AI Lemon Tools",
       "sub2api": "Format sub2api",
       "cpa": "Format cpa",
       "downloadAll": "Tout télécharger",
@@ -3856,7 +3856,7 @@
       "backToCurrent": "Retour",
       "switchToThisAccount": "Passer",
       "openDetails": "Ouvrir les détails",
-      "openCockpitTools": "Ouvrir Cockpit Tools"
+      "openCockpitTools": "Ouvrir AI Lemon Tools"
     },
     "empty": {
       "title": "Aucun compte",

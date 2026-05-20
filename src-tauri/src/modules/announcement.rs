@@ -529,6 +529,22 @@ fn filter_top_right_ad(
     Some(item)
 }
 
+fn welcome_top_right_ad() -> TopRightAd {
+    TopRightAd {
+        id: "top-right-welcome-ai-lemon-tools".to_string(),
+        priority: 100,
+        text: "欢迎使用该软件。".to_string(),
+        badge: Some("欢迎".to_string()),
+        cta_label: None,
+        cta_url: None,
+        target_versions: default_target_versions(),
+        target_languages: Some(vec!["*".to_string()]),
+        created_at: "2026-05-20T12:00:00Z".to_string(),
+        expires_at: None,
+        locales: None,
+    }
+}
+
 async fn fetch_remote_announcements() -> Result<AnnouncementResponse, String> {
     logger::log_info("[Announcement] 从远端拉取公告");
 
@@ -619,8 +635,7 @@ pub async fn get_announcement_state() -> Result<AnnouncementState, String> {
 pub async fn get_top_right_ad_state() -> Result<TopRightAdState, String> {
     let current_version = env!("CARGO_PKG_VERSION");
     let locale = config::get_user_config().language.to_lowercase();
-    let raw_payload = load_announcements_raw().await?;
-    let ad = filter_top_right_ad(raw_payload.top_right_ad, current_version, &locale);
+    let ad = filter_top_right_ad(Some(welcome_top_right_ad()), current_version, &locale);
     Ok(TopRightAdState { ad })
 }
 

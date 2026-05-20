@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import { ALL_PLATFORM_IDS, PlatformId } from '../types/platform';
+import {
+  ALL_PLATFORM_IDS,
+  MENU_VISIBLE_PLATFORM_IDS,
+  PlatformId,
+  isMenuVisiblePlatform,
+} from '../types/platform';
 
 const PLATFORM_LAYOUT_STORAGE_KEY = 'agtools.platform_layout.v1';
 const LEGACY_TRAY_CORE_IDS: PlatformId[] = ['antigravity', 'codex', 'github-copilot', 'windsurf'];
@@ -276,7 +281,7 @@ function normalizeHidden(hidden: PlatformId[]): PlatformId[] {
 }
 
 function normalizeSidebar(sidebar: PlatformId[], hidden: PlatformId[]): PlatformId[] {
-  const normalized = sanitizePlatformIds(sidebar).filter((id) => !hidden.includes(id));
+  const normalized = sanitizePlatformIds(sidebar).filter((id) => !hidden.includes(id) && isMenuVisiblePlatform(id));
   return normalized;
 }
 
@@ -285,7 +290,7 @@ function normalizeTray(
   rawOrder: PlatformId[] = [],
   allowLegacyMigration = false,
 ): PlatformId[] {
-  const normalized = sanitizePlatformIds(tray);
+  const normalized = sanitizePlatformIds(tray).filter(isMenuVisiblePlatform);
   const rawOrderSet = new Set(sanitizePlatformIds(rawOrder));
   const hasLegacyDefault = LEGACY_TRAY_CORE_IDS.every((id) => normalized.includes(id))
     && normalized.length <= ALL_PLATFORM_IDS.length - 1;
@@ -706,8 +711,10 @@ function normalizeSidebarEntryIds(
   legacySidebarPlatformIds: PlatformId[],
 ): PlatformLayoutEntryId[] {
   const hiddenSet = new Set(hiddenEntryIds);
+  const isVisibleEntry = (entryId: PlatformLayoutEntryId) =>
+    resolveEntryPlatformIds(entryId, groups).some(isMenuVisiblePlatform);
   const normalized = normalizeEntryVisibilityList(rawSidebarEntryIds, orderedEntryIds)
-    .filter((entryId) => !hiddenSet.has(entryId));
+    .filter((entryId) => !hiddenSet.has(entryId) && isVisibleEntry(entryId));
   if (normalized.length > 0) {
     return normalized;
   }
@@ -736,13 +743,13 @@ function normalizeSidebarEntryIds(
     legacySidebarPlatformIds,
     orderedEntryIds,
     groups,
-  ).filter((entryId) => !hiddenSet.has(entryId));
+  ).filter((entryId) => !hiddenSet.has(entryId) && isVisibleEntry(entryId));
 
   if (fallback.length > 0) {
     return fallback;
   }
 
-  return orderedEntryIds.filter((entryId) => !hiddenSet.has(entryId));
+  return orderedEntryIds.filter((entryId) => !hiddenSet.has(entryId) && isVisibleEntry(entryId));
 }
 
 function derivePlatformOrderFromEntryOrder(
@@ -819,7 +826,7 @@ function deriveSidebarPlatformIds(
       continue;
     }
     const platformId = resolveEntryDefaultPlatformId(entryId, groups);
-    if (!platformId || result.includes(platformId)) {
+    if (!platformId || !isMenuVisiblePlatform(platformId) || result.includes(platformId)) {
       continue;
     }
     result.push(platformId);
@@ -932,13 +939,13 @@ function loadPersistedState(): NormalizedLayoutStateData {
       const defaults = normalizeStateData({
         orderedPlatformIds: [...ALL_PLATFORM_IDS],
         hiddenPlatformIds: [],
-        sidebarPlatformIds: ['antigravity', 'codex'],
-        trayPlatformIds: [...ALL_PLATFORM_IDS],
+        sidebarPlatformIds: ['codex'],
+        trayPlatformIds: [...MENU_VISIBLE_PLATFORM_IDS],
         traySortMode: 'auto',
         platformGroups: defaultPlatformGroups(),
         orderedEntryIds: buildEntryOrderFromPlatformOrder(ALL_PLATFORM_IDS, defaultPlatformGroups()),
         hiddenEntryIds: [],
-        sidebarEntryIds: [makePlatformEntryId('antigravity'), makePlatformEntryId('codex')],
+        sidebarEntryIds: [makePlatformEntryId('codex')],
       });
       return defaults;
     }
@@ -977,7 +984,7 @@ function loadPersistedState(): NormalizedLayoutStateData {
       hiddenPlatformIds,
       sidebarPlatformIds,
       trayPlatformIds: normalizeTray(
-        parsed.trayPlatformIds ?? ALL_PLATFORM_IDS,
+        parsed.trayPlatformIds ?? MENU_VISIBLE_PLATFORM_IDS,
         sanitizePlatformIds(parsed.orderedPlatformIds ?? []),
         true,
       ),
@@ -991,13 +998,13 @@ function loadPersistedState(): NormalizedLayoutStateData {
     return normalizeStateData({
       orderedPlatformIds: [...ALL_PLATFORM_IDS],
       hiddenPlatformIds: [],
-      sidebarPlatformIds: ['antigravity', 'codex'],
-      trayPlatformIds: [...ALL_PLATFORM_IDS],
+      sidebarPlatformIds: ['codex'],
+      trayPlatformIds: [...MENU_VISIBLE_PLATFORM_IDS],
       traySortMode: 'auto',
       platformGroups: defaultPlatformGroups(),
       orderedEntryIds: buildEntryOrderFromPlatformOrder(ALL_PLATFORM_IDS, defaultPlatformGroups()),
       hiddenEntryIds: [],
-      sidebarEntryIds: [makePlatformEntryId('antigravity'), makePlatformEntryId('codex')],
+      sidebarEntryIds: [makePlatformEntryId('codex')],
     });
   }
 }
@@ -1255,7 +1262,12 @@ export const usePlatformLayoutStore = create<PlatformLayoutState>((set, get) => 
 
   syncSidebarEntriesFromDashboard: () => {
     const hiddenSet = new Set(get().hiddenEntryIds);
-    const nextSidebarEntries = get().orderedEntryIds.filter((entryId) => !hiddenSet.has(entryId));
+    const groups = get().platformGroups;
+    const nextSidebarEntries = get().orderedEntryIds.filter(
+      (entryId) =>
+        !hiddenSet.has(entryId) &&
+        resolveEntryPlatformIds(entryId, groups).some(isMenuVisiblePlatform),
+    );
     const currentSidebarEntries = get().sidebarEntryIds;
     if (
       currentSidebarEntries.length === nextSidebarEntries.length
@@ -1416,13 +1428,13 @@ export const usePlatformLayoutStore = create<PlatformLayoutState>((set, get) => 
     const next = normalizeStateData({
       orderedPlatformIds: [...ALL_PLATFORM_IDS],
       hiddenPlatformIds: [],
-      sidebarPlatformIds: ['antigravity', 'codex'],
-      trayPlatformIds: [...ALL_PLATFORM_IDS],
+      sidebarPlatformIds: ['codex'],
+      trayPlatformIds: [...MENU_VISIBLE_PLATFORM_IDS],
       traySortMode: 'auto',
       platformGroups: defaults,
       orderedEntryIds: buildEntryOrderFromPlatformOrder(ALL_PLATFORM_IDS, defaults),
       hiddenEntryIds: [],
-      sidebarEntryIds: [makePlatformEntryId('antigravity'), makePlatformEntryId('codex')],
+      sidebarEntryIds: [makePlatformEntryId('codex')],
     });
 
     set(next);

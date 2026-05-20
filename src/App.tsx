@@ -21,6 +21,7 @@ import { SideNav } from './components/layout/SideNav';
 import { GlobalModal } from './components/GlobalModal';
 import type { QuickSettingsType } from './components/QuickSettingsPopover';
 import { Page } from './types/navigation';
+import { isPageVisible } from './types/platform';
 import { useAutoRefresh } from './hooks/useAutoRefresh';
 import { useEasterEggTrigger } from './hooks/useEasterEggTrigger';
 import { useGlobalModal } from './hooks/useGlobalModal';
@@ -536,6 +537,9 @@ function MainApp() {
     setPlatformLayoutRequestedGroupId(null);
     setShowPlatformLayoutModal(true);
   }, []);
+  const navigateToPage = useCallback((nextPage: Page) => {
+    setPage(isPageVisible(nextPage) ? nextPage : 'dashboard');
+  }, []);
   const handleTopRightAdClick = useCallback(async () => {
     const target = topRightAdState.ad?.ctaUrl?.trim();
     if (!target || !/^https?:\/\//i.test(target)) {
@@ -636,15 +640,15 @@ function MainApp() {
       minAppVersion: normalized.minAppVersion ?? null,
       source: normalized.source ?? null,
     });
-    setPage(normalized.page);
+    navigateToPage(normalized.page);
     window.setTimeout(() => {
       console.info('[ExternalImport][App] 分发前端外部导入事件');
       dispatchExternalProviderImportEvent(normalized);
     }, 0);
-  }, [ensureExternalImportVersionCompatible]);
+  }, [ensureExternalImportVersionCompatible, navigateToPage]);
   const handleBreakoutMinimize = useCallback(() => {
     setShowBreakout(false);
-  }, []);
+  }, [navigateToPage]);
   const handleBreakoutTerminate = useCallback(() => {
     setShowBreakout(false);
     setHasBreakoutSession(false);
@@ -1524,13 +1528,13 @@ function MainApp() {
     const targetPage = getQuotaAlertTargetPage(platform);
     const targetType = getQuotaAlertQuickSettingsType(platform);
     closeModal();
-    setPage(targetPage);
+    navigateToPage(targetPage);
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
         window.dispatchEvent(new CustomEvent('quick-settings:open', { detail: { type: targetType } }));
       });
     });
-  }, [closeModal]);
+  }, [closeModal, navigateToPage]);
 
   useEffect(() => {
     let cleanup: (() => void) | null = null;
@@ -2243,43 +2247,43 @@ function MainApp() {
                     const targetAccountId = payload.recommended_account_id as string;
                     if (platform === 'codex') {
                       await useCodexAccountStore.getState().switchAccount(targetAccountId);
-                      setPage('codex');
+                      navigateToPage('codex');
                     } else if (platform === 'github_copilot') {
                       await useGitHubCopilotAccountStore.getState().switchAccount(targetAccountId);
-                      setPage('github-copilot');
+                      navigateToPage('github-copilot');
                     } else if (platform === 'windsurf') {
                       await useWindsurfAccountStore.getState().switchAccount(targetAccountId);
-                      setPage('windsurf');
+                      navigateToPage('windsurf');
                     } else if (platform === 'kiro') {
                       await useKiroAccountStore.getState().switchAccount(targetAccountId);
-                      setPage('kiro');
+                      navigateToPage('kiro');
                     } else if (platform === 'cursor') {
                       await useCursorAccountStore.getState().switchAccount(targetAccountId);
-                      setPage('cursor');
+                      navigateToPage('cursor');
                     } else if (platform === 'gemini') {
                       await useGeminiAccountStore.getState().switchAccount(targetAccountId);
-                      setPage('gemini');
+                      navigateToPage('gemini');
                     } else if (platform === 'codebuddy') {
                       await useCodebuddyAccountStore.getState().switchAccount(targetAccountId);
-                      setPage('codebuddy');
+                      navigateToPage('codebuddy');
                     } else if (platform === 'codebuddy_cn') {
                       await useCodebuddyCnAccountStore.getState().switchAccount(targetAccountId);
-                      setPage('codebuddy-cn');
+                      navigateToPage('codebuddy-cn');
                     } else if (platform === 'qoder') {
                       await useQoderAccountStore.getState().switchAccount(targetAccountId);
-                      setPage('qoder');
+                      navigateToPage('qoder');
                     } else if (platform === 'trae') {
                       await useTraeAccountStore.getState().switchAccount(targetAccountId);
-                      setPage('trae');
+                      navigateToPage('trae');
                     } else if (platform === 'workbuddy') {
                       await useWorkbuddyAccountStore.getState().switchAccount(targetAccountId);
-                      setPage('workbuddy');
+                      navigateToPage('workbuddy');
                     } else if (platform === 'zed') {
                       await useZedAccountStore.getState().switchAccount(targetAccountId);
-                      setPage('zed');
+                      navigateToPage('zed');
                     } else {
                       await useAccountStore.getState().switchAccount(targetAccountId);
-                      setPage('overview');
+                      navigateToPage('overview');
                     }
                     closeModal();
                   } catch (error) {
@@ -2646,7 +2650,7 @@ function MainApp() {
       await invoke('set_app_path', { app, path });
       if (retry?.kind === 'switchAccount' && retry.accountId && app === 'zed') {
         await useZedAccountStore.getState().switchAccount(retry.accountId);
-        setPage('zed');
+        navigateToPage('zed');
       } else if (retry?.kind === 'switchAccount' && retry.accountId) {
         await invoke('switch_account', { accountId: retry.accountId });
         await Promise.allSettled([
@@ -2783,7 +2787,7 @@ function MainApp() {
             case 'zed':
             case 'manual':
             case 'settings':
-              setPage(target as Page);
+              navigateToPage(target as Page);
               break;
             default:
               break;
@@ -2795,7 +2799,7 @@ function MainApp() {
         unlisten();
       }
     };
-  }, []);
+  }, [navigateToPage]);
 
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
@@ -2847,14 +2851,14 @@ function MainApp() {
     const handleRequestNavigate = (e: Event) => {
       const custom = e as CustomEvent<Page>;
       if (custom.detail) {
-        setPage(custom.detail);
+        navigateToPage(custom.detail);
       }
     };
     window.addEventListener('app-request-navigate', handleRequestNavigate as EventListener);
     return () => {
       window.removeEventListener('app-request-navigate', handleRequestNavigate as EventListener);
     };
-  }, []);
+  }, [navigateToPage]);
 
   useEffect(() => {
     const handleOpenPlatformLayout = (e: Event) => {
@@ -2924,6 +2928,7 @@ function MainApp() {
   const appPathMissingBusy = appPathSetting || appPathDetecting || appPathCodexLaunchSetting;
   const shouldRenderUpdateNotification = showUpdateNotification
     || (updateRemindersEnabled && updateAction.state !== 'hidden');
+  const activePage = isPageVisible(page) ? page : 'dashboard';
 
   return (
     <div
@@ -3121,8 +3126,8 @@ function MainApp() {
 
       {/* 左侧悬浮导航 */}
       <SideNav
-        page={page}
-        setPage={setPage}
+        page={activePage}
+        setPage={navigateToPage}
         onOpenPlatformLayout={openPlatformLayoutModal}
         easterEggClickCount={easterEggClickCount}
         onEasterEggTriggerClick={handleBreakoutEntryTriggerClick}
@@ -3163,9 +3168,9 @@ function MainApp() {
       <div className="main-wrapper">
         {/* overview 现在是合并后的账号总览页面 */}
         <Suspense fallback={suspenseFallback}>
-          {page === 'dashboard' && (
+          {activePage === 'dashboard' && (
             <DashboardPage
-              onNavigate={setPage}
+              onNavigate={navigateToPage}
               onOpenPlatformLayout={openPlatformLayoutModal}
               onEasterEggTriggerClick={handleBreakoutEntryTriggerClick}
               topCenterBanner={
@@ -3173,7 +3178,7 @@ function MainApp() {
                   <div
                     className="global-promo-center"
                     role="complementary"
-                    aria-label={t('common.topRightAd.ariaLabel', '全局右上角广告位')}
+                    aria-label={t('common.topRightAd.ariaLabel', '欢迎使用该软件')}
                   >
                     <div className="global-promo-slot">
                       <span className="global-ad-slot-badge">
@@ -3193,31 +3198,31 @@ function MainApp() {
               }
             />
           )}
-          {page === 'overview' && <AccountsPage onNavigate={setPage} />}
-          {page === 'codex' && <CodexAccountsPage />}
-          {page === 'github-copilot' && <GitHubCopilotAccountsPage />}
-          {page === 'windsurf' && <WindsurfAccountsPage />}
-          {page === 'kiro' && <KiroAccountsPage />}
-          {page === 'cursor' && <CursorAccountsPage />}
-          {page === 'gemini' && <GeminiAccountsPage />}
-          {page === 'codebuddy' && <CodebuddyAccountsPage />}
-          {page === 'codebuddy-cn' && <CodebuddyCnAccountsPage />}
-          {page === 'qoder' && <QoderAccountsPage />}
-          {page === 'trae' && <TraeAccountsPage />}
-          {page === 'workbuddy' && <WorkbuddyAccountsPage />}
-          {page === 'zed' && <ZedAccountsPage />}
-          {page === 'instances' && <InstancesPage onNavigate={setPage} />}
-          {page === 'fingerprints' && <FingerprintsPage onNavigate={setPage} />}
-          {page === 'wakeup' && <WakeupTasksPage onNavigate={setPage} />}
-          {page === 'verification' && <WakeupVerificationPage onNavigate={setPage} />}
-          {page === '2fa' && <TwoFactorAuthPage />}
-          {page === 'manual' && (
+          {activePage === 'overview' && <AccountsPage onNavigate={navigateToPage} />}
+          {activePage === 'codex' && <CodexAccountsPage />}
+          {activePage === 'github-copilot' && <GitHubCopilotAccountsPage />}
+          {activePage === 'windsurf' && <WindsurfAccountsPage />}
+          {activePage === 'kiro' && <KiroAccountsPage />}
+          {activePage === 'cursor' && <CursorAccountsPage />}
+          {activePage === 'gemini' && <GeminiAccountsPage />}
+          {activePage === 'codebuddy' && <CodebuddyAccountsPage />}
+          {activePage === 'codebuddy-cn' && <CodebuddyCnAccountsPage />}
+          {activePage === 'qoder' && <QoderAccountsPage />}
+          {activePage === 'trae' && <TraeAccountsPage />}
+          {activePage === 'workbuddy' && <WorkbuddyAccountsPage />}
+          {activePage === 'zed' && <ZedAccountsPage />}
+          {activePage === 'instances' && <InstancesPage onNavigate={navigateToPage} />}
+          {activePage === 'fingerprints' && <FingerprintsPage onNavigate={navigateToPage} />}
+          {activePage === 'wakeup' && <WakeupTasksPage onNavigate={navigateToPage} />}
+          {activePage === 'verification' && <WakeupVerificationPage onNavigate={navigateToPage} />}
+          {activePage === '2fa' && <TwoFactorAuthPage />}
+          {activePage === 'manual' && (
             <ManualPage
-              onNavigate={setPage}
+              onNavigate={navigateToPage}
               onOpenPlatformLayout={openPlatformLayoutModal}
             />
           )}
-          {page === 'settings' && <SettingsPage />}
+          {activePage === 'settings' && <SettingsPage />}
         </Suspense>
       </div>
     </div>

@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "confirm": "確認",
     "cancel": "キャンセル",
@@ -218,7 +218,7 @@
       "desc": "このエリアは全ページの右上に固定表示され、キャンペーン情報やブランド広告の掲載に適しています。",
       "action": "詳細を見る"
     },
-    "appName": "Cockpit Tools",
+    "appName": "AI Lemon Tools",
     "collapse": "折りたたむ",
     "confirmDelete": "削除を確認",
     "confirmDeleteTag": "タグ削除の確認",
@@ -543,7 +543,7 @@
   },
   "settings": {
     "title": "アプリ設定",
-    "subtitle": "Cockpit Tools の利用体験をカスタマイズします。",
+    "subtitle": "AI Lemon Tools の利用体験をカスタマイズします。",
     "tabs": {
       "general": "全般",
       "network": "ネットワーク設定",
@@ -700,7 +700,7 @@
       "sideNavLayoutClassic": "クラシックレイアウト",
       "antigravityDualSwitchNoRestart": "再起動なしデュアル切替",
       "antigravityDualSwitchNoRestartDesc": "切替時にローカルのアカウントデータ書き込みと拡張機能のシームレス切替を1つのフローで実行し、Antigravity IDE を再起動しません。",
-      "appAutoLaunch": "ログイン時に Cockpit Tools を起動",
+      "appAutoLaunch": "ログイン時に AI Lemon Tools を起動",
       "appAutoLaunchDesc": "システムログイン後にアプリを自動起動します",
       "startupWakeupDisabled": "無効",
       "startupWakeupImmediate": "すぐに起動",
@@ -799,7 +799,7 @@
       "proxyUrlRequired": "グローバルプロキシを有効にする場合、プロキシ URL は必須です。"
     },
     "about": {
-      "appName": "Cockpit Tools",
+      "appName": "AI Lemon Tools",
       "slogan": "プロフェッショナルなアカウント管理ソリューション",
       "author": "著者",
       "wechat": "WeChat 公衆号",
@@ -1721,7 +1721,7 @@
     },
     "exportFormat": {
       "label": "エクスポート形式",
-      "cockpitTools": "Cockpit Tools",
+      "cockpitTools": "AI Lemon Tools",
       "sub2api": "sub2api 形式",
       "cpa": "cpa 形式",
       "downloadAll": "すべてダウンロード",
@@ -3856,7 +3856,7 @@
       "backToCurrent": "戻る",
       "switchToThisAccount": "切替",
       "openDetails": "詳細を開く",
-      "openCockpitTools": "Cockpit Tools を開く"
+      "openCockpitTools": "AI Lemon Tools を開く"
     },
     "empty": {
       "title": "アカウントがありません",

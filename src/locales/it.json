@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "confirm": "Conferma",
     "cancel": "Annulla",
@@ -218,7 +218,7 @@
       "desc": "Quest’area è fissata in alto a destra su tutte le pagine per campagne o annunci del brand.",
       "action": "Vedi dettagli"
     },
-    "appName": "Cockpit Tools",
+    "appName": "AI Lemon Tools",
     "collapse": "Comprimi",
     "confirmDelete": "Conferma eliminazione",
     "confirmDeleteTag": "Conferma eliminazione tag",
@@ -543,7 +543,7 @@
   },
   "settings": {
     "title": "Impostazioni App",
-    "subtitle": "Personalizza la tua esperienza con Cockpit Tools.",
+    "subtitle": "Personalizza la tua esperienza con AI Lemon Tools.",
     "tabs": {
       "general": "Generale",
       "network": "Rete",
@@ -697,7 +697,7 @@
       "sideNavLayoutClassic": "Layout classico",
       "antigravityDualSwitchNoRestart": "Cambio doppio senza riavvio",
       "antigravityDualSwitchNoRestartDesc": "Durante il cambio account, la scrittura dei dati locali e il cambio fluido dell’estensione vengono eseguiti in un unico flusso, senza riavviare Antigravity IDE.",
-      "appAutoLaunch": "Avvia Cockpit Tools all'accesso",
+      "appAutoLaunch": "Avvia AI Lemon Tools all'accesso",
       "appAutoLaunchDesc": "Avvia automaticamente l'app dopo l'accesso al sistema",
       "startupWakeupDisabled": "Disattivato",
       "startupWakeupImmediate": "Riattiva subito",
@@ -799,7 +799,7 @@
       "proxyUrlRequired": "L'URL del proxy non può essere vuoto quando il proxy globale è abilitato."
     },
     "about": {
-      "appName": "Cockpit Tools",
+      "appName": "AI Lemon Tools",
       "slogan": "Soluzione Professionale per la Gestione degli Account",
       "author": "Autore",
       "wechat": "WeChat",
@@ -1721,7 +1721,7 @@
     },
     "exportFormat": {
       "label": "Formato di esportazione",
-      "cockpitTools": "Cockpit Tools",
+      "cockpitTools": "AI Lemon Tools",
       "sub2api": "Formato sub2api",
       "cpa": "Formato cpa",
       "downloadAll": "Scarica tutto",
@@ -3856,7 +3856,7 @@
       "backToCurrent": "Indietro",
       "switchToThisAccount": "Passa",
       "openDetails": "Apri dettagli",
-      "openCockpitTools": "Apri Cockpit Tools"
+      "openCockpitTools": "Apri AI Lemon Tools"
     },
     "empty": {
       "title": "Nessun account",

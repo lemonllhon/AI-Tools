@@ -45,12 +45,13 @@ import {
   loadCurrentAccountRefreshMinutesMap,
   saveCurrentAccountRefreshMinutesMap,
 } from '../utils/currentAccountRefresh';
-import { ALL_PLATFORM_IDS, PlatformId } from '../types/platform';
+import { ALL_PLATFORM_IDS, PlatformId, isMenuVisiblePlatform } from '../types/platform';
+import appIconUrl from '../assets/app-icon.png';
 import { SettingsAccountTransferSection } from '../components/SettingsAccountTransferSection';
 import { useEscClose } from '../hooks/useEscClose';
 import './settings/Settings.css';
 import { 
-  Github, User, Rocket, Save, FolderOpen,
+  Github, User, Save, FolderOpen,
   AlertCircle, RefreshCw, Heart, MessageSquare, FileText, Download, X
 } from 'lucide-react';
 
@@ -2122,7 +2123,7 @@ export function SettingsPage() {
             <SettingsAccountTransferSection />
 
             <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <div style={{ order: platformSettingsOrder.antigravity }}>
+              <div style={{ order: platformSettingsOrder.antigravity, display: isMenuVisiblePlatform('antigravity') ? undefined : 'none' }}>
                 <div className="group-title">{t('settings.general.antigravitySettingsTitle', 'Antigravity IDE 设置')}</div>
                 <div className="settings-group">
               <div className="settings-row">
@@ -2549,7 +2550,7 @@ export function SettingsPage() {
 
               </div>
 
-              <div style={{ order: platformSettingsOrder.codex }}>
+              <div style={{ order: platformSettingsOrder.codex, display: isMenuVisiblePlatform('codex') ? undefined : 'none' }}>
                 <div className="group-title">{t('settings.general.codexSettingsTitle', 'Codex 设置')}</div>
                 <div className="settings-group">
               <div className="settings-row">
@@ -2962,7 +2963,7 @@ export function SettingsPage() {
 
               </div>
 
-              <div style={{ order: platformSettingsOrder['github-copilot'] }}>
+              <div style={{ order: platformSettingsOrder['github-copilot'], display: isMenuVisiblePlatform('github-copilot') ? undefined : 'none' }}>
                 <div className="group-title">{t('settings.general.githubCopilotSettingsTitle', 'GitHub Copilot 设置')}</div>
                 <div className="settings-group">
               <div className="settings-row">
@@ -3149,7 +3150,7 @@ export function SettingsPage() {
 
               </div>
 
-              <div style={{ order: platformSettingsOrder.windsurf }}>
+              <div style={{ order: platformSettingsOrder.windsurf, display: isMenuVisiblePlatform('windsurf') ? undefined : 'none' }}>
                 <div className="group-title">{t('settings.general.windsurfSettingsTitle', 'Windsurf 设置')}</div>
                 <div className="settings-group">
               <div className="settings-row">
@@ -3336,7 +3337,7 @@ export function SettingsPage() {
 
               </div>
 
-              <div style={{ order: platformSettingsOrder.kiro }}>
+              <div style={{ order: platformSettingsOrder.kiro, display: isMenuVisiblePlatform('kiro') ? undefined : 'none' }}>
                 <div className="group-title">{t('settings.general.kiroSettingsTitle', 'Kiro 设置')}</div>
                 <div className="settings-group">
               <div className="settings-row">
@@ -3522,7 +3523,7 @@ export function SettingsPage() {
             </div>
               </div>
 
-              <div style={{ order: platformSettingsOrder.codebuddy }}>
+              <div style={{ order: platformSettingsOrder.codebuddy, display: isMenuVisiblePlatform('codebuddy') ? undefined : 'none' }}>
                 <div className="group-title">{t('settings.general.codebuddySettingsTitle', 'CodeBuddy 设置')}</div>
                 <div className="settings-group">
               <div className="settings-row">
@@ -3712,7 +3713,7 @@ export function SettingsPage() {
             </div>
               </div>
 
-              <div style={{ order: platformSettingsOrder.codebuddy_cn }}>
+              <div style={{ order: platformSettingsOrder.codebuddy_cn, display: isMenuVisiblePlatform('codebuddy_cn') ? undefined : 'none' }}>
                 <div className="group-title">{t('settings.general.codebuddyCnSettingsTitle', 'CodeBuddy CN 设置')}</div>
                 <div className="settings-group">
                   <div className="settings-row">
@@ -3902,7 +3903,7 @@ export function SettingsPage() {
                 </div>
               </div>
 
-              <div style={{ order: platformSettingsOrder.qoder }}>
+              <div style={{ order: platformSettingsOrder.qoder, display: isMenuVisiblePlatform('qoder') ? undefined : 'none' }}>
                 <div className="group-title">{t('quickSettings.qoder.title', 'Qoder 设置')}</div>
                 <div className="settings-group">
                   <div className="settings-row">
@@ -4092,7 +4093,7 @@ export function SettingsPage() {
                 </div>
               </div>
 
-              <div style={{ order: platformSettingsOrder.trae }}>
+              <div style={{ order: platformSettingsOrder.trae, display: isMenuVisiblePlatform('trae') ? undefined : 'none' }}>
                 <div className="group-title">{t('quickSettings.trae.title', 'Trae 设置')}</div>
                 <div className="settings-group">
                   <div className="settings-row">
@@ -4282,7 +4283,7 @@ export function SettingsPage() {
                 </div>
               </div>
 
-              <div style={{ order: platformSettingsOrder.workbuddy }}>
+              <div style={{ order: platformSettingsOrder.workbuddy, display: isMenuVisiblePlatform('workbuddy') ? undefined : 'none' }}>
                 <div className="group-title">{t('quickSettings.workbuddy.title', 'WorkBuddy 设置')}</div>
                 <div className="settings-group">
                   <div className="settings-row">
@@ -4472,7 +4473,7 @@ export function SettingsPage() {
                 </div>
               </div>
 
-              <div style={{ order: platformSettingsOrder.zed }}>
+              <div style={{ order: platformSettingsOrder.zed, display: isMenuVisiblePlatform('zed') ? undefined : 'none' }}>
                 <div className="group-title">{t('quickSettings.zed.title', 'Zed 设置')}</div>
                 <div className="settings-group">
                   <div className="settings-row">
@@ -4658,7 +4659,7 @@ export function SettingsPage() {
                 </div>
               </div>
 
-              <div style={{ order: platformSettingsOrder.cursor }}>
+              <div style={{ order: platformSettingsOrder.cursor, display: isMenuVisiblePlatform('cursor') ? undefined : 'none' }}>
                 <div className="group-title">{t('quickSettings.cursor.title', 'Cursor 设置')}</div>
                 <div className="settings-group">
               <div className="settings-row">
@@ -4844,7 +4845,7 @@ export function SettingsPage() {
             </div>
               </div>
 
-              <div style={{ order: platformSettingsOrder.gemini }}>
+              <div style={{ order: platformSettingsOrder.gemini, display: isMenuVisiblePlatform('gemini') ? undefined : 'none' }}>
                 <div className="group-title">{t('quickSettings.gemini.title', 'Gemini Cli 设置')}</div>
                 <div className="settings-group">
                   <div className="settings-row">
@@ -5305,7 +5306,7 @@ export function SettingsPage() {
                 onClick={handleAboutAvatarTap}
                 onMouseDown={(event) => event.preventDefault()}
               >
-                <Rocket size={40} />
+                <img src={appIconUrl} alt="AI Lemon Tools" className="app-icon-image" />
               </div>
               <div className="app-info">
                 <h2>{t('settings.about.appName')}</h2>

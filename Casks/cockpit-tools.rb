@@ -4,19 +4,19 @@ cask "cockpit-tools" do
 
   url "https://github.com/jlcodes99/cockpit-tools/releases/download/v#{version}/Cockpit.Tools_#{version}_universal.dmg",
       verified: "github.com/jlcodes99/cockpit-tools/"
-  name "Cockpit Tools"
-  desc "Account manager for AI IDEs (Antigravity and Codex)"
+  name "AI Lemon Tools"
+  desc "Codex-focused account manager"
   homepage "https://github.com/jlcodes99/cockpit-tools"
 
   auto_updates true
 
   postflight do
     system_command "/usr/bin/xattr",
-                   args: ["-cr", "#{appdir}/Cockpit Tools.app"],
+                   args: ["-cr", "#{appdir}/AI Lemon Tools.app"],
                    sudo: true
   end
 
-  app "Cockpit Tools.app"
+  app "AI Lemon Tools.app"
 
   zap trash: [
     "~/Library/Application Support/com.jlcodes.cockpit-tools",
@@ -28,6 +28,6 @@ cask "cockpit-tools" do
   caveats <<~EOS
     The app is automatically quarantined by macOS. A postflight hook has been added to remove this quarantine.
     If you still encounter the "App is damaged" error, please run:
-      sudo xattr -rd com.apple.quarantine "/Applications/Cockpit Tools.app"
+      sudo xattr -rd com.apple.quarantine "/Applications/AI Lemon Tools.app"
   EOS
 end

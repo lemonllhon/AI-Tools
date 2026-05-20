@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "confirm": "Подтвердить",
     "cancel": "Отмена",
@@ -218,7 +218,7 @@
       "desc": "Эта область фиксируется в правом верхнем углу на всех страницах и подходит для кампаний или брендовой рекламы.",
       "action": "Подробнее"
     },
-    "appName": "Cockpit Tools",
+    "appName": "AI Lemon Tools",
     "collapse": "Свернуть",
     "confirmDelete": "Подтвердить удаление",
     "confirmDeleteTag": "Подтвердить удаление тега",
@@ -543,7 +543,7 @@
   },
   "settings": {
     "title": "Настройки приложения",
-    "subtitle": "Настройте работу Cockpit Tools под себя.",
+    "subtitle": "Настройте работу AI Lemon Tools под себя.",
     "tabs": {
       "general": "Общие",
       "network": "Сеть",
@@ -700,7 +700,7 @@
       "sideNavLayoutClassic": "Классический макет",
       "antigravityDualSwitchNoRestart": "Двойное переключение без перезапуска",
       "antigravityDualSwitchNoRestartDesc": "При переключении аккаунта локальная запись данных и плавное переключение через расширение выполняются в одном потоке без перезапуска Antigravity IDE.",
-      "appAutoLaunch": "Запускать Cockpit Tools при входе в систему",
+      "appAutoLaunch": "Запускать AI Lemon Tools при входе в систему",
       "appAutoLaunchDesc": "Автоматически запускать приложение после входа в систему",
       "startupWakeupDisabled": "Отключено",
       "startupWakeupImmediate": "Разбудить сразу",
@@ -799,7 +799,7 @@
       "proxyUrlRequired": "URL прокси не может быть пустым, когда глобальный прокси включён."
     },
     "about": {
-      "appName": "Cockpit Tools",
+      "appName": "AI Lemon Tools",
       "slogan": "Профессиональное решение для управления аккаунтами",
       "author": "Автор",
       "wechat": "Вичат",
@@ -1721,7 +1721,7 @@
     },
     "exportFormat": {
       "label": "Формат экспорта",
-      "cockpitTools": "Cockpit Tools",
+      "cockpitTools": "AI Lemon Tools",
       "sub2api": "Формат sub2api",
       "cpa": "Формат cpa",
       "downloadAll": "Скачать все",
@@ -3856,7 +3856,7 @@
       "backToCurrent": "Назад",
       "switchToThisAccount": "Сменить",
       "openDetails": "Открыть подробности",
-      "openCockpitTools": "Открыть Cockpit Tools"
+      "openCockpitTools": "Открыть AI Lemon Tools"
     },
     "empty": {
       "title": "Нет аккаунтов",

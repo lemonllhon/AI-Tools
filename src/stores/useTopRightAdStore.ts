@@ -25,7 +25,7 @@ export const useTopRightAdStore = create<TopRightAdStoreState>((set) => ({
       set({ state: nextState, loading: false, initialized: true });
       return nextState;
     } catch (error) {
-      console.error('加载右上角广告位失败:', error);
+      console.error('加载欢迎信息失败:', error);
       set({ state: EMPTY_STATE, loading: false, initialized: true });
       return EMPTY_STATE;
     }

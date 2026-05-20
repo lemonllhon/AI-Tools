@@ -40,6 +40,8 @@ pub const SUPPORTED_PLATFORM_IDS: [&str; 13] = [
 
 pub const SORT_MODE_AUTO: &str = "auto";
 pub const SORT_MODE_MANUAL: &str = "manual";
+const PLATFORM_VISIBILITY_CONFIG_JSON: &str =
+    include_str!("../../../src/config/platformVisibility.json");
 
 const DEFAULT_CODEBUDDY_GROUP_ID: &str = "codebuddy-suite";
 
@@ -80,7 +82,20 @@ fn default_order() -> Vec<String> {
 }
 
 fn default_tray_platforms() -> Vec<String> {
-    default_order()
+    SUPPORTED_PLATFORM_IDS
+        .iter()
+        .filter(|id| is_menu_visible_platform_id(id))
+        .map(|id| (*id).to_string())
+        .collect()
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PlatformVisibilityConfig {
+    #[serde(default)]
+    enable_all_platform_pages: bool,
+    #[serde(default)]
+    hidden_platform_ids: Vec<String>,
 }
 
 fn default_platform_groups() -> Vec<TrayLayoutGroup> {
@@ -120,6 +135,16 @@ fn is_supported_platform_id(id: &str) -> bool {
     SUPPORTED_PLATFORM_IDS.contains(&id)
 }
 
+fn is_menu_visible_platform_id(id: &str) -> bool {
+    let config = serde_json::from_str::<PlatformVisibilityConfig>(PLATFORM_VISIBILITY_CONFIG_JSON)
+        .unwrap_or_default();
+    config.enable_all_platform_pages
+        || !config
+            .hidden_platform_ids
+            .iter()
+            .any(|hidden| hidden.trim() == id)
+}
+
 fn sanitize_platform_ids(ids: &[String]) -> Vec<String> {
     let mut result = Vec::new();
     for id in ids {
@@ -154,7 +179,10 @@ fn normalize_tray_platforms(
     raw_order_has_new: &[&str],
     allow_legacy_migration: bool,
 ) -> Vec<String> {
-    let mut sanitized = sanitize_platform_ids(ids);
+    let mut sanitized: Vec<String> = sanitize_platform_ids(ids)
+        .into_iter()
+        .filter(|id| is_menu_visible_platform_id(id))
+        .collect();
 
     if !allow_legacy_migration {
         return sanitized;
@@ -176,6 +204,9 @@ fn normalize_tray_platforms(
         PLATFORM_TRAE,
         PLATFORM_WORKBUDDY,
     ] {
+        if !is_menu_visible_platform_id(new_platform) {
+            continue;
+        }
         let already_present = contains_platform(&sanitized, new_platform);
         let was_in_raw_order = raw_order_has_new.contains(&new_platform);
         let looks_like_old_default = !already_present

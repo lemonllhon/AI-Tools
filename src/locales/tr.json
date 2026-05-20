@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "confirm": "Onayla",
     "cancel": "İptal",
@@ -218,7 +218,7 @@
       "desc": "Bu alan tüm sayfalarda sağ üstte sabitlenir ve kampanya ya da marka reklamları için uygundur.",
       "action": "Ayrıntıları görüntüle"
     },
-    "appName": "Cockpit Tools",
+    "appName": "AI Lemon Tools",
     "collapse": "Daralt",
     "confirmDelete": "Silmeyi Onayla",
     "confirmDeleteTag": "Etiket Silmeyi Onayla",
@@ -543,7 +543,7 @@
   },
   "settings": {
     "title": "Uygulama Ayarları",
-    "subtitle": "Cockpit Tools deneyiminizi özelleştirin.",
+    "subtitle": "AI Lemon Tools deneyiminizi özelleştirin.",
     "tabs": {
       "general": "Genel",
       "network": "Ağ",
@@ -700,7 +700,7 @@
       "sideNavLayoutClassic": "Klasik Düzen",
       "antigravityDualSwitchNoRestart": "Yeniden başlatmadan çift geçiş",
       "antigravityDualSwitchNoRestartDesc": "Hesap değiştirirken yerel hesap verisi yazımı ve eklentinin kesintisiz geçişi tek akışta yürütülür; Antigravity IDE yeniden başlatılmaz.",
-      "appAutoLaunch": "Oturum açıldığında Cockpit Tools'u başlat",
+      "appAutoLaunch": "Oturum açıldığında AI Lemon Tools'u başlat",
       "appAutoLaunchDesc": "Sistem oturumundan sonra uygulamayı otomatik başlat",
       "startupWakeupDisabled": "Devre dışı",
       "startupWakeupImmediate": "Hemen uyandır",
@@ -799,7 +799,7 @@
       "proxyUrlRequired": "Genel proxy etkin olduğunda proxy URL boş olamaz."
     },
     "about": {
-      "appName": "Cockpit Tools",
+      "appName": "AI Lemon Tools",
       "slogan": "Profesyonel Hesap Yönetimi Çözümü",
       "author": "Yazar",
       "wechat": "WeChat",
@@ -1721,7 +1721,7 @@
     },
     "exportFormat": {
       "label": "Dışa aktarma biçimi",
-      "cockpitTools": "Cockpit Tools",
+      "cockpitTools": "AI Lemon Tools",
       "sub2api": "sub2api biçimi",
       "cpa": "cpa biçimi",
       "downloadAll": "Tümünü indir",
@@ -3856,7 +3856,7 @@
       "backToCurrent": "Geri",
       "switchToThisAccount": "Geç",
       "openDetails": "Ayrıntıları aç",
-      "openCockpitTools": "Cockpit Tools'u aç"
+      "openCockpitTools": "AI Lemon Tools'u aç"
     },
     "empty": {
       "title": "Hesap yok",

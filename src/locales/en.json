@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "confirm": "Confirm",
     "cancel": "Cancel",
@@ -23,10 +23,10 @@
     "editable": "Editable",
     "preview": "Preview",
     "topRightAd": {
-      "ariaLabel": "Global top-right ad slot",
-      "badge": "AD",
-      "title": "Top-right ad slot",
-      "desc": "This area is fixed at the top-right across all pages for campaigns or brand ads.",
+      "ariaLabel": "Global welcome message",
+      "badge": "Welcome",
+      "title": "Welcome message",
+      "desc": "This area shows a welcome message at the top of the dashboard.",
       "action": "View details"
     },
     "shared": {
@@ -218,7 +218,7 @@
       "loginSuccess": "Login successful",
       "switchAccount": "Switch Account"
     },
-    "appName": "Cockpit Tools",
+    "appName": "AI Lemon Tools",
     "collapse": "Collapse",
     "confirmDelete": "Confirm Delete",
     "confirmDeleteTag": "Confirm Tag Deletion",
@@ -250,7 +250,7 @@
       "backToCurrent": "Back",
       "switchToThisAccount": "Switch",
       "openDetails": "Open details",
-      "openCockpitTools": "Open Cockpit Tools"
+      "openCockpitTools": "Open AI Lemon Tools"
     },
     "empty": {
       "title": "No accounts",
@@ -589,7 +589,7 @@
   },
   "settings": {
     "title": "Settings",
-    "subtitle": "Customize your Cockpit Tools experience.",
+    "subtitle": "Customize your AI Lemon Tools experience.",
     "tabs": {
       "general": "General",
       "network": "Network",
@@ -747,7 +747,7 @@
       "floatingCardStartupDesc": "Display the floating account card automatically after app launch",
       "floatingCardAlwaysOnTop": "Keep floating card on top by default",
       "floatingCardAlwaysOnTopDesc": "New floating card windows stay on top when opened",
-      "appAutoLaunch": "Launch Cockpit Tools at login",
+      "appAutoLaunch": "Launch AI Lemon Tools at login",
       "appAutoLaunchDesc": "Automatically start the app after system sign-in",
       "startupWakeupDisabled": "Disabled",
       "startupWakeupImmediate": "Wake up immediately",
@@ -943,7 +943,7 @@
       "proxyUrlRequired": "Proxy URL cannot be empty when global proxy is enabled."
     },
     "about": {
-      "appName": "Cockpit Tools",
+      "appName": "AI Lemon Tools",
       "slogan": "Professional Account Solution",
       "author": "Author",
       "wechat": "WeChat",
@@ -1781,7 +1781,7 @@
     },
     "exportFormat": {
       "label": "Export Format",
-      "cockpitTools": "Cockpit Tools",
+      "cockpitTools": "AI Lemon Tools",
       "sub2api": "sub2api",
       "cpa": "cpa",
       "downloadAll": "Download All",

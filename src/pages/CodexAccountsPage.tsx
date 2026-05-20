@@ -956,7 +956,7 @@ export function CodexAccountsPage() {
     () => [
       {
         value: "cockpit_tools",
-        label: t("codex.exportFormat.cockpitTools", "Cockpit Tools"),
+        label: t("codex.exportFormat.cockpitTools", "AI Lemon Tools"),
       },
       {
         value: "sub2api",

@@ -61,7 +61,7 @@ import { useQoderInstanceStore } from '../stores/useQoderInstanceStore';
 import { useTraeInstanceStore } from '../stores/useTraeInstanceStore';
 import { useWindsurfInstanceStore } from '../stores/useWindsurfInstanceStore';
 import { useWorkbuddyInstanceStore } from '../stores/useWorkbuddyInstanceStore';
-import { ALL_PLATFORM_IDS, PLATFORM_PAGE_MAP, PlatformId } from '../types/platform';
+import { MENU_VISIBLE_PLATFORM_IDS, PLATFORM_PAGE_MAP, PlatformId } from '../types/platform';
 import type { InstanceProfile } from '../types/instance';
 import { isPrivacyModeEnabledByDefault, maskSensitiveValue } from '../utils/privacy';
 import { getPlatformLabel, renderPlatformIcon } from '../utils/platformMeta';
@@ -130,13 +130,13 @@ type FloatingCardInstanceStoreApi = Pick<
 function loadInitialPlatform(): PlatformId {
   try {
     const saved = localStorage.getItem(FLOATING_CARD_PLATFORM_STORAGE_KEY);
-    if (saved && ALL_PLATFORM_IDS.includes(saved as PlatformId)) {
+    if (saved && MENU_VISIBLE_PLATFORM_IDS.includes(saved as PlatformId)) {
       return saved as PlatformId;
     }
   } catch {
     // ignore storage read failures
   }
-  return 'antigravity';
+  return MENU_VISIBLE_PLATFORM_IDS[0] ?? 'codex';
 }
 
 function resolveCurrentAccountById<T extends { id: string }>(
@@ -266,12 +266,12 @@ export function FloatingCardWindow() {
     const ordered: PlatformId[] = [];
 
     for (const platformId of orderedPlatformIds) {
-      if (!ALL_PLATFORM_IDS.includes(platformId) || seen.has(platformId)) continue;
+      if (!MENU_VISIBLE_PLATFORM_IDS.includes(platformId) || seen.has(platformId)) continue;
       ordered.push(platformId);
       seen.add(platformId);
     }
 
-    for (const platformId of ALL_PLATFORM_IDS) {
+    for (const platformId of MENU_VISIBLE_PLATFORM_IDS) {
       if (seen.has(platformId)) continue;
       ordered.push(platformId);
       seen.add(platformId);
@@ -284,7 +284,7 @@ export function FloatingCardWindow() {
     if (platformOrder.includes(selectedPlatform)) {
       return;
     }
-    setSelectedPlatform(platformOrder[0] ?? 'antigravity');
+    setSelectedPlatform(platformOrder[0] ?? 'codex');
   }, [platformOrder, selectedPlatform]);
 
   useEffect(() => {

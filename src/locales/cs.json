@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "confirm": "Potvrdit",
     "cancel": "Zrušit",
@@ -218,7 +218,7 @@
       "desc": "Tato oblast je pevně umístěná vpravo nahoře na všech stránkách pro kampaně nebo brandové reklamy.",
       "action": "Zobrazit podrobnosti"
     },
-    "appName": "Cockpit Tools",
+    "appName": "AI Lemon Tools",
     "collapse": "Sbalit",
     "confirmDelete": "Potvrdit smazání",
     "confirmDeleteTag": "Potvrdit smazání štítku",
@@ -543,7 +543,7 @@
   },
   "settings": {
     "title": "Nastavení aplikace",
-    "subtitle": "Přizpůsobte si prostředí Cockpit Tools.",
+    "subtitle": "Přizpůsobte si prostředí AI Lemon Tools.",
     "tabs": {
       "general": "Obecné",
       "network": "Síť",
@@ -697,7 +697,7 @@
       "sideNavLayoutClassic": "Klasické rozložení",
       "antigravityDualSwitchNoRestart": "Duální přepnutí bez restartu",
       "antigravityDualSwitchNoRestartDesc": "Při přepnutí účtu se v jednom kroku zapíší lokální data účtu a provede plynulé přepnutí rozšíření bez restartu Antigravity IDE.",
-      "appAutoLaunch": "Spustit Cockpit Tools po přihlášení",
+      "appAutoLaunch": "Spustit AI Lemon Tools po přihlášení",
       "appAutoLaunchDesc": "Po přihlášení do systému spustit aplikaci automaticky",
       "startupWakeupDisabled": "Vypnuto",
       "startupWakeupImmediate": "Probudit okamžitě",
@@ -799,7 +799,7 @@
       "proxyUrlRequired": "Když je globální proxy zapnutá, URL proxy nesmí být prázdná."
     },
     "about": {
-      "appName": "Cockpit Tools",
+      "appName": "AI Lemon Tools",
       "slogan": "Profesionální řešení pro správu účtů",
       "author": "Autor",
       "wechat": "WeChat",
@@ -1721,7 +1721,7 @@
     },
     "exportFormat": {
       "label": "Formát exportu",
-      "cockpitTools": "Cockpit Tools",
+      "cockpitTools": "AI Lemon Tools",
       "sub2api": "sub2api formát",
       "cpa": "cpa formát",
       "downloadAll": "Stáhnout vše",
@@ -3856,7 +3856,7 @@
       "backToCurrent": "Zpět",
       "switchToThisAccount": "Přepnout",
       "openDetails": "Otevřít detail",
-      "openCockpitTools": "Otevřít Cockpit Tools"
+      "openCockpitTools": "Otevřít AI Lemon Tools"
     },
     "empty": {
       "title": "Žádné účty",

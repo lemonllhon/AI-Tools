@@ -1,4 +1,4 @@
-import { Settings, Rocket, GaugeCircle, LayoutGrid, SlidersHorizontal, FileText, ChevronDown, PanelLeftClose, PanelLeftOpen, ShieldCheck } from 'lucide-react';
+import { Settings, GaugeCircle, LayoutGrid, SlidersHorizontal, FileText, ChevronDown, PanelLeftClose, PanelLeftOpen, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
@@ -18,6 +18,7 @@ import {
 import { ORIGINAL_SIDEBAR_ENTRY_LIMIT, useSideNavLayoutStore } from '../../stores/useSideNavLayoutStore';
 import { useGlobalModal } from '../../hooks/useGlobalModal';
 import { getPlatformLabel, renderPlatformIcon } from '../../utils/platformMeta';
+import appIconUrl from '../../assets/app-icon.png';
 
 interface SideNavProps {
   page: Page;
@@ -781,7 +782,15 @@ export function SideNav({
             onClick={handleLogoClick}
             title={hasBreakoutSession ? t('breakout.resumeGameNav', '继续游戏') : undefined}
           >
-            <Rocket size={isClassicLayout ? classicBrandLogoIconSize : 20} />
+            <img
+              src={appIconUrl}
+              alt="AI Lemon Tools"
+              className="brand-logo-image"
+              style={{
+                width: isClassicLayout ? classicBrandLogoIconSize : 20,
+                height: isClassicLayout ? classicBrandLogoIconSize : 20,
+              }}
+            />
             {hasBreakoutSession && <span className="rocket-session-indicator" aria-hidden="true" />}
             {!hasBreakoutSession && easterEggClickCount > 0 && (
               <span className="rocket-click-count">{easterEggClickCount}</span>
@@ -789,7 +798,7 @@ export function SideNav({
           </div>
 
           {isClassicLayout && !isClassicCollapsed && (
-            <div className="side-nav-brand-title">Cockpit Tools</div>
+            <div className="side-nav-brand-title">AI Lemon Tools</div>
           )}
         </div>
 

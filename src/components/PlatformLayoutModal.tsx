@@ -383,7 +383,7 @@ export function PlatformLayoutModal({
   const [groupDraftPlatformIds, setGroupDraftPlatformIds] = useState<PlatformId[]>([]);
   const [groupDraftDefaultPlatformId, setGroupDraftDefaultPlatformId] = useState<PlatformId | ''>('');
   const [groupDraftIconKind, setGroupDraftIconKind] = useState<PlatformGroupIconKind>('platform');
-  const [groupDraftIconPlatformId, setGroupDraftIconPlatformId] = useState<PlatformId>('codebuddy');
+  const [groupDraftIconPlatformId, setGroupDraftIconPlatformId] = useState<PlatformId>('codex');
   const [groupDraftIconCustomDataUrl, setGroupDraftIconCustomDataUrl] = useState('');
   const [groupDraftError, setGroupDraftError] = useState('');
   const [handledRequestedEditGroupId, setHandledRequestedEditGroupId] = useState<string | null>(null);
@@ -393,7 +393,7 @@ export function PlatformLayoutModal({
   const [childEditorPlatformId, setChildEditorPlatformId] = useState<PlatformId | null>(null);
   const [childDraftName, setChildDraftName] = useState('');
   const [childDraftIconKind, setChildDraftIconKind] = useState<PlatformGroupIconKind>('platform');
-  const [childDraftIconPlatformId, setChildDraftIconPlatformId] = useState<PlatformId>('codebuddy');
+  const [childDraftIconPlatformId, setChildDraftIconPlatformId] = useState<PlatformId>('codex');
   const [childDraftIconCustomDataUrl, setChildDraftIconCustomDataUrl] = useState('');
   const [childDraftSetDefault, setChildDraftSetDefault] = useState(false);
   const [childDraftError, setChildDraftError] = useState('');
@@ -753,7 +753,7 @@ export function PlatformLayoutModal({
   const trayBulkEnabled = MENU_VISIBLE_PLATFORM_IDS.every((platformId) => traySet.has(platformId));
 
   const openCreateGroupEditor = () => {
-    const firstPlatform = MENU_VISIBLE_PLATFORM_IDS[0] ?? 'codebuddy';
+    const firstPlatform = MENU_VISIBLE_PLATFORM_IDS[0] ?? 'codex';
 
     setEditingGroupId(null);
     setGroupDraftName('');

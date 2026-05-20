@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "confirm": "Xác nhận",
     "cancel": "Hủy",
@@ -218,7 +218,7 @@
       "desc": "Khu vực này được cố định ở góc trên bên phải trên mọi trang, phù hợp cho chiến dịch hoặc quảng cáo thương hiệu.",
       "action": "Xem chi tiết"
     },
-    "appName": "Cockpit Tools",
+    "appName": "AI Lemon Tools",
     "collapse": "Thu gọn",
     "confirmDelete": "Xác nhận xóa",
     "confirmDeleteTag": "Xác nhận xóa thẻ",
@@ -543,7 +543,7 @@
   },
   "settings": {
     "title": "Cài đặt ứng dụng",
-    "subtitle": "Cá nhân hóa trải nghiệm Antigravity Cockpit Tools của bạn.",
+    "subtitle": "Cá nhân hóa trải nghiệm Antigravity AI Lemon Tools của bạn.",
     "tabs": {
       "general": "Chung",
       "network": "Dịch vụ mạng",
@@ -700,7 +700,7 @@
       "sideNavLayoutClassic": "Bố cục cổ điển",
       "antigravityDualSwitchNoRestart": "Chuyển đôi không cần khởi động lại",
       "antigravityDualSwitchNoRestartDesc": "Khi chuyển tài khoản, việc ghi dữ liệu cục bộ và chuyển đổi liền mạch qua tiện ích mở rộng được thực hiện trong một luồng, không cần khởi động lại Antigravity IDE.",
-      "appAutoLaunch": "Khởi chạy Cockpit Tools khi đăng nhập",
+      "appAutoLaunch": "Khởi chạy AI Lemon Tools khi đăng nhập",
       "appAutoLaunchDesc": "Tự động khởi chạy ứng dụng sau khi đăng nhập hệ thống",
       "startupWakeupDisabled": "Tắt",
       "startupWakeupImmediate": "Đánh thức ngay",
@@ -799,7 +799,7 @@
       "proxyUrlRequired": "Không được để trống URL proxy khi bật proxy toàn cục."
     },
     "about": {
-      "appName": "Cockpit Tools",
+      "appName": "AI Lemon Tools",
       "slogan": "Giải pháp quản lý tài khoản chuyên nghiệp",
       "author": "Tác giả chính",
       "wechat": "Tài khoản WeChat chính thức",
@@ -1721,7 +1721,7 @@
     },
     "exportFormat": {
       "label": "Định dạng xuất",
-      "cockpitTools": "Cockpit Tools",
+      "cockpitTools": "AI Lemon Tools",
       "sub2api": "Định dạng sub2api",
       "cpa": "Định dạng cpa",
       "downloadAll": "Tải xuống tất cả",
@@ -3856,7 +3856,7 @@
       "backToCurrent": "Quay lại",
       "switchToThisAccount": "Chuyển",
       "openDetails": "Mở chi tiết",
-      "openCockpitTools": "Mở Cockpit Tools"
+      "openCockpitTools": "Mở AI Lemon Tools"
     },
     "empty": {
       "title": "Không có tài khoản",

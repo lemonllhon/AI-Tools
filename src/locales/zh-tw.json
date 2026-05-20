@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "confirm": "確認",
     "cancel": "取消",
@@ -218,7 +218,7 @@
       "desc": "此區域會固定顯示於所有頁面的右上角，適合投放活動資訊或品牌廣告。",
       "action": "查看詳情"
     },
-    "appName": "Cockpit Tools",
+    "appName": "AI Lemon Tools",
     "collapse": "收合",
     "confirmDelete": "確認刪除",
     "confirmDeleteTag": "確認刪除標籤",
@@ -543,7 +543,7 @@
   },
   "settings": {
     "title": "應用程式設定",
-    "subtitle": "個性化您的 Cockpit Tools 體驗。",
+    "subtitle": "個性化您的 AI Lemon Tools 體驗。",
     "tabs": {
       "general": "通用",
       "network": "網路服務",
@@ -697,7 +697,7 @@
       "sideNavLayoutClassic": "經典佈局",
       "antigravityDualSwitchNoRestart": "無感雙通道切號（不重啟）",
       "antigravityDualSwitchNoRestartDesc": "切號時同時執行本地落盤與擴充套件無感切號，不再自動重啟 Antigravity IDE。",
-      "appAutoLaunch": "開機時啟動 Cockpit Tools",
+      "appAutoLaunch": "開機時啟動 AI Lemon Tools",
       "appAutoLaunchDesc": "系統登入後自動啟動應用程式",
       "startupWakeupDisabled": "關閉",
       "startupWakeupImmediate": "立即喚醒",
@@ -799,7 +799,7 @@
       "proxyUrlRequired": "啟用全域代理時，代理位址不可為空。"
     },
     "about": {
-      "appName": "Cockpit Tools",
+      "appName": "AI Lemon Tools",
       "slogan": "專業帳號管理解決方案",
       "author": "主作者",
       "wechat": "微信公眾號",
@@ -1721,7 +1721,7 @@
     },
     "exportFormat": {
       "label": "匯出格式",
-      "cockpitTools": "Cockpit Tools",
+      "cockpitTools": "AI Lemon Tools",
       "sub2api": "sub2api 格式",
       "cpa": "cpa 格式",
       "downloadAll": "一鍵下載全部",
@@ -3856,7 +3856,7 @@
       "backToCurrent": "返回",
       "switchToThisAccount": "切換",
       "openDetails": "打開詳情頁",
-      "openCockpitTools": "打開 Cockpit Tools"
+      "openCockpitTools": "打開 AI Lemon Tools"
     },
     "empty": {
       "title": "暫無帳號",

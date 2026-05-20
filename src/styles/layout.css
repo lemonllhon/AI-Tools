@@ -227,13 +227,20 @@
   width: 44px; /* 加大 logo (was 40px) */
   height: 44px;
   border-radius: 16px;
-  background: var(--gradient-primary);
+  background: #fff;
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
   box-shadow: var(--shadow-sm);
   cursor: default;
+  overflow: hidden;
+}
+
+.brand-logo-image {
+  display: block;
+  object-fit: cover;
+  border-radius: 50%;
 }
 
 .nav-items {

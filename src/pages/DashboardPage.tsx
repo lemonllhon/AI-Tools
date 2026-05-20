@@ -72,7 +72,7 @@ import { CodebuddyIcon } from '../components/icons/CodebuddyIcon';
 import { QoderIcon } from '../components/icons/QoderIcon';
 import { TraeIcon } from '../components/icons/TraeIcon';
 import { WorkbuddyIcon } from '../components/icons/WorkbuddyIcon';
-import { PlatformId, PLATFORM_PAGE_MAP } from '../types/platform';
+import { PlatformId, PLATFORM_PAGE_MAP, isMenuVisiblePlatform } from '../types/platform';
 import { getPlatformLabel, renderPlatformIcon } from '../utils/platformMeta';
 import { ManualHelpIconButton } from '../components/ManualHelpIconButton';
 import { AnnouncementCenter } from '../components/AnnouncementCenter';
@@ -232,13 +232,24 @@ export function DashboardPage({
   const { orderedEntryIds, hiddenEntryIds, platformGroups, setHiddenEntry } = usePlatformLayoutStore();
   const hiddenEntrySet = useMemo(() => new Set(hiddenEntryIds), [hiddenEntryIds]);
   const visibleEntryOrder = useMemo(
-    () => orderedEntryIds.filter((entryId) => !hiddenEntrySet.has(entryId)),
-    [orderedEntryIds, hiddenEntrySet],
+    () =>
+      orderedEntryIds.filter(
+        (entryId) =>
+          !hiddenEntrySet.has(entryId) &&
+          resolveEntryPlatformIds(entryId, platformGroups).some(isMenuVisiblePlatform),
+      ),
+    [orderedEntryIds, hiddenEntrySet, platformGroups],
   );
   const visiblePlatformOrder = useMemo(
     () =>
       visibleEntryOrder
-        .map((entryId) => resolveEntryDefaultPlatformId(entryId, platformGroups))
+        .map((entryId) => {
+          const platformIds = resolveEntryPlatformIds(entryId, platformGroups).filter(isMenuVisiblePlatform);
+          const defaultPlatformId = resolveEntryDefaultPlatformId(entryId, platformGroups);
+          return defaultPlatformId && platformIds.includes(defaultPlatformId)
+            ? defaultPlatformId
+            : platformIds[0];
+        })
         .filter((platformId): platformId is PlatformId => !!platformId),
     [visibleEntryOrder, platformGroups],
   );
@@ -401,24 +412,31 @@ export function DashboardPage({
         });
     };
 
-    // 首屏优先：先拉 Antigravity 数据，其它平台延后，避免启动期并发请求过多。
-    void Promise.allSettled([fetchAgAccounts(), fetchAgCurrent()]);
-    loadDisplayGroups();
+    const immediateTasks: Array<() => Promise<unknown>> = [];
+    if (isMenuVisiblePlatform('antigravity')) {
+      immediateTasks.push(fetchAgAccounts, fetchAgCurrent);
+      loadDisplayGroups();
+    }
+    if (isMenuVisiblePlatform('codex')) {
+      immediateTasks.push(fetchCodexAccounts, fetchCodexCurrent);
+    }
+    if (immediateTasks.length > 0) {
+      void Promise.allSettled(immediateTasks.map((task) => task()));
+    }
 
     const deferredTasks: Array<() => Promise<unknown>> = [
-      fetchCodexAccounts,
-      fetchCodexCurrent,
-      fetchZedAccounts,
-      fetchGitHubCopilotAccounts,
-      fetchWindsurfAccounts,
-      fetchKiroAccounts,
-      fetchCursorAccounts,
-      fetchGeminiAccounts,
-      fetchCodebuddyAccounts,
-      fetchCodebuddyCnAccounts,
-      fetchQoderAccounts,
-      fetchTraeAccounts,
-      fetchWorkbuddyAccounts,
+      ...(isMenuVisiblePlatform('codex') ? [] : [fetchCodexAccounts, fetchCodexCurrent]),
+      ...(isMenuVisiblePlatform('zed') ? [fetchZedAccounts] : []),
+      ...(isMenuVisiblePlatform('github-copilot') ? [fetchGitHubCopilotAccounts] : []),
+      ...(isMenuVisiblePlatform('windsurf') ? [fetchWindsurfAccounts] : []),
+      ...(isMenuVisiblePlatform('kiro') ? [fetchKiroAccounts] : []),
+      ...(isMenuVisiblePlatform('cursor') ? [fetchCursorAccounts] : []),
+      ...(isMenuVisiblePlatform('gemini') ? [fetchGeminiAccounts] : []),
+      ...(isMenuVisiblePlatform('codebuddy') ? [fetchCodebuddyAccounts] : []),
+      ...(isMenuVisiblePlatform('codebuddy_cn') ? [fetchCodebuddyCnAccounts] : []),
+      ...(isMenuVisiblePlatform('qoder') ? [fetchQoderAccounts] : []),
+      ...(isMenuVisiblePlatform('trae') ? [fetchTraeAccounts] : []),
+      ...(isMenuVisiblePlatform('workbuddy') ? [fetchWorkbuddyAccounts] : []),
     ];
 
     const loadDeferredPlatforms = () => {
@@ -466,21 +484,27 @@ export function DashboardPage({
 
   // Statistics
   const stats = useMemo(() => {
+    const platformAccountCounts: Record<PlatformId, number> = {
+      antigravity: agAccounts.length,
+      codex: codexAccounts.length,
+      zed: zedAccounts.length,
+      'github-copilot': githubCopilotAccounts.length,
+      windsurf: windsurfAccounts.length,
+      kiro: kiroAccounts.length,
+      cursor: cursorAccounts.length,
+      gemini: geminiAccounts.length,
+      codebuddy: codebuddyAccounts.length,
+      codebuddy_cn: codebuddyCnAccounts.length,
+      qoder: qoderAccounts.length,
+      trae: traeAccounts.length,
+      workbuddy: workbuddyAccounts.length,
+    };
     return {
-      total:
-        agAccounts.length +
-        codexAccounts.length +
-        zedAccounts.length +
-        githubCopilotAccounts.length +
-        windsurfAccounts.length +
-        kiroAccounts.length +
-        cursorAccounts.length +
-        geminiAccounts.length +
-        codebuddyAccounts.length +
-        codebuddyCnAccounts.length +
-        qoderAccounts.length +
-        traeAccounts.length +
-        workbuddyAccounts.length,
+      total: Object.entries(platformAccountCounts).reduce(
+        (sum, [platformId, count]) =>
+          isMenuVisiblePlatform(platformId as PlatformId) ? sum + count : sum,
+        0,
+      ),
       antigravity: agAccounts.length,
       codex: codexAccounts.length,
       zed: zedAccounts.length,

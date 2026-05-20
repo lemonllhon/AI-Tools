@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Cockpit Tools",
+  "productName": "AI Lemon Tools",
   "version": "0.24.0",
   "identifier": "com.jlcodes.cockpit-tools",
   "build": {
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Cockpit Tools",
+        "title": "AI Lemon Tools",
         "width": 1280,
         "height": 800,
         "minWidth": 900,
@@ -27,7 +27,7 @@
       },
       {
         "label": "floating-card",
-        "title": "Cockpit Tools",
+        "title": "AI Lemon Tools",
         "create": false,
         "width": 250,
         "height": 290,

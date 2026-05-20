@@ -1,0 +1,17 @@
+{
+  "enableAllPlatformPages": false,
+  "hiddenPlatformIds": [
+    "antigravity",
+    "zed",
+    "github-copilot",
+    "windsurf",
+    "kiro",
+    "cursor",
+    "gemini",
+    "codebuddy",
+    "codebuddy_cn",
+    "qoder",
+    "trae",
+    "workbuddy"
+  ]
+}
