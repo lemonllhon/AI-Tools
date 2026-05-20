@@ -69,6 +69,8 @@ git push lemon v0.24.1
 
 推送这个 tag 后，GitHub Actions 会开始打包。
 
+注意：workflow 只监听 `v*` 标签，所以推荐始终使用 `v0.24.1` 这种格式，不要只推 `0.24.1`。
+
 ## 5. 查看打包进度
 
 打开仓库：
@@ -113,7 +115,127 @@ GitHub 仓库 -> Settings -> Secrets and variables -> Actions -> New repository 
 
 `GITHUB_TOKEN` 不需要手动配置，GitHub Actions 会自动提供。
 
-## 7. 失败后怎么重发
+这两个 Secrets 的含义：
+
+```text
+TAURI_SIGNING_PRIVATE_KEY = 生成出来的 .key 文件完整内容
+TAURI_SIGNING_PRIVATE_KEY_PASSWORD = 生成 .key 时输入的 Password
+```
+
+生成签名密钥示例：
+
+```bash
+npm run tauri signer generate -- -w ~/.tauri/ai-lemon-tools.key
+```
+
+生成时终端会输出一个 public key。这个 public key 要写进：
+
+```text
+src-tauri/tauri.conf.json
+```
+
+对应位置：
+
+```json
+"pubkey": "这里放 public key"
+```
+
+私钥和密码必须保存好。私钥丢失后，已经安装旧公钥版本的用户会无法继续通过同一更新链路验证后续更新。
+
+## 7. 注意事项与常见失败处理
+
+### 7.1 Tag 和版本不一致
+
+如果 Actions 报错：
+
+```text
+Tag (v0.0.1) does not match package.json version (v0.24.0).
+```
+
+通常原因是只执行了：
+
+```bash
+npm version 0.0.1 --no-git-tag-version
+npm run sync-version
+```
+
+但没有把版本文件提交，然后就打了 tag。
+
+记住：`npm version --no-git-tag-version` 只修改本地文件，不会自动 commit。tag 指向的是你创建 tag 那一刻的 commit。如果版本改动没有 commit，Actions 仍然会读到旧 commit 里的旧版本。
+
+正确顺序：
+
+```bash
+npm version 0.0.1 --no-git-tag-version
+npm run sync-version
+git add package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml
+git commit -m "chore: release v0.0.1"
+git push lemon main
+git tag v0.0.1
+git push lemon v0.0.1
+```
+
+如果错误 tag 已经推到远程，修好 commit 后更新 tag：
+
+```bash
+git tag -f v0.0.1
+git push lemon v0.0.1 --force
+```
+
+### 7.2 缺少 changelog 段落
+
+如果 Actions 报错：
+
+```text
+Missing changelog section for version 0.0.1 in CHANGELOG.zh-CN.md
+```
+
+说明 workflow 没有在更新日志里找到对应版本。两个文件都必须有同版本段落：
+
+```text
+CHANGELOG.md
+CHANGELOG.zh-CN.md
+```
+
+格式必须类似：
+
+```markdown
+## [0.0.1] - 2026-05-21
+```
+
+或者：
+
+```markdown
+## [v0.0.1] - 2026-05-21
+```
+
+只改一个文件不够，中英文两个文件都要加。补完后提交、推送，并把 tag 更新到新 commit：
+
+```bash
+git add CHANGELOG.md CHANGELOG.zh-CN.md
+git commit -m "docs: add changelog for v0.0.1"
+git push lemon main
+git tag -f v0.0.1
+git push lemon v0.0.1 --force
+```
+
+### 7.3 GitHub 权限
+
+Release workflow 需要创建 Release、上传安装包和修改 Release 资产。仓库建议确认：
+
+```text
+Settings -> Actions -> General -> Workflow permissions -> Read and write permissions
+```
+
+如果权限不足，可能会在创建 Release 或上传资产时报 `Resource not accessible by integration`。
+
+### 7.4 失败的 run 怎么处理
+
+旧的失败 run 不需要删除。修复后重新推 `main`，再更新同一个 `v*` tag，GitHub 会触发新的 Release workflow。
+
+如果 GitHub Release 页面已经产生了失败残留的 draft release，可以在 GitHub 网页手动删除 draft 后重新跑，或者让后续 workflow 覆盖同名资产。
+
+## 8. 失败后怎么重发
 
 如果 workflow 失败，先修代码并重新提交：
 
@@ -134,7 +256,7 @@ git push lemon v0.24.1
 
 只在你确认要覆盖这次发布时这么做。
 
-## 8. 最短发布命令
+## 9. 最短发布命令
 
 日常发布可以记这几行：
 
