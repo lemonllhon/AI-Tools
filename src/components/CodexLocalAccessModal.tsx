@@ -9,7 +9,6 @@ import {
   FolderPlus,
   Gauge,
   KeyRound,
-  Power,
   RefreshCw,
   Search,
   Server,
@@ -91,11 +90,9 @@ interface CodexLocalAccessModalProps {
   ) => Promise<unknown> | unknown;
   onRotateApiKey: () => Promise<unknown> | unknown;
   onKillPort: () => Promise<unknown> | unknown;
-  onToggleEnabled: () => Promise<unknown> | unknown;
   onTest: () => Promise<CodexLocalAccessTestResult> | CodexLocalAccessTestResult;
   saving: boolean;
   testing: boolean;
-  starting: boolean;
   portCleanupBusy: boolean;
 }
 
@@ -205,11 +202,9 @@ export function CodexLocalAccessModal({
   onUpdateUpstreamProxyMode,
   onRotateApiKey,
   onKillPort,
-  onToggleEnabled,
   onTest,
   saving,
   testing,
-  starting,
   portCleanupBusy,
 }: CodexLocalAccessModalProps) {
   const { t } = useTranslation();
@@ -296,7 +291,7 @@ export function CodexLocalAccessModal({
       ? Math.round((selectedTotals.successCount / selectedTotals.requestCount) * 100)
       : 0;
   const testDialogBusy = testDialogRunning || testing;
-  const actionBusy = saving || testing || starting || portCleanupBusy;
+  const actionBusy = saving || testing || portCleanupBusy;
   const summaryStats = useMemo(
     () => [
       {
@@ -1311,17 +1306,6 @@ export function CodexLocalAccessModal({
     }
   };
 
-  const handleToggleEnabled = async () => {
-    await runAction(
-      async () => {
-        await onToggleEnabled();
-      },
-      collection?.enabled
-        ? t('codex.localAccess.disabledSuccess', 'API 服务已停用')
-        : t('codex.localAccess.enabledSuccess', 'API 服务已启用'),
-    );
-  };
-
   const closeTestDialog = () => {
     if (testDialogBusy) return;
     setTestDialogOpen(false);
@@ -1407,7 +1391,7 @@ export function CodexLocalAccessModal({
                         value={upstreamProxyMode}
                         options={upstreamProxyModeOptions}
                         onChange={(value) => void handleChangeUpstreamProxyMode(value)}
-                        disabled={saving || testing || starting}
+                        disabled={saving || testing}
                         ariaLabel={t('codex.localAccess.upstreamProxyLabel', '上游连接')}
                         menuWidth={150}
                       />
@@ -1432,7 +1416,7 @@ export function CodexLocalAccessModal({
                           value={routingStrategy}
                           options={routingStrategyOptions}
                           onChange={(value) => void handleChangeRoutingStrategy(value)}
-                          disabled={saving || testing || starting}
+                          disabled={saving || testing}
                           ariaLabel={t('codex.localAccess.routingLabel', '调度策略')}
                         />
                       </div>
@@ -1441,7 +1425,7 @@ export function CodexLocalAccessModal({
                           type="button"
                           className="folder-icon-btn codex-local-access-toolbar-btn"
                           onClick={openCustomRoutingDialog}
-                          disabled={saving || testing || starting}
+                          disabled={saving || testing}
                           title={t('codex.localAccess.customRoutingEdit', '编辑自定义调度')}
                           aria-label={t('codex.localAccess.customRoutingEdit', '编辑自定义调度')}
                         >
@@ -1450,26 +1434,6 @@ export function CodexLocalAccessModal({
                       )}
                     </>
                   )}
-                  <button
-                    type="button"
-                    className={`folder-icon-btn codex-local-access-toolbar-btn ${
-                      collection?.enabled ? 'is-danger' : 'is-primary'
-                    }`}
-                    onClick={() => void handleToggleEnabled()}
-                    disabled={!collection || saving || testing || starting}
-                    title={
-                      collection?.enabled
-                        ? t('codex.localAccess.disableService', '停用服务')
-                        : t('codex.localAccess.enableService', '启用服务')
-                    }
-                    aria-label={
-                      collection?.enabled
-                        ? t('codex.localAccess.disableService', '停用服务')
-                        : t('codex.localAccess.enableService', '启用服务')
-                    }
-                  >
-                    <Power size={14} />
-                  </button>
                 </div>
               </div>
             )}
@@ -1666,7 +1630,7 @@ export function CodexLocalAccessModal({
                             type="button"
                             className="btn btn-secondary btn-sm"
                             onClick={() => void handleResetKey()}
-                            disabled={saving || testing || starting}
+                            disabled={saving || testing}
                           >
                             {saving ? (
                               <RefreshCw size={14} className="loading-spinner" />
@@ -1697,7 +1661,7 @@ export function CodexLocalAccessModal({
                             type="button"
                             className="btn btn-secondary btn-sm"
                             onClick={() => void handleSavePort()}
-                            disabled={saving || testing || starting}
+                            disabled={saving || testing}
                           >
                             {saving ? (
                               <RefreshCw size={14} className="loading-spinner" />
@@ -1716,7 +1680,7 @@ export function CodexLocalAccessModal({
                           max={65535}
                           value={portInput}
                           onChange={(event) => setPortInput(event.target.value)}
-                          disabled={saving || testing || starting}
+                          disabled={saving || testing}
                         />
                       </div>
                     </div>
@@ -1734,7 +1698,7 @@ export function CodexLocalAccessModal({
                             menuClassName="codex-local-access-scope-menu"
                             menuWidth={132}
                             menuMaxHeight={120}
-                            disabled={saving || testing || starting}
+                            disabled={saving || testing}
                             ariaLabel={t('codex.localAccess.accessScopeLabel', '访问范围')}
                           />
                         </div>

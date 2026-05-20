@@ -1,0 +1,152 @@
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::{Path, PathBuf};
+
+const DEFAULT_DATA_DIR_NAME: &str = ".antigravity_cockpit";
+const APP_CONFIG_DIR_NAME: &str = "ai-lemon-tools";
+const DATA_DIR_OVERRIDE_FILE: &str = "data-dir.json";
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct DataDirOverride {
+    #[serde(default)]
+    path: Option<String>,
+}
+
+pub fn default_data_dir() -> Result<PathBuf, String> {
+    let home = dirs::home_dir().ok_or("无法获取用户主目录")?;
+    Ok(home.join(DEFAULT_DATA_DIR_NAME))
+}
+
+fn override_config_dir() -> Result<PathBuf, String> {
+    if let Some(config_dir) = dirs::config_dir() {
+        return Ok(config_dir.join(APP_CONFIG_DIR_NAME));
+    }
+
+    let home = dirs::home_dir().ok_or("无法获取配置目录")?;
+    Ok(home.join(".config").join(APP_CONFIG_DIR_NAME))
+}
+
+fn override_config_path() -> Result<PathBuf, String> {
+    Ok(override_config_dir()?.join(DATA_DIR_OVERRIDE_FILE))
+}
+
+fn read_override_config() -> Result<DataDirOverride, String> {
+    let path = override_config_path()?;
+    if !path.exists() {
+        return Ok(DataDirOverride::default());
+    }
+
+    let content =
+        fs::read_to_string(&path).map_err(|e| format!("读取数据目录配置失败: {}", e))?;
+    if content.trim().is_empty() {
+        return Ok(DataDirOverride::default());
+    }
+
+    serde_json::from_str(&content).map_err(|e| format!("解析数据目录配置失败: {}", e))
+}
+
+fn write_override_config(config: &DataDirOverride) -> Result<(), String> {
+    let dir = override_config_dir()?;
+    if !dir.exists() {
+        fs::create_dir_all(&dir).map_err(|e| format!("创建数据目录配置目录失败: {}", e))?;
+    }
+
+    let content =
+        serde_json::to_string_pretty(config).map_err(|e| format!("序列化数据目录配置失败: {}", e))?;
+    fs::write(override_config_path()?, content)
+        .map_err(|e| format!("写入数据目录配置失败: {}", e))
+}
+
+fn configured_data_dir() -> Result<Option<PathBuf>, String> {
+    let config = read_override_config()?;
+    let Some(path) = config.path else {
+        return Ok(None);
+    };
+
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(PathBuf::from(trimmed)))
+}
+
+pub fn get_data_dir() -> Result<PathBuf, String> {
+    let data_dir = configured_data_dir()?.unwrap_or(default_data_dir()?);
+    if !data_dir.exists() {
+        fs::create_dir_all(&data_dir).map_err(|e| format!("创建数据目录失败: {}", e))?;
+    }
+    Ok(data_dir)
+}
+
+fn canonicalize_existing(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn is_dir_empty(path: &Path) -> Result<bool, String> {
+    let mut entries = fs::read_dir(path).map_err(|e| format!("读取数据目录失败: {}", e))?;
+    Ok(entries.next().is_none())
+}
+
+fn copy_dir_contents(source: &Path, target: &Path) -> Result<(), String> {
+    for entry in fs::read_dir(source).map_err(|e| format!("读取当前数据目录失败: {}", e))? {
+        let entry = entry.map_err(|e| format!("读取当前数据目录条目失败: {}", e))?;
+        let source_path = entry.path();
+        let target_path = target.join(entry.file_name());
+
+        if source_path.is_dir() {
+            fs::create_dir_all(&target_path)
+                .map_err(|e| format!("创建数据目录子目录失败: {}", e))?;
+            copy_dir_contents(&source_path, &target_path)?;
+        } else if source_path.is_file() {
+            fs::copy(&source_path, &target_path)
+                .map_err(|e| format!("复制数据文件失败: {}", e))?;
+        }
+    }
+
+    Ok(())
+}
+
+pub fn set_data_dir_path(path: PathBuf) -> Result<PathBuf, String> {
+    if path.as_os_str().is_empty() {
+        return Err("数据目录不能为空".to_string());
+    }
+    if !path.is_absolute() {
+        return Err("请选择绝对路径作为数据目录".to_string());
+    }
+
+    if !path.exists() {
+        fs::create_dir_all(&path).map_err(|e| format!("创建数据目录失败: {}", e))?;
+    }
+    if !path.is_dir() {
+        return Err("请选择文件夹作为数据目录".to_string());
+    }
+
+    let current = get_data_dir()?;
+    let current_canonical = canonicalize_existing(&current);
+    let next_canonical = canonicalize_existing(&path);
+    if current_canonical != next_canonical {
+        if next_canonical.starts_with(&current_canonical)
+            || current_canonical.starts_with(&next_canonical)
+        {
+            return Err("新数据目录不能与当前数据目录互相嵌套".to_string());
+        }
+
+        if is_dir_empty(&path)? {
+            copy_dir_contents(&current, &path)?;
+        }
+    }
+
+    write_override_config(&DataDirOverride {
+        path: Some(path.to_string_lossy().to_string()),
+    })?;
+    Ok(path)
+}
+
+pub fn reset_data_dir_path() -> Result<PathBuf, String> {
+    let path = override_config_path()?;
+    if path.exists() {
+        fs::remove_file(&path).map_err(|e| format!("重置数据目录失败: {}", e))?;
+    }
+    get_data_dir()
+}

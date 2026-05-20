@@ -26,9 +26,6 @@ static LIST_ACCOUNTS_LOAD_LOCK: std::sync::LazyLock<Mutex<()>> =
 const QUOTA_ALERT_COOLDOWN_SECONDS: i64 = 300;
 const LIST_ACCOUNTS_CACHE_TTL_MS: u64 = 800;
 
-// 使用与 AntigravityCockpit 插件相同的数据目录
-const DATA_DIR: &str = ".antigravity_cockpit";
-
 /// 对邮箱地址进行脱敏，仅保留首字符和域名，例如 "u***@example.com"
 #[inline]
 fn mask_email(email: &str) -> String {
@@ -194,14 +191,7 @@ fn clear_deleted_account_fingerprint(email: &str) -> Result<(), String> {
 
 /// 获取数据目录路径
 pub fn get_data_dir() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or("无法获取用户主目录")?;
-    let data_dir = home.join(DATA_DIR);
-
-    if !data_dir.exists() {
-        fs::create_dir_all(&data_dir).map_err(|e| format!("创建数据目录失败: {}", e))?;
-    }
-
-    Ok(data_dir)
+    crate::modules::data_dir::get_data_dir()
 }
 
 /// 获取账号目录路径

@@ -147,11 +147,11 @@ function resolveCurrentAccountById<T extends { id: string }>(
   return accounts.find((account) => account.id === currentId) ?? null;
 }
 
-function resolveAppliedTheme(theme: string): 'light' | 'dark' {
+function resolveAppliedTheme(theme: string): string {
   if (theme === 'system') {
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
-  return theme === 'dark' ? 'dark' : 'light';
+  return theme || 'light';
 }
 
 function resolveInstanceStoreApi(platformId: PlatformId): FloatingCardInstanceStoreApi | null {

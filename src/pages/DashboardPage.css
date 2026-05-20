@@ -73,19 +73,6 @@
   justify-content: center;
 }
 
-.stat-icon-trigger {
-  cursor: pointer;
-  transition: transform 0.16s ease;
-}
-
-.stat-icon-trigger:hover {
-  transform: scale(1.07);
-}
-
-.stat-icon-trigger:active {
-  transform: scale(0.95);
-}
-
 .stat-icon-bg.primary { background: rgba(59, 130, 246, 0.1); color: var(--primary); }
 .stat-icon-bg.success { background: rgba(34, 197, 94, 0.1); color: var(--success); }
 .stat-icon-bg.info { background: rgba(14, 165, 198, 0.1); color: #0ea5c6; }
@@ -146,6 +133,232 @@
   position: absolute;
   top: 12px;
   right: 12px;
+}
+
+/* API Services Console */
+.api-services-console {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, var(--primary));
+  border-radius: 18px;
+  padding: 18px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--bg-card) 86%, var(--primary) 8%), var(--bg-card)),
+    radial-gradient(circle at 92% 12%, color-mix(in srgb, var(--primary) 16%, transparent), transparent 34%);
+  box-shadow: var(--shadow-sm);
+}
+
+.api-services-console::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--primary) 10%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--primary) 10%, transparent) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
+  opacity: 0.32;
+}
+
+.api-services-head {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.api-services-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.api-services-head h2 {
+  margin: 6px 0 4px;
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+.api-services-head p {
+  max-width: 760px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.api-services-message {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  background: rgba(34, 197, 94, 0.1);
+  color: color-mix(in srgb, var(--success) 78%, var(--text-primary));
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.api-services-message.error {
+  border-color: rgba(239, 68, 68, 0.28);
+  background: rgba(239, 68, 68, 0.1);
+  color: color-mix(in srgb, var(--danger) 78%, var(--text-primary));
+}
+
+.api-services-message button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.api-services-grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.api-service-card {
+  border: 1px solid var(--border-light);
+  border-radius: 14px;
+  padding: 14px;
+  background: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 190px;
+}
+
+.api-service-card.tone-running,
+.api-service-card.tone-enabled {
+  border-color: rgba(34, 197, 94, 0.34);
+}
+
+.api-service-card-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.api-service-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  color: var(--primary);
+}
+
+.api-service-title {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.api-service-title h3 {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.api-service-status {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.api-service-status.tone-running {
+  background: rgba(34, 197, 94, 0.14);
+  color: var(--success);
+}
+
+.api-service-status.tone-enabled {
+  background: rgba(14, 165, 165, 0.14);
+  color: var(--accent);
+}
+
+.api-service-status.tone-pending,
+.api-service-status.tone-reserved {
+  background: rgba(245, 158, 11, 0.14);
+  color: var(--warning-strong);
+}
+
+.api-service-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.api-service-meta span {
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.api-service-endpoint {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-tertiary) 78%, transparent);
+  min-width: 0;
+}
+
+.api-service-endpoint span {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.api-service-endpoint code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.api-service-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.api-service-actions .btn {
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 12px;
 }
 
 /* Cards Split Row */

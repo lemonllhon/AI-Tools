@@ -8,7 +8,7 @@ use crate::models::codex_local_access::{
     CodexLocalAccessTestResult, CodexLocalAccessUpstreamProxyMode,
 };
 use crate::modules::{
-    codex_account, codex_local_access, codex_oauth, codex_quota, codex_session_visibility,
+    account, codex_account, codex_local_access, codex_oauth, codex_quota, codex_session_visibility,
     codex_speed, codex_wakeup, codex_wakeup_scheduler, config, logger, openclaw_auth,
     opencode_auth, process,
 };
@@ -846,8 +846,7 @@ const CODEX_MODEL_PROVIDERS_FILE: &str = "codex_model_providers.json";
 
 #[tauri::command]
 pub async fn load_codex_account_groups() -> Result<String, String> {
-    let home = dirs::home_dir().ok_or("Cannot find home directory")?;
-    let path = home.join(".antigravity_cockpit").join(CODEX_GROUPS_FILE);
+    let path = account::get_data_dir()?.join(CODEX_GROUPS_FILE);
     if !path.exists() {
         return Ok("[]".to_string());
     }
@@ -856,8 +855,7 @@ pub async fn load_codex_account_groups() -> Result<String, String> {
 
 #[tauri::command]
 pub async fn save_codex_account_groups(data: String) -> Result<(), String> {
-    let home = dirs::home_dir().ok_or("Cannot find home directory")?;
-    let dir = home.join(".antigravity_cockpit");
+    let dir = account::get_data_dir()?;
     if !dir.exists() {
         std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create dir: {}", e))?;
     }
@@ -867,10 +865,7 @@ pub async fn save_codex_account_groups(data: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn load_codex_model_providers() -> Result<String, String> {
-    let home = dirs::home_dir().ok_or("Cannot find home directory")?;
-    let path = home
-        .join(".antigravity_cockpit")
-        .join(CODEX_MODEL_PROVIDERS_FILE);
+    let path = account::get_data_dir()?.join(CODEX_MODEL_PROVIDERS_FILE);
     if !path.exists() {
         return Ok("[]".to_string());
     }
@@ -880,8 +875,7 @@ pub async fn load_codex_model_providers() -> Result<String, String> {
 
 #[tauri::command]
 pub async fn save_codex_model_providers(data: String) -> Result<(), String> {
-    let home = dirs::home_dir().ok_or("Cannot find home directory")?;
-    let dir = home.join(".antigravity_cockpit");
+    let dir = account::get_data_dir()?;
     if !dir.exists() {
         std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create dir: {}", e))?;
     }

@@ -762,6 +762,23 @@ pub async fn open_data_folder() -> Result<(), String> {
     open_path_in_system(path.as_path())
 }
 
+#[tauri::command]
+pub fn get_data_dir_path() -> Result<String, String> {
+    Ok(modules::data_dir::get_data_dir()?.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn set_data_dir_path(path: String) -> Result<String, String> {
+    let next = modules::data_dir::set_data_dir_path(PathBuf::from(path))?;
+    Ok(next.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn reset_data_dir_path() -> Result<String, String> {
+    let next = modules::data_dir::reset_data_dir_path()?;
+    Ok(next.to_string_lossy().to_string())
+}
+
 /// 保存文本文件
 #[tauri::command]
 pub async fn save_text_file(path: String, content: String) -> Result<(), String> {

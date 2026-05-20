@@ -22,7 +22,7 @@ import {
   usePlatformLayoutStore,
 } from '../stores/usePlatformLayoutStore';
 import { Page } from '../types/navigation';
-import { Users, CheckCircle2, Sparkles, RotateCw, Play, Github, Tag, ChevronDown, EyeOff } from 'lucide-react';
+import { Users, CheckCircle2, Sparkles, RotateCw, Play, Github, Tag, ChevronDown, EyeOff, Server, Power, Settings2 } from 'lucide-react';
 import { TagEditModal } from '../components/TagEditModal';
 import { Account } from '../types/account';
 import {
@@ -72,7 +72,7 @@ import { CodebuddyIcon } from '../components/icons/CodebuddyIcon';
 import { QoderIcon } from '../components/icons/QoderIcon';
 import { TraeIcon } from '../components/icons/TraeIcon';
 import { WorkbuddyIcon } from '../components/icons/WorkbuddyIcon';
-import { PlatformId, PLATFORM_PAGE_MAP, isMenuVisiblePlatform } from '../types/platform';
+import { ALL_PLATFORM_IDS, PlatformId, PLATFORM_PAGE_MAP, isMenuVisiblePlatform } from '../types/platform';
 import { getPlatformLabel, renderPlatformIcon } from '../utils/platformMeta';
 import { ManualHelpIconButton } from '../components/ManualHelpIconButton';
 import { AnnouncementCenter } from '../components/AnnouncementCenter';
@@ -94,11 +94,12 @@ import {
   buildWindsurfAccountPresentation,
   UnifiedQuotaMetric,
 } from '../presentation/platformAccountPresentation';
+import * as codexLocalAccessService from '../services/codexLocalAccessService';
+import type { CodexLocalAccessState } from '../types/codexLocalAccess';
 
 interface DashboardPageProps {
   onNavigate: (page: Page) => void;
   onOpenPlatformLayout: () => void;
-  onEasterEggTriggerClick: () => void;
   topCenterBanner?: React.ReactNode;
 }
 
@@ -161,7 +162,6 @@ interface DashboardCardCollapseState {
 export function DashboardPage({
   onNavigate,
   onOpenPlatformLayout,
-  onEasterEggTriggerClick,
   topCenterBanner,
 }: DashboardPageProps) {
   const { t } = useTranslation();
@@ -170,6 +170,104 @@ export function DashboardPage({
   const [dashboardCardCollapse, setDashboardCardCollapse] = React.useState<DashboardCardCollapseState>({
     workbuddy: false,
   });
+  const [apiServiceState, setApiServiceState] = React.useState<CodexLocalAccessState | null>(null);
+  const [apiServiceBusy, setApiServiceBusy] = React.useState<'load' | 'toggle' | 'activate' | null>(null);
+  const [apiServiceMessage, setApiServiceMessage] = React.useState<{ text: string; tone?: 'success' | 'error' } | null>(null);
+  const apiServicePlatformIds = useMemo(
+    () => ALL_PLATFORM_IDS.filter(isMenuVisiblePlatform),
+    [],
+  );
+
+  const reloadApiServiceState = useCallback(async () => {
+    setApiServiceBusy((current) => current ?? 'load');
+    try {
+      const nextState = await codexLocalAccessService.getCodexLocalAccessState();
+      setApiServiceState(nextState);
+    } catch (error) {
+      setApiServiceMessage({
+        text: t('dashboard.apiServices.loadFailed', {
+          defaultValue: 'API 服务状态加载失败：{{error}}',
+          error: error instanceof Error ? error.message : String(error),
+        }),
+        tone: 'error',
+      });
+    } finally {
+      setApiServiceBusy((current) => (current === 'load' ? null : current));
+    }
+  }, [t]);
+
+  React.useEffect(() => {
+    void reloadApiServiceState();
+  }, [reloadApiServiceState]);
+
+  const handleToggleCodexApiService = useCallback(async () => {
+    const collection = apiServiceState?.collection;
+    if (!collection) {
+      setApiServiceMessage({
+        text: t('dashboard.apiServices.needCodexAccounts', '请先在 Codex 页面配置 API 服务账号集合。'),
+        tone: 'error',
+      });
+      return;
+    }
+
+    setApiServiceBusy('toggle');
+    try {
+      const nextState = await codexLocalAccessService.setCodexLocalAccessEnabled(!collection.enabled);
+      setApiServiceState(nextState);
+      setApiServiceMessage({
+        text: collection.enabled
+          ? t('dashboard.apiServices.disabled', 'Codex API 服务已停用')
+          : t('dashboard.apiServices.enabled', 'Codex API 服务已启用'),
+        tone: 'success',
+      });
+    } catch (error) {
+      setApiServiceMessage({
+        text: t('dashboard.apiServices.actionFailed', {
+          defaultValue: 'API 服务操作失败：{{error}}',
+          error: error instanceof Error ? error.message : String(error),
+        }),
+        tone: 'error',
+      });
+    } finally {
+      setApiServiceBusy(null);
+    }
+  }, [apiServiceState?.collection, t]);
+
+  const handleActivateCodexApiService = useCallback(async () => {
+    const collection = apiServiceState?.collection;
+    if (!collection) {
+      setApiServiceMessage({
+        text: t('dashboard.apiServices.needCodexAccounts', '请先在 Codex 页面配置 API 服务账号集合。'),
+        tone: 'error',
+      });
+      return;
+    }
+
+    setApiServiceBusy('activate');
+    try {
+      let nextState = apiServiceState;
+      if (!collection.enabled) {
+        nextState = await codexLocalAccessService.setCodexLocalAccessEnabled(true);
+        setApiServiceState(nextState);
+      }
+      nextState = await codexLocalAccessService.activateCodexLocalAccess();
+      setApiServiceState(nextState);
+      setApiServiceMessage({
+        text: t('dashboard.apiServices.activated', '已切换到 Codex API 服务'),
+        tone: 'success',
+      });
+    } catch (error) {
+      setApiServiceMessage({
+        text: t('dashboard.apiServices.actionFailed', {
+          defaultValue: 'API 服务操作失败：{{error}}',
+          error: error instanceof Error ? error.message : String(error),
+        }),
+        tone: 'error',
+      });
+    } finally {
+      setApiServiceBusy(null);
+    }
+  }, [apiServiceState, t]);
 
   const toggleDashboardCardCollapse = useCallback((platform: keyof DashboardCardCollapseState) => {
     setDashboardCardCollapse((prev) => ({
@@ -2749,6 +2847,126 @@ export function DashboardPage({
     );
   };
 
+  const renderApiServiceConsole = () => {
+    const codexCollection = apiServiceState?.collection ?? null;
+    const codexRunning = Boolean(apiServiceState?.running);
+    const codexStatus = !codexCollection
+      ? t('dashboard.apiServices.unconfigured', '待配置')
+      : codexRunning
+        ? t('dashboard.apiServices.running', '运行中')
+        : codexCollection.enabled
+          ? t('dashboard.apiServices.enabledStatus', '已启用')
+          : t('dashboard.apiServices.disabledStatus', '已停用');
+    const codexTone = !codexCollection
+      ? 'pending'
+      : codexRunning
+        ? 'running'
+        : codexCollection.enabled
+          ? 'enabled'
+          : 'disabled';
+
+    return (
+      <section className="api-services-console" aria-label={t('dashboard.apiServices.title', 'API 服务控制台')}>
+        <div className="api-services-head">
+          <div>
+            <span className="api-services-kicker">
+              <Server size={14} />
+              {t('dashboard.apiServices.kicker', '统一入口')}
+            </span>
+            <h2>{t('dashboard.apiServices.title', 'API 服务控制台')}</h2>
+            <p>{t('dashboard.apiServices.desc', '所有平台的 API 服务启动、停用和状态观察集中在仪表盘完成；账号和平台专属功能仍保留在对应平台页面。')}</p>
+          </div>
+          <button className="header-action-btn" onClick={() => void reloadApiServiceState()} disabled={apiServiceBusy !== null}>
+            <RotateCw size={14} className={apiServiceBusy === 'load' ? 'loading-spinner' : ''} />
+            <span>{t('common.refresh', '刷新')}</span>
+          </button>
+        </div>
+
+        {apiServiceMessage && (
+          <div className={`api-services-message ${apiServiceMessage.tone ?? 'success'}`}>
+            <span>{apiServiceMessage.text}</span>
+            <button onClick={() => setApiServiceMessage(null)} aria-label={t('common.close', '关闭')}>×</button>
+          </div>
+        )}
+
+        <div className="api-services-grid">
+          {apiServicePlatformIds.map((platformId) => {
+            const isCodex = platformId === 'codex';
+            const page = PLATFORM_PAGE_MAP[platformId];
+            const memberCount = isCodex ? apiServiceState?.memberCount ?? 0 : 0;
+            const baseUrl = isCodex
+              ? apiServiceState?.baseUrl || (codexCollection ? `http://127.0.0.1:${codexCollection.port}/v1` : '-')
+              : '-';
+            const cardStatus = isCodex
+              ? codexStatus
+              : t('dashboard.apiServices.reserved', '待接入');
+            const cardTone = isCodex ? codexTone : 'reserved';
+
+            return (
+              <article className={`api-service-card tone-${cardTone}`} key={platformId}>
+                <div className="api-service-card-top">
+                  <div className="api-service-icon">{renderPlatformIcon(platformId, 22)}</div>
+                  <div className="api-service-title">
+                    <h3>{getPlatformLabel(platformId, t)}</h3>
+                    <span className={`api-service-status tone-${cardTone}`}>{cardStatus}</span>
+                  </div>
+                </div>
+                <div className="api-service-meta">
+                  <span>
+                    {t('dashboard.apiServices.accounts', {
+                      defaultValue: '{{count}} 个账号',
+                      count: memberCount,
+                    })}
+                  </span>
+                  <span>{t('dashboard.apiServices.pageVisible', '页面可见')}</span>
+                </div>
+                <div className="api-service-endpoint" title={baseUrl}>
+                  <span>{t('codex.localAccess.baseUrl', '地址')}</span>
+                  <code>{baseUrl}</code>
+                </div>
+                <div className="api-service-actions">
+                  {isCodex ? (
+                    <>
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => void handleActivateCodexApiService()}
+                        disabled={apiServiceBusy !== null || !codexCollection}
+                      >
+                        <Play size={14} />
+                        {apiServiceBusy === 'activate'
+                          ? t('common.loading', '加载中...')
+                          : t('dashboard.apiServices.activate', '启动服务')}
+                      </button>
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() => void handleToggleCodexApiService()}
+                        disabled={apiServiceBusy !== null || !codexCollection}
+                      >
+                        <Power size={14} />
+                        {codexCollection?.enabled
+                          ? t('dashboard.apiServices.disable', '停用')
+                          : t('dashboard.apiServices.enable', '启用')}
+                      </button>
+                      <button className="btn btn-secondary" onClick={() => onNavigate(page)}>
+                        <Settings2 size={14} />
+                        {t('dashboard.apiServices.accountConfig', '账号配置')}
+                      </button>
+                    </>
+                  ) : (
+                    <button className="btn btn-secondary" disabled>
+                      <Settings2 size={14} />
+                      {t('dashboard.apiServices.waiting', '待开放')}
+                    </button>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+    );
+  };
+
   return (
     <main className="main-content dashboard-page fade-in">
       <div className="page-tabs-row" style={{ minHeight: '60px' }}>
@@ -2825,12 +3043,7 @@ export function DashboardPage({
                 </span>
               )}
               <div
-                className={`stat-icon-bg ${iconClass} stat-icon-trigger`}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onEasterEggTriggerClick();
-                }}
+                className={`stat-icon-bg ${iconClass}`}
               >
                 {group?.iconKind === 'custom' && group.iconCustomDataUrl ? (
                   <img
@@ -2851,6 +3064,8 @@ export function DashboardPage({
           );
         })}
       </div>
+
+      {renderApiServiceConsole()}
 
       {/* Main Comparison Section */}
       <div className="cards-section">

@@ -355,17 +355,11 @@ fn upstream_http_client(proxy_mode: CodexLocalAccessUpstreamProxyMode) -> Result
 }
 
 fn local_access_file_path() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or("Cannot find home directory")?;
-    Ok(home
-        .join(".antigravity_cockpit")
-        .join(CODEX_LOCAL_ACCESS_FILE))
+    Ok(crate::modules::account::get_data_dir()?.join(CODEX_LOCAL_ACCESS_FILE))
 }
 
 fn local_access_stats_file_path() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or("Cannot find home directory")?;
-    Ok(home
-        .join(".antigravity_cockpit")
-        .join(CODEX_LOCAL_ACCESS_STATS_FILE))
+    Ok(crate::modules::account::get_data_dir()?.join(CODEX_LOCAL_ACCESS_STATS_FILE))
 }
 
 fn now_ms() -> i64 {

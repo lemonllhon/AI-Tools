@@ -51,8 +51,8 @@ import { SettingsAccountTransferSection } from '../components/SettingsAccountTra
 import { useEscClose } from '../hooks/useEscClose';
 import './settings/Settings.css';
 import { 
-  Github, User, Save, FolderOpen,
-  AlertCircle, RefreshCw, Heart, MessageSquare, FileText, Download, X
+  Save, FolderOpen,
+  AlertCircle, RefreshCw, FileText, Download, X
 } from 'lucide-react';
 
 
@@ -349,6 +349,12 @@ export function SettingsPage() {
   const [floatingCardShowOnStartup, setFloatingCardShowOnStartup] = useState(false);
   const [floatingCardAlwaysOnTop, setFloatingCardAlwaysOnTop] = useState(false);
   const [appAutoLaunchEnabled, setAppAutoLaunchEnabled] = useState(false);
+  const [dataDirPath, setDataDirPath] = useState('');
+  const [dataDirSaving, setDataDirSaving] = useState(false);
+  const [dataDirMessage, setDataDirMessage] = useState<{
+    text: string;
+    tone: 'success' | 'error';
+  } | null>(null);
   const [opencodeAppPath, setOpencodeAppPath] = useState('');
   const [antigravityAppPath, setAntigravityAppPath] = useState('');
   const [codexAppPath, setCodexAppPath] = useState('');
@@ -677,6 +683,7 @@ export function SettingsPage() {
   useEffect(() => {
     loadGeneralConfig();
     loadNetworkConfig();
+    loadDataDirPath();
   }, []);
   
   useEffect(() => {
@@ -1366,8 +1373,77 @@ export function SettingsPage() {
     }
   };
 
-  const openLink = (url: string) => {
-    openUrl(url);
+  const loadDataDirPath = async () => {
+    try {
+      const path = await accountService.getDataDirPath();
+      setDataDirPath(path);
+      setDataDirMessage(null);
+    } catch (err) {
+      setDataDirMessage({
+        tone: 'error',
+        text: t('settings.general.dataDirLoadFailed', {
+          defaultValue: '读取数据目录失败：{{error}}',
+          error: String(err),
+        }),
+      });
+    }
+  };
+
+  const handlePickDataDir = async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: true,
+      });
+      const path = Array.isArray(selected) ? selected[0] : selected;
+      if (!path) return;
+
+      setDataDirSaving(true);
+      const nextPath = await accountService.setDataDirPath(path);
+      setDataDirPath(nextPath);
+      setDataDirMessage({
+        tone: 'success',
+        text: t(
+          'settings.general.dataDirChanged',
+          '数据目录已更新；如果新目录为空，已自动复制当前数据。建议重启应用让所有运行中的服务完全使用新位置。'
+        ),
+      });
+    } catch (err) {
+      setDataDirMessage({
+        tone: 'error',
+        text: t('settings.general.dataDirChangeFailed', {
+          defaultValue: '更新数据目录失败：{{error}}',
+          error: String(err),
+        }),
+      });
+    } finally {
+      setDataDirSaving(false);
+    }
+  };
+
+  const handleResetDataDir = async () => {
+    try {
+      setDataDirSaving(true);
+      const nextPath = await accountService.resetDataDirPath();
+      setDataDirPath(nextPath);
+      setDataDirMessage({
+        tone: 'success',
+        text: t(
+          'settings.general.dataDirResetDone',
+          '已恢复默认数据目录，建议重启应用让所有运行中的服务完全使用默认位置。'
+        ),
+      });
+    } catch (err) {
+      setDataDirMessage({
+        tone: 'error',
+        text: t('settings.general.dataDirResetFailed', {
+          defaultValue: '恢复默认数据目录失败：{{error}}',
+          error: String(err),
+        }),
+      });
+    } finally {
+      setDataDirSaving(false);
+    }
   };
 
   const isAppPathResetDetecting = (target: AppPathTarget) => appPathResetDetectingTargets.has(target);
@@ -1854,6 +1930,9 @@ export function SettingsPage() {
                   >
                     <option value="light">{t('settings.general.themeLight')}</option>
                     <option value="dark">{t('settings.general.themeDark')}</option>
+                    <option value="cream">{t('settings.general.themeCream', '奶油色')}</option>
+                    <option value="starry">{t('settings.general.themeStarry', '星空色')}</option>
+                    <option value="ocean">{t('settings.general.themeOcean', '海洋色')}</option>
                     <option value="system">{t('settings.general.themeSystem')}</option>
                   </select>
                 </div>
@@ -2100,24 +2179,45 @@ export function SettingsPage() {
                   <div className="row-title">{t('settings.general.dataDir')}</div>
                   <div className="row-desc">{t('settings.general.dataDirDesc')}</div>
                 </div>
-                <div className="row-control">
-                  <button className="btn btn-secondary" onClick={() => accountService.openDataFolder()}>
-                    <FolderOpen size={16} />{t('common.open')}
-                  </button>
+                <div className="row-control row-control-wide">
+                  <div className="data-dir-control">
+                    <input
+                      className="settings-path-input"
+                      value={dataDirPath || t('common.loading', '加载中...')}
+                      readOnly
+                      title={dataDirPath}
+                    />
+                    <button className="btn btn-secondary" onClick={() => accountService.openDataFolder()} disabled={dataDirSaving}>
+                      <FolderOpen size={16} />{t('common.open')}
+                    </button>
+                    <button className="btn btn-secondary" onClick={handlePickDataDir} disabled={dataDirSaving}>
+                      {t('settings.general.dataDirSelect', '选择')}
+                    </button>
+                    <button className="btn btn-secondary" onClick={handleResetDataDir} disabled={dataDirSaving}>
+                      {dataDirSaving ? t('common.loading', '加载中...') : t('settings.general.dataDirReset', '恢复默认')}
+                    </button>
+                  </div>
+                  {dataDirMessage && (
+                    <div className={`settings-inline-message ${dataDirMessage.tone}`}>
+                      {dataDirMessage.text}
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div className="settings-row">
-                <div className="row-label">
-                  <div className="row-title">{t('settings.general.fpDir')}</div>
-                  <div className="row-desc">{t('settings.general.fpDirDesc')}</div>
+              {isMenuVisiblePlatform('antigravity') && (
+                <div className="settings-row">
+                  <div className="row-label">
+                    <div className="row-title">{t('settings.general.fpDir')}</div>
+                    <div className="row-desc">{t('settings.general.fpDirDesc')}</div>
+                  </div>
+                  <div className="row-control">
+                    <button className="btn btn-secondary" onClick={() => accountService.openDeviceFolder()}>
+                      <FolderOpen size={16} />{t('common.open')}
+                    </button>
+                  </div>
                 </div>
-                <div className="row-control">
-                  <button className="btn btn-secondary" onClick={() => accountService.openDeviceFolder()}>
-                    <FolderOpen size={16} />{t('common.open')}
-                  </button>
-                </div>
-              </div>
+              )}
             </div>
 
             <SettingsAccountTransferSection />
@@ -5357,33 +5457,9 @@ export function SettingsPage() {
               <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
                 {t('settings.about.slogan')}
               </p>
-            </div>
-
-            <div className="credits-list">
-              <button className="credit-item" onClick={() => openLink('https://github.com/jlcodes99')}>
-                <div className="credit-icon"><User size={24} /></div>
-                <h3>{t('settings.about.author')}</h3>
-                <p>jlcodes99</p>
-              </button>
-              
-              
-              <button className="credit-item" onClick={() => openLink('https://github.com/jlcodes99/cockpit-tools')}>
-                <div className="credit-icon" style={{ color: '#0f172a' }}><Github size={24} /></div>
-                <h3>{t('settings.about.github')}</h3>
-                <p>cockpit-tools</p>
-              </button>
-
-              <button className="credit-item" onClick={() => openLink('https://github.com/jlcodes99/cockpit-tools/blob/main/docs/DONATE.md')}>
-                <div className="credit-icon" style={{ color: '#ef4444' }}><Heart size={24} /></div>
-                <h3>{t('settings.about.sponsor')}</h3>
-                <p>{t('settings.about.sponsorDesc', 'Donate')}</p>
-              </button>
-
-              <button className="credit-item" onClick={() => openLink('https://github.com/jlcodes99/cockpit-tools/issues')}>
-                <div className="credit-icon" style={{ color: '#3b82f6' }}><MessageSquare size={24} /></div>
-                <h3>{t('settings.about.feedback', '意见反馈')}</h3>
-                <p>{t('settings.about.feedbackDesc', 'Issues')}</p>
-              </button>
+              <div className="about-lemon-signature">
+                <span>{t('settings.about.lemonLabel', 'Lemon')}</span>
+              </div>
             </div>
           </div>
         )}

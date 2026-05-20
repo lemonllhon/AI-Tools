@@ -358,7 +358,7 @@ export function LogViewerModal({ open, onClose }: LogViewerModalProps) {
             {t('common.refresh', '刷新')}
           </button>
           <button className="btn btn-secondary" onClick={handleClearOutput}>
-            {t('breakout.historyClear', '清空')}
+            {t('common.clear', '清空')}
           </button>
           <button className="btn btn-secondary" onClick={handleOpenDir}>
             {t('common.open', '打开')} {logDirLabel}

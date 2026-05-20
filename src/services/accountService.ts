@@ -102,6 +102,18 @@ export async function openDataFolder(): Promise<void> {
     return await invoke('open_data_folder');
 }
 
+export async function getDataDirPath(): Promise<string> {
+    return await invoke('get_data_dir_path');
+}
+
+export async function setDataDirPath(path: string): Promise<string> {
+    return await invoke('set_data_dir_path', { path });
+}
+
+export async function resetDataDirPath(): Promise<string> {
+    return await invoke('reset_data_dir_path');
+}
+
 export async function switchAccount(accountId: string): Promise<Account> {
     return await invoke('switch_account', { accountId });
 }

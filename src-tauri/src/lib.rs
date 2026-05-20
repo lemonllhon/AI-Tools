@@ -383,6 +383,9 @@ pub fn run() {
             commands::provider_current::get_provider_current_account_id,
             // System Commands
             commands::system::open_data_folder,
+            commands::system::get_data_dir_path,
+            commands::system::set_data_dir_path,
+            commands::system::reset_data_dir_path,
             commands::system::save_text_file,
             commands::system::get_downloads_dir,
             commands::system::get_auto_backup_settings,
