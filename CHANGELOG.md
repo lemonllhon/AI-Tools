@@ -7,6 +7,19 @@ All notable changes to Cockpit Tools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
+## [0.0.1] - 2026-05-21
+
+### Changed
+- Rebranded the application as **AI Lemon Tools**.
+- Default navigation now focuses on Codex, Dashboard, and Settings.
+- Non-Codex platform pages are hidden by default and can be re-enabled through the platform visibility config.
+- The top promotional area now shows a welcome message instead of purchase/promotional content.
+
+### Added
+- Added the new AI Lemon Tools app icon across frontend and Tauri bundle assets.
+- Added release workflow documentation for tag-based GitHub Releases.
+
+---
 ## [0.24.0] - 2026-05-20
 
 ### Changed
