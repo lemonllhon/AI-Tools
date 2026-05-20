@@ -4,7 +4,7 @@
 
 ### 标题
 
-`Cockpit Tools vX.Y.Z`
+`AI Lemon Tools vX.Y.Z`
 
 ### 更新摘要
 
@@ -16,21 +16,15 @@
 
 - Windows:
 - macOS:
-- Linux/Ubuntu: 不再提供官方安装包
+- Linux:
 
 ### 文件校验（SHA256）
 
-请下载并核对 `SHA256SUMS.txt`。  
-建议在安装前先校验哈希，确保文件完整且未被篡改。
-
-### 安全扫描（可选）
-
-- VirusTotal:
-- 说明：如存在单引擎误报（例如 1/72），我们会提交误报复核。
+请下载并核对 `SHA256SUMS.txt`。
 
 ### 已知问题
 
-- （没有可写 “暂无”）
+- 暂无
 
 ---
 
@@ -38,7 +32,7 @@
 
 ### Title
 
-`Cockpit Tools vX.Y.Z`
+`AI Lemon Tools vX.Y.Z`
 
 ### Highlights
 
@@ -50,17 +44,12 @@
 
 - Windows:
 - macOS:
-- Linux/Ubuntu: no official installer is provided
+- Linux:
 
 ### File Integrity (SHA256)
 
 Please verify downloaded files with `SHA256SUMS.txt` before installation.
 
-### Security Scan (Optional)
-
-- VirusTotal:
-- Note: If there is a single-engine detection (for example 1/72), we will submit a false-positive report.
-
 ### Known Issues
 
-- (Use "None" if no known issues)
+- None

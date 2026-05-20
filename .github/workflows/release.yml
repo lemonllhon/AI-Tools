@@ -153,7 +153,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: "v${{ steps.app_version.outputs.VERSION }}"
-          releaseName: "Cockpit Tools v${{ steps.app_version.outputs.VERSION }}"
+          releaseName: "AI Lemon Tools v${{ steps.app_version.outputs.VERSION }}"
           releaseBody: ${{ steps.release_notes.outputs.body }}
           releaseDraft: true
           prerelease: false
@@ -351,10 +351,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/Cockpit.Tools_${VERSION}_universal.dmg"
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/AI%20Lemon%20Tools_${VERSION}_universal.dmg"
           echo "Downloading: $URL"
           for i in $(seq 1 30); do
-            if curl -fL --retry 3 --retry-delay 1 -o cockpit-tools.dmg "$URL"; then
+            if curl -fL --retry 3 --retry-delay 1 -o ai-lemon-tools.dmg "$URL"; then
               exit 0
             fi
             echo "Asset not ready yet (attempt $i/30). Sleeping 10s..."
@@ -367,7 +367,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SHA256="$(sha256sum cockpit-tools.dmg | awk '{print $1}')"
+          SHA256="$(sha256sum ai-lemon-tools.dmg | awk '{print $1}')"
           echo "SHA256=$SHA256" >> "$GITHUB_ENV"
 
       - name: Update Cask file

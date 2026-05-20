@@ -1,141 +1,149 @@
-# Release Process (Open Source, No Code Signing)
+# AI Lemon Tools 发布教程
 
-> 适用于 Cockpit Tools 当前开源发布流程（未接入代码签名）。
+本仓库已经配置 GitHub Actions 自动发布流程：`.github/workflows/release.yml`。
 
-## 1. 目标
+结论先说清楚：
 
-- 保证每次发布可复现、可验证、可追溯。
-- 让用户可以通过哈希校验确认安装包未被篡改。
-- 单引擎误报（如 VirusTotal 1/72）时，可快速说明和处理。
+- 普通推送代码到 `main`：不会打包 Release。
+- 推送版本标签，例如 `v0.24.0`：会自动打包并创建 GitHub Release。
+- 也可以在 GitHub 网页的 `Actions -> Release -> Run workflow` 手动触发。
 
-## 2. 发布前检查（Preflight）
+## 1. 发布前准备
 
-在仓库根目录执行：
-
-```bash
-npm run release:preflight
-```
-
-该命令会依次执行：
-
-1. `node scripts/check_locales.cjs`
-2. `npm run typecheck`
-3. `npm run build`
-4. `cargo check`（在 `src-tauri` 下）
-
-可选跳过参数（排障用，不建议正式发布时使用）：
+确认版本号已经改好：
 
 ```bash
-node scripts/release/preflight.cjs --skip-locales --skip-typecheck --skip-build --skip-cargo
-```
-
-## 3. 打包产物（macOS / Windows；Homebrew 推荐）
-
-官方发布目标仅包含 macOS 与 Windows，不再构建或上传 Linux/Ubuntu 安装包。macOS 当前推荐使用 `universal` 安装包（同时兼容 Apple Silicon / Intel），并在上传 GitHub Release 后同步更新 Homebrew cask。
-
-推荐一键脚本（会执行 `universal.dmg` 构建、上传 GitHub Release 资产、更新 `Casks/cockpit-tools.rb`）：
-
-```bash
-npm run release:github-and-cask
-```
-
-若你已提前手动构建过 `universal.dmg`，可跳过构建步骤：
-
-```bash
-npm run release:github-and-cask -- --skip-build
-```
-
-脚本前置条件：
-
-1. 已安装并登录 GitHub CLI（`gh auth status` 通过）
-2. 本机可执行 macOS Tauri 构建
-3. 已安装 Rust Intel target（首次需要）：
-
-```bash
-rustup target add x86_64-apple-darwin
-```
-
-## 4. 生成 SHA256 校验文件
-
-默认扫描 `src-tauri/target/release/bundle` 和 `dist`，输出到 `release-artifacts/SHA256SUMS.txt`：
-
-```bash
-npm run release:checksums
-```
-
-如果本次发布使用 `universal` 产物（Homebrew 场景，默认如此），建议显式指定 `universal` bundle 目录，确保 `*_universal.dmg` 被写入校验文件：
-
-```bash
-node scripts/release/gen_checksums.cjs \
-  --input src-tauri/target/universal-apple-darwin/release/bundle \
-  --input dist \
-  --output release-artifacts/SHA256SUMS.txt
-```
-
-也可按需指定其他输入目录和输出文件：
-
-```bash
-node scripts/release/gen_checksums.cjs \
-  --input src-tauri/target/release/bundle \
-  --output release-artifacts/SHA256SUMS.txt
-```
-
-## 5. Release 发布内容规范
-
-每次发布建议至少包含：
-
-1. 下载文件列表（macOS / Windows；macOS/Homebrew 场景建议包含 `*_universal.dmg`）
-2. `SHA256SUMS.txt`
-3. 更新日志（中英文）
-4. VirusTotal 链接（可选但推荐）
-5. 已知误报说明（如有）
-
-补充说明（Homebrew 自维护 Tap）：
-
-1. 先上传 GitHub Release 资产，再推送 `Casks/cockpit-tools.rb` 更新，避免 cask 链接短暂 404。
-2. `Casks/cockpit-tools.rb` 中的 `version`、`sha256` 必须与 Release 中实际 `*_universal.dmg` 一致。
-
-## 6. VirusTotal 单引擎误报处理
-
-当出现 `1/72` 这类结果时：
-
-1. 先在 Release 明确“仅单引擎命中，其他未检出”。
-2. 要求用户只从官方 Release 下载并核对 SHA256。
-3. 对命中厂商提交误报（附 hash、下载链接、仓库地址）。
-4. 误报修复后在 issue/release 回帖同步结果。
-
-## 7. Git 发版流程（远端完成）
-
-正式发版按“Git 远端完成”判定，建议顺序如下：
-
-1. 更新版本与更新日志（`package.json`、`CHANGELOG.md`、`CHANGELOG.zh-CN.md`）。
-2. 执行版本同步：
-
-```bash
+npm version 0.24.1 --no-git-tag-version
 npm run sync-version
 ```
 
-3. 执行发布预检（阻断）：
+`npm run sync-version` 会把 `package.json` 的版本同步到 Tauri 配置。
+
+如果你维护更新日志，还需要在这两个文件里加入同版本段落：
+
+```text
+CHANGELOG.md
+CHANGELOG.zh-CN.md
+```
+
+Release workflow 会读取这两个文件生成中英文 Release Notes；如果缺少对应版本段落，workflow 会失败。
+
+## 2. 本地检查
+
+推荐发版前先跑：
+
+```bash
+npm install
+npm run typecheck
+npm run build
+```
+
+如果本机安装了 Rust/Cargo，也可以跑：
 
 ```bash
 npm run release:preflight
 ```
 
-4. 提交发布改动。
-5. 创建与版本一致的标签（例如 `v0.9.2`）。
-6. 先推送分支，再推送标签：
+## 3. 推送代码
+
+先提交版本改动，然后推送到新仓库：
 
 ```bash
-git push origin <branch> && git push origin v<major>.<minor>.<patch>
+git add -A
+git commit -m "chore: release v0.24.1"
+git push lemon main
 ```
 
-完成判定（阻断）：
+只推 `main` 不会发布 Release，它只是更新代码。
 
-1. 远端分支已更新（通常 `origin/main`）。
-2. 远端版本标签已存在，且与 `package.json.version` 一致。
-3. 满足以上两项即视为发版完成。
+## 4. 创建并推送版本标签
 
-补充说明：
+标签必须和 `package.json` 里的版本一致。
 
-1. GitHub Actions、GitHub Release 资产上传、`SHA256SUMS.txt`、Homebrew Cask 更新属于后置异步流程，不作为发版完成的阻断条件。
-2. 若需要，可在发版完成后继续观察 Actions 与 Release 资产状态。
+例如 `package.json` 是 `0.24.1`，标签就必须是 `v0.24.1`：
+
+```bash
+git tag v0.24.1
+git push lemon v0.24.1
+```
+
+推送这个 tag 后，GitHub Actions 会开始打包。
+
+## 5. 查看打包进度
+
+打开仓库：
+
+```text
+https://github.com/lemon-casino/Ai-Lemon-Tools/actions
+```
+
+进入 `Release` workflow，等待所有平台构建完成。
+
+当前 workflow 会构建：
+
+- macOS Apple Silicon
+- macOS Intel
+- macOS Universal
+- Windows x64
+- Linux x64
+- Linux ARM64
+
+完成后会创建 GitHub Release，并上传安装包、`latest.json` 和 `SHA256SUMS.txt`。
+
+## 6. 必须配置的 Secrets
+
+因为 Tauri 配置了自动更新产物：
+
+```json
+"createUpdaterArtifacts": true
+```
+
+GitHub 仓库需要配置这两个 Secrets：
+
+```text
+TAURI_SIGNING_PRIVATE_KEY
+TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+```
+
+配置位置：
+
+```text
+GitHub 仓库 -> Settings -> Secrets and variables -> Actions -> New repository secret
+```
+
+`GITHUB_TOKEN` 不需要手动配置，GitHub Actions 会自动提供。
+
+## 7. 失败后怎么重发
+
+如果 workflow 失败，先修代码并重新提交：
+
+```bash
+git add -A
+git commit -m "fix: release build"
+git push lemon main
+```
+
+如果同一个 tag 已经推过，需要删除本地和远程旧 tag 后重推：
+
+```bash
+git tag -d v0.24.1
+git push lemon :refs/tags/v0.24.1
+git tag v0.24.1
+git push lemon v0.24.1
+```
+
+只在你确认要覆盖这次发布时这么做。
+
+## 8. 最短发布命令
+
+日常发布可以记这几行：
+
+```bash
+npm version 0.24.1 --no-git-tag-version
+npm run sync-version
+git add -A
+git commit -m "chore: release v0.24.1"
+git push lemon main
+git tag v0.24.1
+git push lemon v0.24.1
+```
