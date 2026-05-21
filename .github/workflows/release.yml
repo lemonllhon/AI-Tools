@@ -143,12 +143,34 @@ jobs:
             printf '%s\n' "$en_section"
           } > release-notes.md
 
-      - name: Checkout public release repository
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.PUBLIC_RELEASE_REPOSITORY }}
-          token: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
-          path: public-release-repo
+      - name: Prepare public release repository
+        env:
+          PUBLIC_RELEASE_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="${GITHUB_WORKSPACE}/public-release-repo"
+          rm -rf "$repo"
+          mkdir -p "$repo"
+          cd "$repo"
+
+          git init
+          git remote add origin "https://x-access-token:${PUBLIC_RELEASE_TOKEN}@github.com/${PUBLIC_RELEASE_REPOSITORY}.git"
+
+          branch="$(git ls-remote --symref origin HEAD 2>/dev/null | awk '/^ref:/ { sub("refs/heads/", "", $2); print $2; exit }')"
+          if [ -z "$branch" ]; then
+            branch="main"
+          fi
+
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            git fetch --depth=1 origin "$branch"
+            git checkout -B "$branch" "origin/$branch"
+          else
+            git checkout --orphan "$branch"
+            git rm -rf . >/dev/null 2>&1 || true
+          fi
+
+          echo "PUBLIC_RELEASE_BRANCH=${branch}" >> "$GITHUB_ENV"
 
       - name: Create public release tag commit
         id: public_tag
@@ -160,15 +182,7 @@ jobs:
           repo="${GITHUB_WORKSPACE}/public-release-repo"
           cd "$repo"
 
-          branch="$(git branch --show-current || true)"
-          if [ -z "$branch" ]; then
-            remote_head="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)"
-            branch="${remote_head#origin/}"
-          fi
-          if [ -z "$branch" ]; then
-            branch="main"
-          fi
-          git checkout -B "$branch"
+          branch="${PUBLIC_RELEASE_BRANCH:-main}"
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

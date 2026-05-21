@@ -324,6 +324,16 @@ src-tauri/target
 
 如果后续仍然报 `No Windows executable found in Cargo target directories`，说明 Windows 构建阶段没有生成主程序 exe，需要先查看同一个 run 里 Windows 的 `Build the app` 日志。
 
+### 7.6 公开发布仓库为空导致 main 分支不存在
+
+如果 `Prepare public release` 报错类似：
+
+```text
+fatal: couldn't find remote ref refs/heads/main
+```
+
+说明公开发布仓库还是空仓库，没有任何分支。当前 workflow 已改为手动初始化公开发布仓库：如果公开仓库没有默认分支，会自动创建 `main` 的第一条空提交，再创建版本 tag 和 Release。
+
 ## 8. 失败后怎么重发
 
 如果 workflow 失败，先修代码并重新提交：
