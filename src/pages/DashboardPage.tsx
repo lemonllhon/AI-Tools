@@ -229,8 +229,13 @@ export function DashboardPage({
     [],
   );
 
-  const reloadApiServiceState = useCallback(async () => {
-    setApiServiceBusy((current) => current ?? 'load');
+  const apiServiceRefreshTimersRef = React.useRef<number[]>([]);
+
+  const reloadApiServiceState = useCallback(async (options?: { silent?: boolean }) => {
+    const showBusy = !options?.silent;
+    if (showBusy) {
+      setApiServiceBusy((current) => current ?? 'load');
+    }
     try {
       const nextState = await codexLocalAccessService.getCodexLocalAccessState();
       setApiServiceState(nextState);
@@ -243,12 +248,76 @@ export function DashboardPage({
         tone: 'error',
       });
     } finally {
-      setApiServiceBusy((current) => (current === 'load' ? null : current));
+      if (showBusy) {
+        setApiServiceBusy((current) => (current === 'load' ? null : current));
+      }
     }
   }, [t]);
 
   React.useEffect(() => {
     void reloadApiServiceState();
+  }, [reloadApiServiceState]);
+
+  const clearApiServiceRefreshTimers = useCallback(() => {
+    for (const timer of apiServiceRefreshTimersRef.current) {
+      window.clearTimeout(timer);
+    }
+    apiServiceRefreshTimersRef.current = [];
+  }, []);
+
+  const scheduleApiServiceStateRefresh = useCallback(
+    (delays: number[] = [250, 1000, 2500]) => {
+      clearApiServiceRefreshTimers();
+      apiServiceRefreshTimersRef.current = delays.map((delay) => {
+        const timer = window.setTimeout(() => {
+          apiServiceRefreshTimersRef.current = apiServiceRefreshTimersRef.current.filter(
+            (item) => item !== timer,
+          );
+          void reloadApiServiceState({ silent: true });
+        }, delay);
+        return timer;
+      });
+    },
+    [clearApiServiceRefreshTimers, reloadApiServiceState],
+  );
+
+  React.useEffect(() => clearApiServiceRefreshTimers, [clearApiServiceRefreshTimers]);
+
+  React.useEffect(() => {
+    const handleLocalAccessStateUpdated = (event: Event) => {
+      const nextState = (event as CustomEvent<CodexLocalAccessState>).detail;
+      if (nextState) {
+        setApiServiceState(nextState);
+      } else {
+        void reloadApiServiceState({ silent: true });
+      }
+    };
+
+    window.addEventListener(
+      codexLocalAccessService.CODEX_LOCAL_ACCESS_STATE_UPDATED_EVENT,
+      handleLocalAccessStateUpdated,
+    );
+    return () => {
+      window.removeEventListener(
+        codexLocalAccessService.CODEX_LOCAL_ACCESS_STATE_UPDATED_EVENT,
+        handleLocalAccessStateUpdated,
+      );
+    };
+  }, [reloadApiServiceState]);
+
+  React.useEffect(() => {
+    const refreshVisibleState = () => {
+      if (document.visibilityState === 'visible') {
+        void reloadApiServiceState({ silent: true });
+      }
+    };
+
+    window.addEventListener('focus', refreshVisibleState);
+    document.addEventListener('visibilitychange', refreshVisibleState);
+    return () => {
+      window.removeEventListener('focus', refreshVisibleState);
+      document.removeEventListener('visibilitychange', refreshVisibleState);
+    };
   }, [reloadApiServiceState]);
 
   const reloadApiServiceAccountGroups = useCallback(async () => {
@@ -317,6 +386,7 @@ export function DashboardPage({
     try {
       const nextState = await codexLocalAccessService.setCodexLocalAccessEnabled(!collection.enabled);
       setApiServiceState(nextState);
+      scheduleApiServiceStateRefresh();
       setApiServiceMessage({
         text: collection.enabled
           ? t('dashboard.apiServices.disabled', 'Codex API 服务已停用')
@@ -334,7 +404,7 @@ export function DashboardPage({
     } finally {
       setApiServiceBusy(null);
     }
-  }, [apiServiceState?.collection, openCodexApiServiceModal, t]);
+  }, [apiServiceState?.collection, openCodexApiServiceModal, scheduleApiServiceStateRefresh, t]);
 
   const handleActivateCodexApiService = useCallback(async () => {
     const collection = apiServiceState?.collection;
@@ -356,6 +426,7 @@ export function DashboardPage({
       }
       nextState = await codexLocalAccessService.activateCodexLocalAccess();
       setApiServiceState(nextState);
+      scheduleApiServiceStateRefresh();
       setApiServiceMessage({
         text: t('dashboard.apiServices.activated', '已切换到 Codex API 服务'),
         tone: 'success',
@@ -371,7 +442,7 @@ export function DashboardPage({
     } finally {
       setApiServiceBusy(null);
     }
-  }, [apiServiceState, openCodexApiServiceModal, t]);
+  }, [apiServiceState, openCodexApiServiceModal, scheduleApiServiceStateRefresh, t]);
 
   const handleApiServiceAddressKindChange = useCallback((value: string) => {
     const next = normalizeDashboardLocalAccessAddressKind(value);
@@ -512,6 +583,7 @@ export function DashboardPage({
     try {
       const result = await codexLocalAccessService.killCodexLocalAccessPort();
       setApiServiceState(result.state);
+      scheduleApiServiceStateRefresh();
       setApiServiceMessage({
         text:
           result.killedCount > 0
@@ -534,7 +606,7 @@ export function DashboardPage({
     } finally {
       setApiServicePortCleanupBusy(false);
     }
-  }, [apiServiceState?.collection?.port, t]);
+  }, [apiServiceState?.collection?.port, scheduleApiServiceStateRefresh, t]);
 
   const handleTestApiService = useCallback(async (): Promise<CodexLocalAccessTestResult> => {
     if (!apiServiceState?.collection) {
