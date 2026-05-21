@@ -167,18 +167,39 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
-          $releaseDir = Join-Path $env:GITHUB_WORKSPACE "src-tauri/target/release"
-          if (-not (Test-Path -LiteralPath $releaseDir)) {
-            throw "Release directory not found: $releaseDir"
+          $targetRoots = @(
+            (Join-Path $env:GITHUB_WORKSPACE "target"),
+            (Join-Path $env:GITHUB_WORKSPACE "src-tauri/target")
+          ) | Where-Object { Test-Path -LiteralPath $_ }
+
+          if ($targetRoots.Count -eq 0) {
+            throw "No Cargo target directory found under workspace: $env:GITHUB_WORKSPACE"
           }
 
-          $exe = Get-ChildItem -Path $releaseDir -Filter "*.exe" -File |
+          Write-Host "Searching Windows executable under:"
+          $targetRoots | ForEach-Object { Write-Host "  $_" }
+
+          $exe = Get-ChildItem -Path $targetRoots -Filter "*.exe" -File -Recurse |
+            Where-Object {
+              $_.FullName -notmatch "\\bundle\\" -and
+              $_.FullName -notmatch "\\deps\\" -and
+              $_.FullName -notmatch "\\build\\" -and
+              $_.Name -notmatch "(?i)(setup|installer|unins)"
+            } |
             Sort-Object Length -Descending |
             Select-Object -First 1
 
           if (-not $exe) {
-            throw "No Windows executable found in $releaseDir"
+            Write-Host "Known target directories:"
+            Get-ChildItem -Path $targetRoots -Directory -Recurse -ErrorAction SilentlyContinue |
+              Select-Object -First 80 -ExpandProperty FullName |
+              ForEach-Object { Write-Host "  $_" }
+            throw "No Windows executable found in Cargo target directories."
           }
+
+          $releaseDir = $exe.Directory.FullName
+          Write-Host "Portable source executable: $($exe.FullName)"
+          Write-Host "Portable source directory: $releaseDir"
 
           $portableRoot = Join-Path $env:RUNNER_TEMP "ai-lemon-tools-portable"
           $appDir = Join-Path $portableRoot "AI Lemon Tools"

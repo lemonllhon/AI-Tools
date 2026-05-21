@@ -259,6 +259,23 @@ Settings -> Actions -> General -> Workflow permissions -> Read and write permiss
 
 如果 GitHub Release 页面已经产生了失败残留的 draft release，可以在 GitHub 网页手动删除 draft 后重新跑，或者让后续 workflow 覆盖同名资产。
 
+### 7.5 Windows portable 找不到 release 目录
+
+如果 portable 步骤报错类似：
+
+```text
+Release directory not found: ...\src-tauri\target\release
+```
+
+原因通常是 GitHub Windows runner 在 Rust workspace 下把 Cargo 产物放到了仓库根目录的 `target/release`，而不是 `src-tauri/target/release`。当前 workflow 已改为自动搜索：
+
+```text
+target
+src-tauri/target
+```
+
+如果后续仍然报 `No Windows executable found in Cargo target directories`，说明 Windows 构建阶段没有生成主程序 exe，需要先查看同一个 run 里 Windows 的 `Build the app` 日志。
+
 ## 8. 失败后怎么重发
 
 如果 workflow 失败，先修代码并重新提交：
