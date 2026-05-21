@@ -14,7 +14,8 @@
 
 ### 下载
 
-- Windows:
+- Windows 安装包:
+- Windows portable 免安装包:
 - macOS:
 - Linux:
 
@@ -42,7 +43,8 @@
 
 ### Downloads
 
-- Windows:
+- Windows installer:
+- Windows portable:
 - macOS:
 - Linux:
 

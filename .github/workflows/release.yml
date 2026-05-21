@@ -159,6 +159,76 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
+      - name: Package Windows portable ZIP
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.app_version.outputs.VERSION }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $releaseDir = Join-Path $env:GITHUB_WORKSPACE "src-tauri/target/release"
+          if (-not (Test-Path -LiteralPath $releaseDir)) {
+            throw "Release directory not found: $releaseDir"
+          }
+
+          $exe = Get-ChildItem -Path $releaseDir -Filter "*.exe" -File |
+            Sort-Object Length -Descending |
+            Select-Object -First 1
+
+          if (-not $exe) {
+            throw "No Windows executable found in $releaseDir"
+          }
+
+          $portableRoot = Join-Path $env:RUNNER_TEMP "ai-lemon-tools-portable"
+          $appDir = Join-Path $portableRoot "AI Lemon Tools"
+          Remove-Item -LiteralPath $portableRoot -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $appDir | Out-Null
+
+          Copy-Item -LiteralPath $exe.FullName -Destination (Join-Path $appDir "AI Lemon Tools.exe") -Force
+
+          $sidecarExtensions = @(".dll", ".dat", ".pak", ".bin")
+          Get-ChildItem -Path $releaseDir -File |
+            Where-Object { $sidecarExtensions -contains $_.Extension.ToLowerInvariant() } |
+            ForEach-Object {
+              Copy-Item -LiteralPath $_.FullName -Destination $appDir -Force
+            }
+
+          $resourceDir = Join-Path $releaseDir "resources"
+          if (Test-Path -LiteralPath $resourceDir) {
+            Copy-Item -LiteralPath $resourceDir -Destination (Join-Path $appDir "resources") -Recurse -Force
+          }
+
+          @"
+          AI Lemon Tools Windows Portable
+
+          中文：
+          - 解压后直接运行 AI Lemon Tools.exe，无需安装。
+          - 如果系统提示缺少 WebView2 Runtime，请先安装 Microsoft Edge WebView2 Runtime。
+          - 免安装包不会写入 Windows 安装列表；应用数据仍按软件内配置的数据目录保存。
+
+          English:
+          - Unzip and run AI Lemon Tools.exe. No installer is required.
+          - Install Microsoft Edge WebView2 Runtime first if Windows reports that WebView2 is missing.
+          - The portable package is not registered in Windows installed apps; app data still follows the data directory configured in the app.
+          "@ | Set-Content -Path (Join-Path $appDir "README-portable.txt") -Encoding UTF8
+
+          $zip = Join-Path $env:GITHUB_WORKSPACE "AI Lemon Tools_$($env:APP_VERSION)_windows_x64_portable.zip"
+          Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
+          Compress-Archive -Path $appDir -DestinationPath $zip -Force
+
+          "PORTABLE_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding UTF8
+
+      - name: Upload Windows portable ZIP
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APP_VERSION: ${{ steps.app_version.outputs.VERSION }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          gh release upload "v$env:APP_VERSION" "$env:PORTABLE_ZIP" --clobber
+
   rebuild-latest-json:
     name: Rebuild merged latest.json
     needs: release
@@ -421,6 +491,7 @@ jobs:
     needs:
       - release
       - rebuild-latest-json
+      - upload-checksums
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:

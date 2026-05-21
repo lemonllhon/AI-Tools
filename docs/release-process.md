@@ -86,11 +86,35 @@ https://github.com/lemon-casino/Ai-Lemon-Tools/actions
 - macOS Apple Silicon
 - macOS Intel
 - macOS Universal
-- Windows x64
+- Windows x64 安装包
+- Windows x64 portable 免安装包
 - Linux x64
 - Linux ARM64
 
-完成后会创建 GitHub Release，并上传安装包、`latest.json` 和 `SHA256SUMS.txt`。
+完成后会创建 GitHub Release，并上传安装包、Windows portable 免安装 zip、`latest.json` 和 `SHA256SUMS.txt`。
+
+### 5.1 Windows portable 免安装版
+
+Release workflow 会在 Windows 构建成功后额外上传一个免安装压缩包：
+
+```text
+AI Lemon Tools_版本号_windows_x64_portable.zip
+```
+
+例如：
+
+```text
+AI Lemon Tools_0.24.1_windows_x64_portable.zip
+```
+
+用户下载后解压，直接运行里面的 `AI Lemon Tools.exe` 即可，不需要安装。
+
+注意：
+
+- portable 包不会写入 Windows 安装列表。
+- 如果系统缺少 WebView2 Runtime，需要先安装 Microsoft Edge WebView2 Runtime。
+- portable 包会进入 `SHA256SUMS.txt` 校验文件。
+- portable 包不写入 `latest.json` 自动更新清单；自动更新仍使用 Windows NSIS/MSI 安装包链路。
 
 ## 6. 必须配置的 Secrets
 
