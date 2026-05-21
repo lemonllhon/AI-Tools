@@ -1,4 +1,4 @@
-﻿{
+{
   "common": {
     "confirm": "确认",
     "cancel": "取消",
@@ -1983,7 +1983,9 @@
         "selected": "已加入 API 服务",
         "available": "普通面板",
         "manageMembers": "管理成员",
-        "save": "保存集合"
+        "save": "保存集合",
+        "autoIncludeNewAccountsToggle": "自动加入",
+        "autoIncludeNewAccountsDesc": "开启后，刷新仪表盘或 API 服务状态时会检查新的 Codex OAuth 账号，并自动加入集合。Free 账号仍受限制开关影响。"
       },
       "oauthBinding": {
         "desc": "可选绑定。未绑定时 API 服务按原 API Key 逻辑运行；绑定后登录态使用 OAuth 账号，Provider 使用当前 API 服务配置。",

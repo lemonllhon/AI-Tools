@@ -1004,6 +1004,14 @@
   flex-wrap: wrap;
 }
 
+.codex-local-access-member-toggles {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .codex-local-access-free-toggle {
   display: inline-flex;
   align-items: center;

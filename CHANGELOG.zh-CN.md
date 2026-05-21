@@ -6,7 +6,12 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.0.5] - 2026-05-22
 
+### 新增 
+- **新增codex 自动加入功能
+
+---
 ---
 ## [0.0.4] - 2026-05-22
 

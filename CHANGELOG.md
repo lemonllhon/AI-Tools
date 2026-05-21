@@ -7,6 +7,10 @@ All notable changes to Cockpit Tools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [0.0.5] - 2026-05-22
+### New Addition
+- **Added codex auto-join feature**
+
 ## [0.0.4] - 2026-05-22
 ###New addition
 -* * Added/v1/responses WebSocket handshake, authentication, responsive.create forwarding, SSE to WS event forwarding

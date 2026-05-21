@@ -1,4 +1,4 @@
-﻿{
+{
   "common": {
     "confirm": "Подтвердить",
     "cancel": "Отмена",
@@ -1776,7 +1776,9 @@
         "freeNoticeUnstable": "Прокси Free-аккаунтов может быть нестабильным. Используйте с осторожностью.",
         "restrictFreeDisableConfirmTitle": "Разрешить Free-аккаунты",
         "restrictFreeDisableConfirmMessage": "Прокси Free-аккаунтов может быть нестабильным. Вы уверены, что хотите их использовать?",
-        "manageMembers": "Управление участниками"
+        "manageMembers": "Управление участниками",
+        "autoIncludeNewAccountsToggle": "Автодобавление",
+        "autoIncludeNewAccountsDesc": "Если включено, при обновлении панели или состояния API-сервиса новые учетные записи Codex OAuth будут проверяться и автоматически добавляться в коллекцию. Учетные записи Free по-прежнему учитывают ограничение для Free."
       },
       "entryAction": "Добавить в API-сервис",
       "testAction": "Тест",

@@ -1,4 +1,4 @@
-﻿{
+{
   "common": {
     "confirm": "تأكيد",
     "cancel": "إلغاء",
@@ -1822,7 +1822,9 @@
         "freeNoticeUnstable": "قد يكون وكيل الحسابات المجانية غير مستقر. استخدمه بحذر.",
         "restrictFreeDisableConfirmTitle": "السماح بالحسابات المجانية",
         "restrictFreeDisableConfirmMessage": "قد يكون وكيل الحسابات المجانية غير مستقر. هل تريد المتابعة؟",
-        "manageMembers": "إدارة الأعضاء"
+        "manageMembers": "إدارة الأعضاء",
+        "autoIncludeNewAccountsToggle": "إضافة تلقائية",
+        "autoIncludeNewAccountsDesc": "عند التفعيل، سيؤدي تحديث لوحة المعلومات أو حالة خدمة API إلى فحص حسابات Codex OAuth الجديدة وإضافتها تلقائيًا إلى المجموعة. تظل حسابات Free خاضعة لمفتاح التقييد."
       },
       "entryAction": "إضافة إلى خدمة API",
       "testAction": "اختبار",

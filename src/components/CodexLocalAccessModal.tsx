@@ -72,6 +72,7 @@ interface CodexLocalAccessModalProps {
   onSaveAccounts: (payload: {
     accountIds: string[];
     restrictFreeAccounts: boolean;
+    autoIncludeNewAccounts: boolean;
   }) => Promise<unknown> | unknown;
   onClearStats: () => Promise<unknown> | unknown;
   onRefreshStats: () => Promise<unknown> | unknown;
@@ -219,6 +220,7 @@ export function CodexLocalAccessModal({
   const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [groupFilter, setGroupFilter] = useState<string[]>([]);
   const [restrictFreeAccounts, setRestrictFreeAccounts] = useState(true);
+  const [autoIncludeNewAccounts, setAutoIncludeNewAccounts] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [testDialogOpen, setTestDialogOpen] = useState(false);
@@ -408,6 +410,7 @@ export function CodexLocalAccessModal({
     setTagFilter([]);
     setGroupFilter([]);
     setRestrictFreeAccounts(collection?.restrictFreeAccounts ?? true);
+    setAutoIncludeNewAccounts(collection?.autoIncludeNewAccounts ?? false);
     setError('');
     setNotice('');
     setTestDialogOpen(false);
@@ -451,6 +454,7 @@ export function CodexLocalAccessModal({
     }
   }, [
     collection?.accountIds,
+    collection?.autoIncludeNewAccounts,
     collection?.customRoutingRules,
     collection?.port,
     collection?.restrictFreeAccounts,
@@ -684,8 +688,16 @@ export function CodexLocalAccessModal({
   const selectionDirty = useMemo(
     () =>
       !areSetsEqual(selected, new Set(normalizedInitialSelectedIds)) ||
-      restrictFreeAccounts !== (collection?.restrictFreeAccounts ?? true),
-    [collection?.restrictFreeAccounts, normalizedInitialSelectedIds, restrictFreeAccounts, selected],
+      restrictFreeAccounts !== (collection?.restrictFreeAccounts ?? true) ||
+      autoIncludeNewAccounts !== (collection?.autoIncludeNewAccounts ?? false),
+    [
+      autoIncludeNewAccounts,
+      collection?.autoIncludeNewAccounts,
+      collection?.restrictFreeAccounts,
+      normalizedInitialSelectedIds,
+      restrictFreeAccounts,
+      selected,
+    ],
   );
 
   const allStatsByAccountId = useMemo(() => {
@@ -1064,6 +1076,11 @@ export function CodexLocalAccessModal({
     setRestrictFreeAccounts((prev) => !prev);
   };
 
+  const handleToggleAutoIncludeNewAccounts = () => {
+    if (actionBusy) return;
+    setAutoIncludeNewAccounts((prev) => !prev);
+  };
+
   const toggleSelect = (accountId: string) => {
     if (actionBusy) return;
     const account = oauthAccountById.get(accountId);
@@ -1098,6 +1115,7 @@ export function CodexLocalAccessModal({
       await onSaveAccounts({
         accountIds: filtered,
         restrictFreeAccounts,
+        autoIncludeNewAccounts,
       });
       onClose();
     } catch (err) {
@@ -1958,20 +1976,42 @@ export function CodexLocalAccessModal({
                   <FolderPlus size={16} />
                   <span>{t('codex.localAccess.memberTitle', '集合成员')}</span>
                 </div>
-                <label className="codex-local-access-free-toggle">
-                  <input
-                    type="checkbox"
-                    checked={restrictFreeAccounts}
-                    onChange={() => void handleToggleRestrictFreeAccounts()}
-                    disabled={actionBusy}
-                  />
-                  <span>
-                    {t(
-                      'codex.localAccess.modal.restrictFreeToggle',
-                      '限制 Free 账号使用',
+                <div className="codex-local-access-member-toggles">
+                  <label
+                    className="codex-local-access-free-toggle"
+                    title={t(
+                      'codex.localAccess.modal.autoIncludeNewAccountsDesc',
+                      '开启后，刷新仪表盘或 API 服务状态时会检查新的 Codex OAuth 账号，并自动加入集合。Free 账号仍受限制开关影响。',
                     )}
-                  </span>
-                </label>
+                  >
+                    <input
+                      type="checkbox"
+                      checked={autoIncludeNewAccounts}
+                      onChange={handleToggleAutoIncludeNewAccounts}
+                      disabled={actionBusy}
+                    />
+                    <span>
+                      {t(
+                        'codex.localAccess.modal.autoIncludeNewAccountsToggle',
+                        '自动加入',
+                      )}
+                    </span>
+                  </label>
+                  <label className="codex-local-access-free-toggle">
+                    <input
+                      type="checkbox"
+                      checked={restrictFreeAccounts}
+                      onChange={() => void handleToggleRestrictFreeAccounts()}
+                      disabled={actionBusy}
+                    />
+                    <span>
+                      {t(
+                        'codex.localAccess.modal.restrictFreeToggle',
+                        '限制 Free 账号使用',
+                      )}
+                    </span>
+                  </label>
+                </div>
               </div>
 
               <div className="group-account-toolbar">

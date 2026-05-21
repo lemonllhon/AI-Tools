@@ -36,10 +36,12 @@ export async function getCodexLocalAccessState(): Promise<CodexLocalAccessState>
 export async function saveCodexLocalAccessAccounts(
   accountIds: string[],
   restrictFreeAccounts: boolean,
+  autoIncludeNewAccounts: boolean,
 ): Promise<CodexLocalAccessState> {
   return await invokeCodexLocalAccessStateMutation('codex_local_access_save_accounts', {
     accountIds,
     restrictFreeAccounts,
+    autoIncludeNewAccounts,
   });
 }
 

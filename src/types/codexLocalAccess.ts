@@ -28,6 +28,7 @@ export interface CodexLocalAccessCollection {
   routingStrategy: CodexLocalAccessRoutingStrategy;
   customRoutingRules: CodexLocalAccessCustomRoutingRule[];
   restrictFreeAccounts: boolean;
+  autoIncludeNewAccounts: boolean;
   boundOauthAccountId?: string | null;
   accountIds: string[];
   createdAt: number;

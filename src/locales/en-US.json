@@ -1,4 +1,4 @@
-﻿{
+{
   "common": {
     "confirm": "Confirm",
     "cancel": "Cancel",
@@ -1978,7 +1978,9 @@
         "selected": "In API Service",
         "available": "Regular Overview",
         "manageMembers": "Manage Members",
-        "save": "Save Collection"
+        "save": "Save Collection",
+        "autoIncludeNewAccountsToggle": "Auto-add",
+        "autoIncludeNewAccountsDesc": "When enabled, refreshing the dashboard or API service state checks for new Codex OAuth accounts and adds them to the collection automatically. Free accounts still follow the Free-account limit."
       },
       "oauthBinding": {
         "desc": "Optional. Without a link, the API service keeps the original API-key flow; after linking, sign-in uses the OAuth account and Provider uses the API service config.",

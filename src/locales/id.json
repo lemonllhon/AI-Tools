@@ -1,4 +1,4 @@
-﻿{
+{
   "common": {
     "confirm": "Konfirmasi",
     "cancel": "Batal",
@@ -1825,7 +1825,9 @@
         "freeNoticeUnstable": "Proxy akun Free bisa tidak stabil. Gunakan dengan hati-hati.",
         "restrictFreeDisableConfirmTitle": "Izinkan akun Free",
         "restrictFreeDisableConfirmMessage": "Proxy akun Free bisa tidak stabil. Yakin ingin menggunakannya?",
-        "manageMembers": "Kelola anggota"
+        "manageMembers": "Kelola anggota",
+        "autoIncludeNewAccountsToggle": "Tambah otomatis",
+        "autoIncludeNewAccountsDesc": "Saat aktif, penyegaran dasbor atau status layanan API akan memeriksa akun Codex OAuth baru dan menambahkannya otomatis ke koleksi. Akun Free tetap mengikuti batasan akun Free."
       },
       "entryAction": "Tambahkan ke Layanan API",
       "testAction": "Tes",

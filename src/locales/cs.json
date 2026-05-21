@@ -1,4 +1,4 @@
-﻿{
+{
   "common": {
     "confirm": "Potvrdit",
     "cancel": "Zrušit",
@@ -1776,7 +1776,9 @@
         "freeNoticeUnstable": "Proxy pro Free účty může být nestabilní. Používejte opatrně.",
         "restrictFreeDisableConfirmTitle": "Povolit Free účty",
         "restrictFreeDisableConfirmMessage": "Proxy pro Free účty může být nestabilní. Opravdu je chcete použít?",
-        "manageMembers": "Spravovat členy"
+        "manageMembers": "Spravovat členy",
+        "autoIncludeNewAccountsToggle": "Automaticky přidávat",
+        "autoIncludeNewAccountsDesc": "Po zapnutí se při obnovení řídicího panelu nebo stavu služby API vyhledají nové účty Codex OAuth a automaticky se přidají do kolekce. Účty Free se stále řídí omezením pro Free účty."
       },
       "entryAction": "Přidat do API služby",
       "testAction": "Otestovat",

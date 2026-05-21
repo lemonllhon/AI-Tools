@@ -4291,11 +4291,18 @@ export function CodexAccountsPage() {
   const handleSaveLocalAccessAccounts = useCallback(
     async (
       accountIds: string[],
-      options?: { restrictFreeAccounts?: boolean },
+      options?: {
+        restrictFreeAccounts?: boolean;
+        autoIncludeNewAccounts?: boolean;
+      },
     ) => {
       setLocalAccessSaving(true);
       try {
         const restrictFreeAccounts = options?.restrictFreeAccounts ?? true;
+        const autoIncludeNewAccounts =
+          options?.autoIncludeNewAccounts ??
+          localAccessCollection?.autoIncludeNewAccounts ??
+          false;
         const accountById = new Map(
           accounts.map((account) => [account.id, account]),
         );
@@ -4315,6 +4322,7 @@ export function CodexAccountsPage() {
           await codexLocalAccessService.saveCodexLocalAccessAccounts(
             filteredAccountIds,
             restrictFreeAccounts,
+            autoIncludeNewAccounts,
           );
         setLocalAccessState(nextState);
         setMessage({
@@ -4328,7 +4336,7 @@ export function CodexAccountsPage() {
         setLocalAccessSaving(false);
       }
     },
-    [accounts, setMessage, t],
+    [accounts, localAccessCollection?.autoIncludeNewAccounts, setMessage, t],
   );
 
   const handleRemoveLocalAccessAccount = useCallback(
@@ -4340,6 +4348,8 @@ export function CodexAccountsPage() {
           {
             restrictFreeAccounts:
               localAccessCollection.restrictFreeAccounts ?? true,
+            autoIncludeNewAccounts:
+              localAccessCollection.autoIncludeNewAccounts ?? false,
           },
         );
       } catch (error) {
@@ -10330,9 +10340,10 @@ export function CodexAccountsPage() {
             initialSelectedIds={localAccessModalSelectedIds}
             maskAccountText={maskAccountText}
             onClose={() => setShowLocalAccessModal(false)}
-            onSaveAccounts={({ accountIds, restrictFreeAccounts }) =>
+            onSaveAccounts={({ accountIds, restrictFreeAccounts, autoIncludeNewAccounts }) =>
               handleSaveLocalAccessAccounts(accountIds, {
                 restrictFreeAccounts,
+                autoIncludeNewAccounts,
               })
             }
             onClearStats={handleClearLocalAccessStats}

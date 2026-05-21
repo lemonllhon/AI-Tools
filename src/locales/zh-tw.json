@@ -1,4 +1,4 @@
-﻿{
+{
   "common": {
     "confirm": "確認",
     "cancel": "取消",
@@ -1776,7 +1776,9 @@
         "freeNoticeUnstable": "Free 帳號反代可能不穩定，請謹慎使用。",
         "restrictFreeDisableConfirmTitle": "確認允許 Free 帳號",
         "restrictFreeDisableConfirmMessage": "Free 帳號反代可能不穩定，確定要使用嗎？",
-        "manageMembers": "管理成員"
+        "manageMembers": "管理成員",
+        "autoIncludeNewAccountsToggle": "自動加入",
+        "autoIncludeNewAccountsDesc": "開啟後，重新整理儀表板或 API 服務狀態時會檢查新的 Codex OAuth 帳號，並自動加入集合。Free 帳號仍受限制開關影響。"
       },
       "entryAction": "加入 API 服務",
       "testAction": "測試",

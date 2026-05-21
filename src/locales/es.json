@@ -1,4 +1,4 @@
-﻿{
+{
   "common": {
     "confirm": "Confirmar",
     "cancel": "Cancelar",
@@ -1776,7 +1776,9 @@
         "freeNoticeUnstable": "El proxy de cuentas Free puede ser inestable. Úsalo con cuidado.",
         "restrictFreeDisableConfirmTitle": "Permitir cuentas Free",
         "restrictFreeDisableConfirmMessage": "El proxy de cuentas Free puede ser inestable. ¿Seguro que quieres usarlas?",
-        "manageMembers": "Gestionar miembros"
+        "manageMembers": "Gestionar miembros",
+        "autoIncludeNewAccountsToggle": "Añadir automáticamente",
+        "autoIncludeNewAccountsDesc": "Cuando está activado, al actualizar el panel o el estado del servicio API se buscan nuevas cuentas OAuth de Codex y se añaden automáticamente a la colección. Las cuentas Free siguen respetando el límite para cuentas Free."
       },
       "entryAction": "Agregar al servicio API",
       "testAction": "Probar",

@@ -477,11 +477,18 @@ export function DashboardPage({
   );
 
   const handleSaveApiServiceAccounts = useCallback(
-    async (accountIds: string[], options: { restrictFreeAccounts: boolean }) => {
+    async (
+      accountIds: string[],
+      options: {
+        restrictFreeAccounts: boolean;
+        autoIncludeNewAccounts: boolean;
+      },
+    ) => {
       await runApiServiceStateMutation(
         () => codexLocalAccessService.saveCodexLocalAccessAccounts(
           accountIds,
           options.restrictFreeAccounts,
+          options.autoIncludeNewAccounts,
         ),
         t('codex.localAccess.saveSuccess', 'API 服务集合已更新'),
       );
@@ -843,6 +850,16 @@ export function DashboardPage({
   const codexCurrentAccount = useMemo(() => {
     return resolveDashboardCurrentAccount(codexAccounts, codexCurrentId, codexCurrent);
   }, [codexAccounts, codexCurrent, codexCurrentId]);
+
+  const codexAccountIdSignature = useMemo(
+    () => codexAccounts.map((account) => account.id).sort().join('\n'),
+    [codexAccounts],
+  );
+
+  React.useEffect(() => {
+    if (!isMenuVisiblePlatform('codex')) return;
+    void reloadApiServiceState({ silent: true });
+  }, [codexAccountIdSignature, reloadApiServiceState]);
 
   React.useEffect(() => {
     let disposed = false;
@@ -3485,8 +3502,11 @@ export function DashboardPage({
         initialSelectedIds={apiServiceModalSelectedIds}
         maskAccountText={maskAccountText}
         onClose={() => setShowApiServiceModal(false)}
-        onSaveAccounts={({ accountIds, restrictFreeAccounts }) =>
-          handleSaveApiServiceAccounts(accountIds, { restrictFreeAccounts })
+        onSaveAccounts={({ accountIds, restrictFreeAccounts, autoIncludeNewAccounts }) =>
+          handleSaveApiServiceAccounts(accountIds, {
+            restrictFreeAccounts,
+            autoIncludeNewAccounts,
+          })
         }
         onClearStats={handleClearApiServiceStats}
         onRefreshStats={reloadApiServiceState}

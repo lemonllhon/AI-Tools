@@ -1,4 +1,4 @@
-﻿{
+{
   "common": {
     "confirm": "Xác nhận",
     "cancel": "Hủy",
@@ -1776,7 +1776,9 @@
         "freeNoticeUnstable": "Proxy tài khoản Free có thể không ổn định. Hãy dùng thận trọng.",
         "restrictFreeDisableConfirmTitle": "Cho phép tài khoản Free",
         "restrictFreeDisableConfirmMessage": "Proxy tài khoản Free có thể không ổn định. Bạn có chắc muốn dùng không?",
-        "manageMembers": "Quản lý thành viên"
+        "manageMembers": "Quản lý thành viên",
+        "autoIncludeNewAccountsToggle": "Tự động thêm",
+        "autoIncludeNewAccountsDesc": "Khi bật, mỗi lần làm mới bảng điều khiển hoặc trạng thái dịch vụ API sẽ kiểm tra tài khoản Codex OAuth mới và tự động thêm vào bộ sưu tập. Tài khoản Free vẫn tuân theo giới hạn tài khoản Free."
       },
       "entryAction": "Thêm vào dịch vụ API",
       "testAction": "Kiểm tra",

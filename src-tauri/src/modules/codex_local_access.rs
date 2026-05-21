@@ -3602,13 +3602,14 @@ fn sanitize_collection(
         .filter(|account| !account.is_api_key_auth())
         .map(|account| account.id.clone())
         .collect();
-    let valid_account_ids: HashSet<String> = accounts
-        .into_iter()
+    let eligible_account_ids: Vec<String> = accounts
+        .iter()
         .filter(|account| {
             is_local_access_eligible_account(account, collection.restrict_free_accounts)
         })
-        .map(|account| account.id)
+        .map(|account| account.id.clone())
         .collect();
+    let valid_account_ids: HashSet<String> = eligible_account_ids.iter().cloned().collect();
 
     let normalized_bound_oauth_account_id =
         normalize_optional_account_ref(collection.bound_oauth_account_id.as_deref());
@@ -3636,6 +3637,16 @@ fn sanitize_collection(
         }
         deduped.push(account_id.clone());
     }
+
+    if collection.auto_include_new_accounts {
+        for account_id in eligible_account_ids {
+            if seen.insert(account_id.clone()) {
+                deduped.push(account_id);
+                changed = true;
+            }
+        }
+    }
+
     if deduped != collection.account_ids {
         collection.account_ids = deduped;
         changed = true;
@@ -3652,6 +3663,32 @@ fn sanitize_collection(
     collection.custom_routing_rules = normalized_custom_routing_rules;
 
     Ok((changed, valid_account_ids))
+}
+
+async fn refresh_runtime_collection_members_from_accounts() -> Result<(), String> {
+    let maybe_collection = {
+        let runtime = gateway_runtime().lock().await;
+        runtime.collection.clone()
+    };
+
+    let Some(mut collection) = maybe_collection else {
+        return Ok(());
+    };
+
+    let (changed, _) = sanitize_collection(&mut collection)?;
+    if !changed {
+        return Ok(());
+    }
+
+    collection.updated_at = now_ms();
+    save_collection_to_disk(&collection)?;
+
+    {
+        let mut runtime = gateway_runtime().lock().await;
+        sync_runtime_collection(&mut runtime, collection);
+    }
+
+    Ok(())
 }
 
 async fn ensure_runtime_loaded_without_start() -> Result<(), String> {
@@ -3677,6 +3714,7 @@ async fn ensure_runtime_loaded_without_start() -> Result<(), String> {
             routing_strategy: CodexLocalAccessRoutingStrategy::default(),
             custom_routing_rules: Vec::new(),
             restrict_free_accounts: true,
+            auto_include_new_accounts: false,
             bound_oauth_account_id: None,
             account_ids: Vec::new(),
             created_at: now_ms(),
@@ -4052,6 +4090,7 @@ fn build_state_snapshot(runtime: &GatewayRuntime) -> CodexLocalAccessState {
 
 async fn snapshot_state() -> Result<CodexLocalAccessState, String> {
     ensure_runtime_loaded_without_start().await?;
+    refresh_runtime_collection_members_from_accounts().await?;
     if let Err(err) = ensure_gateway_matches_runtime().await {
         let mut runtime = gateway_runtime().lock().await;
         runtime.last_error = Some(err);
@@ -4548,6 +4587,7 @@ pub async fn test_local_access_with_cli() -> Result<CodexLocalAccessTestResult, 
 pub async fn save_local_access_accounts(
     account_ids: Vec<String>,
     restrict_free_accounts: bool,
+    auto_include_new_accounts: bool,
 ) -> Result<CodexLocalAccessState, String> {
     ensure_runtime_loaded().await?;
 
@@ -4565,6 +4605,7 @@ pub async fn save_local_access_accounts(
                 routing_strategy: CodexLocalAccessRoutingStrategy::default(),
                 custom_routing_rules: Vec::new(),
                 restrict_free_accounts: true,
+                auto_include_new_accounts: false,
                 bound_oauth_account_id: None,
                 account_ids: Vec::new(),
                 created_at: now_ms(),
@@ -4590,6 +4631,7 @@ pub async fn save_local_access_accounts(
     }
 
     collection.restrict_free_accounts = restrict_free_accounts;
+    collection.auto_include_new_accounts = auto_include_new_accounts;
     collection.account_ids = next_account_ids;
     collection.updated_at = now_ms();
     let (changed, _) = sanitize_collection(&mut collection)?;
