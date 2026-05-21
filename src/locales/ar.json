@@ -806,7 +806,7 @@
       "codexAppSpeedLaunchFailed": "فشلت إعادة تشغيل Codex: {{error}}"
     },
     "network": {
-      "apiTitle": "واجهة برمجة تطبيقات قمرة القيادة المضادة للجاذبية",
+      "apiTitle": "AI Lemon Tools API",
       "wsService": "خدمة WebSocket",
       "wsServiceDesc": "يسمح للبرامج الخارجية (مثل ملحق VS Code) بالاتصال والتحكم",
       "preferredPort": "المنفذ المفضل",

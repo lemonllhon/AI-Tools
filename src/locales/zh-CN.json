@@ -914,7 +914,7 @@
       "codexAppSpeedLaunchFailed": "重启 Codex 失败：{{error}}"
     },
     "network": {
-      "apiTitle": "反重力驾驶舱 API",
+      "apiTitle": "AI Lemon Tools API",
       "wsService": "WebSocket 服务",
       "wsServiceDesc": "允许外部程序（如 VS Code 插件）连接控制",
       "preferredPort": "首选端口",
@@ -1818,6 +1818,11 @@
       "manageDesc": "在这里统一管理 API 服务的统计、成员、端口、密钥和连通性测试。",
       "accountCount": "{{count}} 个账号",
       "baseUrl": "地址",
+      "webSocketUrl": "WebSocket",
+      "webSocketStatusReady": "可用",
+      "webSocketStatusStopped": "等待服务运行",
+      "webSocketStatusDisabled": "随服务停用",
+      "webSocketManagedDesc": "Codex Responses WebSocket 跟随 API 服务开关、端口、密钥和访问范围统一管理。",
       "addressKind": "地址类型",
       "addressLocal": "本机",
       "addressLan": "局域网",

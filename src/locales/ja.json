@@ -760,7 +760,7 @@
       "codexAppSpeedLaunchFailed": "Codex の再起動に失敗しました: {{error}}"
     },
     "network": {
-      "apiTitle": "反重力コックピット API",
+      "apiTitle": "AI Lemon Tools API",
       "wsService": "WebSocket サービス",
       "wsServiceDesc": "外部プログラム（VS Code 拡張機能など）からの接続を許可する",
       "preferredPort": "推奨ポート",

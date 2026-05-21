@@ -760,7 +760,7 @@
       "codexAppSpeedLaunchFailed": "Не удалось перезапустить Codex: {{error}}"
     },
     "network": {
-      "apiTitle": "API антигравитационной кабины",
+      "apiTitle": "AI Lemon Tools API",
       "wsService": "Сервис WebSocket",
       "wsServiceDesc": "Разрешить внешним программам (например, расширению VS Code) подключаться",
       "preferredPort": "Предпочтительный порт",

@@ -914,7 +914,7 @@
       "codexAppSpeedLaunchFailed": "Failed to restart Codex: {{error}}"
     },
     "network": {
-      "apiTitle": "Antigravity Cockpit API",
+      "apiTitle": "AI Lemon Tools API",
       "wsService": "WebSocket Service",
       "wsServiceDesc": "Allow external programs (e.g., VS Code extension) to connect",
       "preferredPort": "Preferred Port",
@@ -1818,6 +1818,11 @@
       "manageDesc": "Manage API service stats, members, port, key, and connectivity checks in one place.",
       "accountCount": "{{count}} accounts",
       "baseUrl": "URL",
+      "webSocketUrl": "WebSocket",
+      "webSocketStatusReady": "Ready",
+      "webSocketStatusStopped": "Waiting for service",
+      "webSocketStatusDisabled": "Disabled with service",
+      "webSocketManagedDesc": "Codex Responses WebSocket follows the API service switch, port, key, and access scope.",
       "addressKind": "Address type",
       "addressLocal": "Local",
       "addressLan": "LAN",

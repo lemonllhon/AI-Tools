@@ -3175,10 +3175,24 @@ export function DashboardPage({
             const baseUrl = isCodex
               ? apiServiceState?.baseUrl || (codexCollection ? `http://127.0.0.1:${codexCollection.port}/v1` : '-')
               : '-';
+            const wsUrl = isCodex ? apiServiceState?.webSocketUrl || '-' : '-';
+            const wsStatus = isCodex
+              ? apiServiceState?.webSocketEnabled
+                ? t('codex.localAccess.webSocketStatusReady', '可用')
+                : codexCollection?.enabled
+                  ? t('codex.localAccess.webSocketStatusStopped', '等待服务运行')
+                  : t('codex.localAccess.webSocketStatusDisabled', '随服务停用')
+              : '-';
             const cardStatus = isCodex
               ? codexStatus
               : t('dashboard.apiServices.reserved', '待接入');
             const cardTone = isCodex ? codexTone : 'reserved';
+            const activateButtonClass = codexRunning
+              ? 'btn btn-secondary api-service-action-start is-running'
+              : 'btn btn-primary api-service-action-start';
+            const toggleButtonClass = codexCollection?.enabled
+              ? 'btn btn-danger api-service-action-toggle is-stop'
+              : 'btn btn-success api-service-action-toggle is-enable';
 
             return (
               <article className={`api-service-card tone-${cardTone}`} key={platformId}>
@@ -3196,17 +3210,24 @@ export function DashboardPage({
                       count: memberCount,
                     })}
                   </span>
+                  {isCodex && <span>WS {wsStatus}</span>}
                   <span>{t('dashboard.apiServices.pageVisible', '页面可见')}</span>
                 </div>
                 <div className="api-service-endpoint" title={baseUrl}>
                   <span>{t('codex.localAccess.baseUrl', '地址')}</span>
                   <code>{baseUrl}</code>
                 </div>
+                {isCodex && (
+                  <div className="api-service-endpoint" title={wsUrl}>
+                    <span>{t('codex.localAccess.webSocketUrl', 'WebSocket')}</span>
+                    <code>{wsUrl}</code>
+                  </div>
+                )}
                 <div className="api-service-actions">
                   {isCodex ? (
                     <>
                       <button
-                        className="btn btn-primary"
+                        className={activateButtonClass}
                         onClick={() => void handleActivateCodexApiService()}
                         disabled={apiServiceBusy !== null || apiServiceSaving}
                       >
@@ -3216,7 +3237,7 @@ export function DashboardPage({
                           : t('dashboard.apiServices.activate', '启动服务')}
                       </button>
                       <button
-                        className="btn btn-secondary"
+                        className={toggleButtonClass}
                         onClick={() => void handleToggleCodexApiService()}
                         disabled={apiServiceBusy !== null || apiServiceSaving}
                       >

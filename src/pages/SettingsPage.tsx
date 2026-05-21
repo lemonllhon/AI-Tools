@@ -5099,7 +5099,7 @@ export function SettingsPage() {
         {/* === Network Tab === */}
         {activeTab === 'network' && (
           <>
-            <div className="group-title">Antigravity Cockpit API</div>
+            <div className="group-title">{t('settings.network.apiTitle')}</div>
             <div className="settings-group">
               <div className="settings-row">
                 <div className="row-label">

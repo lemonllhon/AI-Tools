@@ -88,7 +88,7 @@ fn build_codex_client_model(model_id: &str) -> Value {
         "max_context_window": DEFAULT_MAX_CONTEXT_WINDOW,
         "default_reasoning_level": "medium",
         "supported_reasoning_levels": reasoning_levels(),
-        "prefer_websockets": false,
+        "prefer_websockets": true,
         "visibility": visibility,
     })
 }

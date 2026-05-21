@@ -806,7 +806,7 @@
       "codexAppSpeedLaunchFailed": "Gagal memulai ulang Codex: {{error}}"
     },
     "network": {
-      "apiTitle": "API Antigravity Cockpit",
+      "apiTitle": "AI Lemon Tools API",
       "wsService": "Layanan WebSocket",
       "wsServiceDesc": "Izinkan program eksternal (misalnya ekstensi VS Code) untuk terhubung",
       "preferredPort": "Port yang Diinginkan",

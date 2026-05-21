@@ -760,7 +760,7 @@
       "codexAppSpeedLaunchFailed": "Không thể khởi động lại Codex: {{error}}"
     },
     "network": {
-      "apiTitle": "API Antigravity Cockpit",
+      "apiTitle": "AI Lemon Tools API",
       "wsService": "Dịch vụ WebSocket",
       "wsServiceDesc": "Cho phép các chương trình bên ngoài (như plugin VS Code) kết nối điều khiển",
       "preferredPort": "Cổng ưu tiên",

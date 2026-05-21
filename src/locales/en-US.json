@@ -914,7 +914,7 @@
       "codexAppSpeedLaunchFailed": "Failed to restart Codex: {{error}}"
     },
     "network": {
-      "apiTitle": "Antigravity Cockpit API",
+      "apiTitle": "AI Lemon Tools API",
       "wsService": "WebSocket Service",
       "wsServiceDesc": "Allow external programs (e.g., VS Code extension) to connect",
       "preferredPort": "Preferred Port",

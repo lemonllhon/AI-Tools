@@ -760,7 +760,7 @@
       "codexAppSpeedLaunchFailed": "Impossibile riavviare Codex: {{error}}"
     },
     "network": {
-      "apiTitle": "API della cabina di pilotaggio antigravità",
+      "apiTitle": "AI Lemon Tools API",
       "wsService": "Servizio WebSocket",
       "wsServiceDesc": "Permetti programmi esterni (es. estensione VS Code) di connettersi",
       "preferredPort": "Porta Preferita",

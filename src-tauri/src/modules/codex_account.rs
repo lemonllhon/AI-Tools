@@ -42,6 +42,7 @@ const CODEX_OPENAI_PROVIDER_ID: &str = "openai";
 const CODEX_RUNTIME_MODEL_PROVIDER_ID: &str = "codex_local_access";
 const CODEX_LEGACY_API_KEY_OPENAI_PROVIDER_ID: &str = "openai_api_key";
 const CODEX_DEFAULT_RUNTIME_PROVIDER_NAME: &str = "OpenAI Official";
+const CODEX_LOCAL_ACCESS_PROVIDER_NAME: &str = "Codex API Service";
 const CODEX_PROVIDER_WIRE_API: &str = "responses";
 const CODEX_CONTEXT_WINDOW_1M_VALUE: i64 = 1_000_000;
 const CODEX_AUTO_COMPACT_DEFAULT_LIMIT: i64 = 900_000;
@@ -261,6 +262,11 @@ fn infer_api_provider_config(
         provider_id: None,
         provider_name: None,
     })
+}
+
+fn provider_supports_responses_websocket(provider_config: &ApiProviderConfig) -> bool {
+    provider_config.provider_id.as_deref() == Some(CODEX_RUNTIME_MODEL_PROVIDER_ID)
+        && provider_config.provider_name.as_deref() == Some(CODEX_LOCAL_ACCESS_PROVIDER_NAME)
 }
 
 fn is_http_like_url(raw: &str) -> bool {
@@ -867,7 +873,8 @@ fn write_api_provider_to_config_toml(
             provider_table["base_url"] = value(base_url);
             provider_table["wire_api"] = value(CODEX_PROVIDER_WIRE_API);
             provider_table["requires_openai_auth"] = value(false);
-            provider_table["supports_websockets"] = value(false);
+            provider_table["supports_websockets"] =
+                value(provider_supports_responses_websocket(provider_config));
         }
     }
 
@@ -958,7 +965,8 @@ fn write_api_key_provider_to_config_toml(
     provider_table["wire_api"] = value(CODEX_PROVIDER_WIRE_API);
     provider_table["requires_openai_auth"] = value(true);
     provider_table[CODEX_CONFIG_EXPERIMENTAL_BEARER_TOKEN_KEY] = value(bearer_token);
-    provider_table["supports_websockets"] = value(false);
+    provider_table["supports_websockets"] =
+        value(provider_supports_responses_websocket(provider_config));
 
     if let Some(parent) = config_path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("创建 config.toml 目录失败: {}", e))?;
@@ -5635,6 +5643,29 @@ requires_openai_auth = false
                 provider_name: Some("Relay".to_string()),
             }
         );
+
+        fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn api_key_config_toml_enables_websockets_for_local_access_runtime_provider() {
+        let base_dir = make_temp_dir("codex-api-key-config-local-access-ws-test");
+        let provider_config = ApiProviderConfig {
+            mode: CodexApiProviderMode::Custom,
+            base_url: Some("http://127.0.0.1:63898/v1".to_string()),
+            provider_id: Some(CODEX_RUNTIME_MODEL_PROVIDER_ID.to_string()),
+            provider_name: Some(CODEX_LOCAL_ACCESS_PROVIDER_NAME.to_string()),
+        };
+
+        write_api_key_provider_to_config_toml(&base_dir, &provider_config, "agt_codex_test")
+            .expect("write config");
+
+        let config_path = base_dir.join("config.toml");
+        let content = fs::read_to_string(&config_path).expect("read config");
+        assert!(content.contains("model_provider = \"codex_local_access\""));
+        assert!(content.contains("name = \"Codex API Service\""));
+        assert!(content.contains("base_url = \"http://127.0.0.1:63898/v1\""));
+        assert!(content.contains("supports_websockets = true"));
 
         fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
     }

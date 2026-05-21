@@ -760,7 +760,7 @@
       "codexAppSpeedLaunchFailed": "Codex를 재시작하지 못했습니다: {{error}}"
     },
     "network": {
-      "apiTitle": "반중력 조종석 API",
+      "apiTitle": "AI Lemon Tools API",
       "wsService": "WebSocket 서비스",
       "wsServiceDesc": "외부 프로그램(예: VS Code 확장 프로그램)의 연결을 허용합니다",
       "preferredPort": "기본 포트",

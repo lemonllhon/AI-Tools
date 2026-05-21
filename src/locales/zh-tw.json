@@ -760,7 +760,7 @@
       "codexAppSpeedLaunchFailed": "重新啟動 Codex 失敗：{{error}}"
     },
     "network": {
-      "apiTitle": "反重力駕駛艙 API",
+      "apiTitle": "AI Lemon Tools API",
       "wsService": "WebSocket 服務",
       "wsServiceDesc": "允許外部程式 (如 VS Code 擴充功能) 連接控制",
       "preferredPort": "偏好連接埠",

@@ -100,7 +100,7 @@ interface CodexLocalAccessModalProps {
 }
 
 type StatsRangeKey = 'daily' | 'weekly' | 'monthly';
-type CopyableField = 'apiPortUrl' | 'baseUrl' | 'apiKey' | 'modelId';
+type CopyableField = 'apiPortUrl' | 'baseUrl' | 'webSocketUrl' | 'apiKey' | 'modelId';
 interface CustomRoutingDraftRule {
   priority: number;
   weight: number;
@@ -249,6 +249,16 @@ export function CodexLocalAccessModal({
   const baseUrl = state?.baseUrl ?? '';
   const displayBaseUrl =
     addressKind === 'lan' && state?.lanBaseUrl ? state.lanBaseUrl : baseUrl;
+  const webSocketUrl = state?.webSocketUrl ?? '';
+  const displayWebSocketUrl =
+    addressKind === 'lan' && state?.lanWebSocketUrl
+      ? state.lanWebSocketUrl
+      : webSocketUrl;
+  const webSocketStatus = state?.webSocketEnabled
+    ? t('codex.localAccess.webSocketStatusReady', '可用')
+    : collection?.enabled
+      ? t('codex.localAccess.webSocketStatusStopped', '等待服务运行')
+      : t('codex.localAccess.webSocketStatusDisabled', '随服务停用');
   const modelIds = state?.modelIds ?? [];
   const stats = state?.stats;
   const statsRangeOptions = useMemo(
@@ -1641,6 +1651,36 @@ export function CodexLocalAccessModal({
                       </div>
                       <code className="codex-local-access-code" title={displayBaseUrl}>
                         {displayBaseUrl}
+                      </code>
+                    </div>
+
+                    <div className="codex-local-access-config-card codex-local-access-config-card-base">
+                      <div className="codex-local-access-config-head">
+                        <span className="codex-local-access-config-label">
+                          {t('codex.localAccess.webSocketUrl', 'WebSocket')}
+                        </span>
+                        <div className="codex-local-access-config-actions">
+                          <span
+                            className={`codex-local-access-status ${state?.webSocketEnabled ? 'running' : 'stopped'}`}
+                            title={t(
+                              'codex.localAccess.webSocketManagedDesc',
+                              'Codex Responses WebSocket 跟随 API 服务开关、端口、密钥和访问范围统一管理。',
+                            )}
+                          >
+                            {webSocketStatus}
+                          </span>
+                          <button
+                            type="button"
+                            className="folder-icon-btn"
+                            onClick={() => void handleCopy('webSocketUrl', displayWebSocketUrl)}
+                            title={t('common.copy', '复制')}
+                          >
+                            {copiedField === 'webSocketUrl' ? <Check size={14} /> : <Copy size={14} />}
+                          </button>
+                        </div>
+                      </div>
+                      <code className="codex-local-access-code" title={displayWebSocketUrl}>
+                        {displayWebSocketUrl}
                       </code>
                     </div>
 

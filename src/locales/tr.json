@@ -760,7 +760,7 @@
       "codexAppSpeedLaunchFailed": "Codex yeniden başlatılamadı: {{error}}"
     },
     "network": {
-      "apiTitle": "Yerçekimine Karşı Kokpit API'si",
+      "apiTitle": "AI Lemon Tools API",
       "wsService": "WebSocket Servisi",
       "wsServiceDesc": "Harici programların (örn. VS Code eklentisi) bağlanmasına izin ver",
       "preferredPort": "Tercih Edilen Port",

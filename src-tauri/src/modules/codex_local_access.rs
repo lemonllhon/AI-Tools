@@ -9,11 +9,12 @@ use crate::models::codex_local_access::{
 use crate::modules::atomic_write::write_string_atomic;
 use crate::modules::{codex_account, codex_oauth, codex_protocol, codex_wakeup, logger, process};
 use base64::{engine::general_purpose, Engine as _};
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::header::{HeaderName, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
 use reqwest::{Client, Method, NoProxy, Proxy, StatusCode, Url};
 use serde_json::{json, Map, Value};
+use sha1::{Digest, Sha1};
 use std::collections::{HashMap, HashSet};
 use std::error::Error as StdError;
 use std::net::{Ipv4Addr, TcpListener as StdTcpListener};
@@ -26,6 +27,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{watch, Mutex as TokioMutex};
 use tokio::time::{timeout, Duration};
+use tokio_tungstenite::tungstenite::{protocol::Role, Message};
+use tokio_tungstenite::WebSocketStream;
 
 const CODEX_LOCAL_ACCESS_FILE: &str = "codex_local_access.json";
 const CODEX_LOCAL_ACCESS_STATS_FILE: &str = "codex_local_access_stats.json";
@@ -80,6 +83,7 @@ const CHAT_COMPLETIONS_PATH: &str = "/v1/chat/completions";
 const RESPONSES_PATH: &str = "/v1/responses";
 const IMAGES_GENERATIONS_PATH: &str = "/v1/images/generations";
 const IMAGES_EDITS_PATH: &str = "/v1/images/edits";
+const WEBSOCKET_ACCEPT_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 static GATEWAY_RUNTIME: OnceLock<TokioMutex<GatewayRuntime>> = OnceLock::new();
 static GATEWAY_ROUND_ROBIN_CURSOR: AtomicUsize = AtomicUsize::new(0);
 static UPSTREAM_HTTP_CLIENT: OnceLock<Mutex<Option<CachedUpstreamHttpClient>>> = OnceLock::new();
@@ -236,6 +240,12 @@ struct RoutingCandidate {
     plan_rank: Option<i32>,
     remaining_quota: Option<i32>,
     subscription_expiry_ms: Option<i64>,
+}
+
+enum ResponsesWebSocketRequest {
+    ResponseCreate(ParsedRequest),
+    Warmup { model: String },
+    ResponseProcessed,
 }
 
 fn gateway_runtime() -> &'static TokioMutex<GatewayRuntime> {
@@ -3030,8 +3040,16 @@ fn build_base_url(port: u16) -> String {
     format!("http://{CODEX_LOCAL_ACCESS_URL_HOST}:{port}/v1")
 }
 
+fn build_websocket_url(port: u16) -> String {
+    format!("ws://{CODEX_LOCAL_ACCESS_URL_HOST}:{port}/v1/responses")
+}
+
 fn build_lan_base_url(port: u16) -> Option<String> {
     resolve_primary_lan_ipv4().map(|addr| format!("http://{addr}:{port}/v1"))
+}
+
+fn build_lan_websocket_url(port: u16) -> Option<String> {
+    resolve_primary_lan_ipv4().map(|addr| format!("ws://{addr}:{port}/v1/responses"))
 }
 
 fn bind_host_for_access_scope(scope: CodexLocalAccessScope) -> &'static str {
@@ -3977,6 +3995,9 @@ fn build_state_snapshot(runtime: &GatewayRuntime) -> CodexLocalAccessState {
         .as_ref()
         .map(|item| build_api_port_url(item.port));
     let base_url = collection.as_ref().map(|item| build_base_url(item.port));
+    let web_socket_url = collection
+        .as_ref()
+        .map(|item| build_websocket_url(item.port));
     let lan_base_url = collection.as_ref().and_then(|item| {
         if item.access_scope == CodexLocalAccessScope::Lan {
             build_lan_base_url(item.port)
@@ -3984,6 +4005,17 @@ fn build_state_snapshot(runtime: &GatewayRuntime) -> CodexLocalAccessState {
             None
         }
     });
+    let lan_web_socket_url = collection.as_ref().and_then(|item| {
+        if item.access_scope == CodexLocalAccessScope::Lan {
+            build_lan_websocket_url(item.port)
+        } else {
+            None
+        }
+    });
+    let web_socket_enabled = collection
+        .as_ref()
+        .map(|item| item.enabled && runtime.running)
+        .unwrap_or(false);
     let model_ids = supported_codex_model_ids();
     let mut stats = runtime.stats.clone();
     stats.events.clear();
@@ -3994,6 +4026,9 @@ fn build_state_snapshot(runtime: &GatewayRuntime) -> CodexLocalAccessState {
         api_port_url,
         base_url,
         lan_base_url,
+        web_socket_url,
+        lan_web_socket_url,
+        web_socket_enabled,
         model_ids,
         last_error: runtime.last_error.clone(),
         member_count,
@@ -5031,6 +5066,68 @@ fn extract_local_api_key(headers: &HashMap<String, String>) -> Option<String> {
         .get("x-api-key")
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn header_contains_token(value: Option<&String>, token: &str) -> bool {
+    value
+        .map(|raw| {
+            raw.split(',')
+                .any(|part| part.trim().eq_ignore_ascii_case(token))
+        })
+        .unwrap_or(false)
+}
+
+fn is_websocket_upgrade_request(request: &ParsedRequest) -> bool {
+    request.method.eq_ignore_ascii_case("GET")
+        && header_contains_token(request.headers.get("connection"), "upgrade")
+        && request
+            .headers
+            .get("upgrade")
+            .map(|value| value.trim().eq_ignore_ascii_case("websocket"))
+            .unwrap_or(false)
+}
+
+fn websocket_accept_key(sec_websocket_key: &str) -> String {
+    let mut hasher = Sha1::new();
+    hasher.update(sec_websocket_key.trim().as_bytes());
+    hasher.update(WEBSOCKET_ACCEPT_GUID.as_bytes());
+    general_purpose::STANDARD.encode(hasher.finalize())
+}
+
+fn websocket_handshake_response(request: &ParsedRequest) -> Result<Vec<u8>, String> {
+    let key = request
+        .headers
+        .get("sec-websocket-key")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or("WebSocket 握手缺少 Sec-WebSocket-Key")?;
+    let accept_key = websocket_accept_key(key);
+    Ok(format!(
+        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {}\r\n\r\n",
+        accept_key
+    )
+    .into_bytes())
+}
+
+fn sanitize_websocket_request_headers(headers: &HashMap<String, String>) -> HashMap<String, String> {
+    let mut next = headers.clone();
+    for name in [
+        "host",
+        "connection",
+        "upgrade",
+        "sec-websocket-key",
+        "sec-websocket-version",
+        "sec-websocket-extensions",
+        "sec-websocket-protocol",
+        "content-length",
+        "accept-encoding",
+    ] {
+        next.remove(name);
+    }
+    next.insert("accept".to_string(), "text/event-stream".to_string());
+    next.insert("content-type".to_string(), "application/json".to_string());
+    next
 }
 
 fn is_local_models_request(target: &str) -> bool {
@@ -6281,6 +6378,433 @@ async fn write_upstream_response(
     Ok(usage_collector.finish())
 }
 
+fn sse_frame_data_payload(frame: &[u8]) -> Option<String> {
+    if frame.is_empty() {
+        return None;
+    }
+
+    let text = String::from_utf8_lossy(frame);
+    let mut data_lines = Vec::new();
+    for raw_line in text.lines() {
+        let line = raw_line.trim();
+        if let Some(rest) = line.strip_prefix("data:") {
+            let payload = rest.trim();
+            if !payload.is_empty() {
+                data_lines.push(payload.to_string());
+            }
+        }
+    }
+
+    let payload = if data_lines.is_empty() {
+        text.trim().to_string()
+    } else {
+        data_lines.join("\n")
+    };
+    if payload.is_empty() || payload == "[DONE]" {
+        None
+    } else {
+        Some(payload)
+    }
+}
+
+#[derive(Default)]
+struct SseWebSocketForwarder {
+    stream_buffer: Vec<u8>,
+}
+
+impl SseWebSocketForwarder {
+    fn feed(&mut self, chunk: &[u8]) -> Vec<String> {
+        if chunk.is_empty() {
+            return Vec::new();
+        }
+        self.stream_buffer.extend_from_slice(chunk);
+        self.process(false)
+    }
+
+    fn finish(&mut self) -> Vec<String> {
+        self.process(true)
+    }
+
+    fn process(&mut self, flush_tail: bool) -> Vec<String> {
+        let mut payloads = Vec::new();
+        loop {
+            let Some((boundary_index, separator_len)) =
+                find_sse_frame_boundary(&self.stream_buffer)
+            else {
+                break;
+            };
+            let frame = self.stream_buffer[..boundary_index].to_vec();
+            self.stream_buffer.drain(..boundary_index + separator_len);
+            if let Some(payload) = sse_frame_data_payload(&frame) {
+                payloads.push(payload);
+            }
+        }
+
+        if flush_tail && !self.stream_buffer.is_empty() {
+            let frame = std::mem::take(&mut self.stream_buffer);
+            if let Some(payload) = sse_frame_data_payload(&frame) {
+                payloads.push(payload);
+            }
+        }
+
+        payloads
+    }
+}
+
+fn prepare_responses_websocket_request(
+    text: &str,
+    base_headers: &HashMap<String, String>,
+) -> Result<ResponsesWebSocketRequest, String> {
+    let value = serde_json::from_str::<Value>(text)
+        .map_err(|e| format!("Responses WebSocket 消息必须是合法 JSON: {}", e))?;
+    let mut obj = value
+        .as_object()
+        .cloned()
+        .ok_or("Responses WebSocket 消息必须是 JSON 对象")?;
+    let kind = obj
+        .remove("type")
+        .and_then(|value| match value {
+            Value::String(value) => Some(value),
+            _ => None,
+        })
+        .ok_or("Responses WebSocket 消息缺少 type")?;
+
+    match kind.as_str() {
+        "response.create" => {
+            let generate = obj.remove("generate").and_then(|value| value.as_bool());
+            let model = obj
+                .get("model")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(DEFAULT_CODEX_MODELS[0])
+                .to_string();
+            if generate == Some(false) {
+                return Ok(ResponsesWebSocketRequest::Warmup { model });
+            }
+
+            let body = serde_json::to_vec(&Value::Object(obj))
+                .map_err(|e| format!("序列化 Responses WebSocket 请求失败: {}", e))?;
+            Ok(ResponsesWebSocketRequest::ResponseCreate(ParsedRequest {
+                method: "POST".to_string(),
+                target: RESPONSES_PATH.to_string(),
+                headers: sanitize_websocket_request_headers(base_headers),
+                body,
+            }))
+        }
+        "response.processed" => Ok(ResponsesWebSocketRequest::ResponseProcessed),
+        other => Err(format!("不支持的 Responses WebSocket 消息类型: {}", other)),
+    }
+}
+
+fn build_responses_websocket_error(status: u16, message: &str) -> Value {
+    json!({
+        "type": "error",
+        "status": status,
+        "error": {
+            "code": "local_gateway_error",
+            "message": message,
+        }
+    })
+}
+
+async fn send_responses_websocket_error(
+    ws_stream: &mut WebSocketStream<TcpStream>,
+    status: u16,
+    message: &str,
+) -> Result<(), String> {
+    ws_stream
+        .send(Message::Text(
+            build_responses_websocket_error(status, message)
+                .to_string()
+                .into(),
+        ))
+        .await
+        .map_err(|e| format!("发送 WebSocket 错误事件失败: {}", e))
+}
+
+fn build_responses_websocket_warmup_events(model: &str) -> Vec<Value> {
+    let response = json!({
+        "id": "",
+        "object": "response",
+        "created_at": now_ms() / 1000,
+        "status": "completed",
+        "model": model,
+        "output": [],
+        "usage": {
+            "input_tokens": 0,
+            "input_tokens_details": {
+                "cached_tokens": 0,
+            },
+            "output_tokens": 0,
+            "output_tokens_details": {
+                "reasoning_tokens": 0,
+            },
+            "total_tokens": 0,
+        },
+        "end_turn": false,
+    });
+
+    vec![
+        json!({
+            "type": "response.created",
+            "response": response.clone(),
+        }),
+        json!({
+            "type": "response.completed",
+            "response": response,
+        }),
+    ]
+}
+
+async fn send_responses_websocket_warmup(
+    ws_stream: &mut WebSocketStream<TcpStream>,
+    model: &str,
+) -> Result<(), String> {
+    for event in build_responses_websocket_warmup_events(model) {
+        ws_stream
+            .send(Message::Text(event.to_string().into()))
+            .await
+            .map_err(|e| format!("发送 WebSocket 预热事件失败: {}", e))?;
+    }
+    Ok(())
+}
+
+async fn forward_upstream_response_to_responses_websocket(
+    ws_stream: &mut WebSocketStream<TcpStream>,
+    upstream: reqwest::Response,
+    request_is_stream: bool,
+) -> Result<ResponseCapture, String> {
+    let headers = upstream.headers().clone();
+    let content_type = headers
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("application/json; charset=utf-8");
+    let is_stream = should_treat_response_as_stream(content_type, request_is_stream);
+
+    if !is_stream {
+        let body_bytes = upstream
+            .bytes()
+            .await
+            .map_err(|e| format!("读取上游响应失败: {}", e))?;
+        let parsed = serde_json::from_slice::<Value>(&body_bytes)
+            .map_err(|e| format!("解析上游 JSON 响应失败: {}", e))?;
+        let response_capture = ResponseCapture {
+            usage: extract_usage_capture(&parsed),
+            response_id: extract_response_id(&parsed),
+        };
+        let response = response_payload_root(&parsed).clone();
+        ws_stream
+            .send(Message::Text(
+                json!({
+                    "type": "response.completed",
+                    "response": response,
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .map_err(|e| format!("发送 WebSocket JSON 响应失败: {}", e))?;
+        return Ok(response_capture);
+    }
+
+    let mut usage_collector = ResponseUsageCollector::new(true);
+    let mut forwarder = SseWebSocketForwarder::default();
+    let mut body_stream = upstream.bytes_stream();
+    while let Some(chunk_result) = body_stream.next().await {
+        let chunk = chunk_result.map_err(|e| format!("读取上游响应失败: {}", e))?;
+        if chunk.is_empty() {
+            continue;
+        }
+        usage_collector.feed(&chunk);
+        for payload in forwarder.feed(&chunk) {
+            ws_stream
+                .send(Message::Text(payload.into()))
+                .await
+                .map_err(|e| format!("转发 WebSocket 事件失败: {}", e))?;
+        }
+    }
+
+    for payload in forwarder.finish() {
+        ws_stream
+            .send(Message::Text(payload.into()))
+            .await
+            .map_err(|e| format!("转发 WebSocket 尾部事件失败: {}", e))?;
+    }
+
+    Ok(usage_collector.finish())
+}
+
+async fn handle_responses_websocket_create(
+    ws_stream: &mut WebSocketStream<TcpStream>,
+    request: ParsedRequest,
+    collection: &CodexLocalAccessCollection,
+    addr: &std::net::SocketAddr,
+) -> Result<(), String> {
+    let started_at = Instant::now();
+    let (prepared_request, response_adapter) = match prepare_gateway_request(request) {
+        Ok(prepared) => prepared,
+        Err(err) => {
+            send_responses_websocket_error(ws_stream, 400, err.as_str()).await?;
+            return Ok(());
+        }
+    };
+
+    let request_is_stream = match response_adapter {
+        GatewayResponseAdapter::Passthrough { request_is_stream } => request_is_stream,
+        _ => {
+            let message = "Responses WebSocket 仅支持 /v1/responses 请求";
+            send_responses_websocket_error(ws_stream, 400, message).await?;
+            return Ok(());
+        }
+    };
+
+    match proxy_request_with_account_pool(&prepared_request, collection).await {
+        Ok(success) => {
+            let response_capture = forward_upstream_response_to_responses_websocket(
+                ws_stream,
+                success.upstream,
+                request_is_stream,
+            )
+            .await?;
+            if let Some(response_id) = response_capture.response_id.as_deref() {
+                bind_response_affinity(response_id, &success.account_id).await;
+            }
+            let latency_ms = started_at.elapsed().as_millis() as u64;
+            if let Err(err) = record_request_stats(
+                Some(success.account_id.as_str()),
+                Some(success.account_email.as_str()),
+                true,
+                latency_ms,
+                response_capture.usage,
+            )
+            .await
+            {
+                logger::log_codex_api_warn(&format!(
+                    "[CodexLocalAccess] 写入 WebSocket 请求统计失败: {}",
+                    err
+                ));
+            }
+            Ok(())
+        }
+        Err(error) => {
+            let ProxyDispatchError {
+                status,
+                message,
+                account_id,
+                account_email,
+            } = error;
+            let latency_ms = started_at.elapsed().as_millis() as u64;
+            log_codex_api_failure(
+                Some(addr),
+                Some(&prepared_request),
+                Some(status),
+                account_id.as_deref(),
+                account_email.as_deref(),
+                Some(latency_ms),
+                message.as_str(),
+            );
+            if let Err(err) = record_request_stats(
+                account_id.as_deref(),
+                account_email.as_deref(),
+                false,
+                latency_ms,
+                None,
+            )
+            .await
+            {
+                logger::log_codex_api_warn(&format!(
+                    "[CodexLocalAccess] 写入 WebSocket 失败统计失败: {}",
+                    err
+                ));
+            }
+            send_responses_websocket_error(ws_stream, status, message.as_str()).await
+        }
+    }
+}
+
+async fn handle_responses_websocket(
+    mut stream: TcpStream,
+    addr: std::net::SocketAddr,
+    parsed: ParsedRequest,
+    collection: CodexLocalAccessCollection,
+) -> Result<(), String> {
+    let response = websocket_handshake_response(&parsed)?;
+    stream
+        .write_all(&response)
+        .await
+        .map_err(|e| format!("写入 WebSocket 握手响应失败: {}", e))?;
+
+    logger::log_codex_api_warn(&format!(
+        "[CodexLocalAccess] Responses WebSocket connected: {}",
+        addr
+    ));
+
+    let base_headers = parsed.headers.clone();
+    let mut ws_stream = WebSocketStream::from_raw_socket(stream, Role::Server, None).await;
+    while let Some(message) = ws_stream.next().await {
+        match message {
+            Ok(Message::Text(text)) => {
+                match prepare_responses_websocket_request(&text, &base_headers) {
+                    Ok(ResponsesWebSocketRequest::ResponseCreate(request)) => {
+                        handle_responses_websocket_create(
+                            &mut ws_stream,
+                            request,
+                            &collection,
+                            &addr,
+                        )
+                        .await?;
+                    }
+                    Ok(ResponsesWebSocketRequest::Warmup { model }) => {
+                        send_responses_websocket_warmup(&mut ws_stream, &model).await?;
+                    }
+                    Ok(ResponsesWebSocketRequest::ResponseProcessed) => {}
+                    Err(err) => {
+                        send_responses_websocket_error(&mut ws_stream, 400, err.as_str()).await?;
+                    }
+                }
+            }
+            Ok(Message::Binary(bytes)) => {
+                let text = String::from_utf8(bytes.to_vec())
+                    .map_err(|e| format!("WebSocket 二进制消息不是 UTF-8: {}", e))?;
+                match prepare_responses_websocket_request(&text, &base_headers) {
+                    Ok(ResponsesWebSocketRequest::ResponseCreate(request)) => {
+                        handle_responses_websocket_create(
+                            &mut ws_stream,
+                            request,
+                            &collection,
+                            &addr,
+                        )
+                        .await?;
+                    }
+                    Ok(ResponsesWebSocketRequest::Warmup { model }) => {
+                        send_responses_websocket_warmup(&mut ws_stream, &model).await?;
+                    }
+                    Ok(ResponsesWebSocketRequest::ResponseProcessed) => {}
+                    Err(err) => {
+                        send_responses_websocket_error(&mut ws_stream, 400, err.as_str()).await?;
+                    }
+                }
+            }
+            Ok(Message::Ping(payload)) => {
+                ws_stream
+                    .send(Message::Pong(payload))
+                    .await
+                    .map_err(|e| format!("发送 WebSocket Pong 失败: {}", e))?;
+            }
+            Ok(Message::Close(_)) => break,
+            Ok(Message::Pong(_) | Message::Frame(_)) => {}
+            Err(err) => return Err(format!("读取 WebSocket 消息失败: {}", err)),
+        }
+    }
+
+    logger::log_codex_api_warn(&format!(
+        "[CodexLocalAccess] Responses WebSocket closed: {}",
+        addr
+    ));
+    Ok(())
+}
+
 async fn force_refresh_gateway_account(account_id: &str) -> Result<CodexAccount, String> {
     let account =
         codex_account::force_refresh_managed_account(account_id, "本地网关上游返回 401").await?;
@@ -6868,6 +7392,10 @@ async fn handle_connection(
         return Ok(());
     }
 
+    if is_websocket_upgrade_request(&parsed) && is_responses_request(&parsed.target) {
+        return handle_responses_websocket(stream, addr, parsed, collection).await;
+    }
+
     if is_local_models_request(&parsed.target) {
         if collection.account_ids.is_empty() {
             write_json_error_response(
@@ -6998,11 +7526,13 @@ mod tests {
         apply_routing_strategy, build_chat_completion_payload, build_chat_completion_stream_body,
         build_codex_client_models_response, build_images_api_payload, build_local_models_response,
         build_ordered_account_ids, build_request_routing_hint, extract_usage_capture,
-        is_responses_completion_event, normalize_custom_routing_rules, parse_codex_retry_after,
+        is_responses_completion_event, is_websocket_upgrade_request,
+        normalize_custom_routing_rules, parse_codex_retry_after,
         parse_responses_payload_from_upstream, prepare_gateway_request,
+        prepare_responses_websocket_request,
         resolve_supported_model_alias, should_retry_single_account_upstream_status,
-        should_treat_response_as_stream, should_try_next_account, GatewayResponseAdapter,
-        ParsedRequest, ResponseUsageCollector,
+        should_treat_response_as_stream, should_try_next_account, websocket_accept_key,
+        GatewayResponseAdapter, ParsedRequest, ResponseUsageCollector, ResponsesWebSocketRequest,
     };
     use crate::models::codex_local_access::{
         CodexLocalAccessCustomRoutingRule, CodexLocalAccessRoutingStrategy,
@@ -7011,6 +7541,73 @@ mod tests {
     use serde_json::{json, Value};
     use std::collections::HashMap;
     use tokio::time::Duration;
+
+    #[test]
+    fn detects_responses_websocket_upgrade_request() {
+        let mut headers = HashMap::new();
+        headers.insert("connection".to_string(), "keep-alive, Upgrade".to_string());
+        headers.insert("upgrade".to_string(), "websocket".to_string());
+
+        let request = ParsedRequest {
+            method: "GET".to_string(),
+            target: "/v1/responses".to_string(),
+            headers,
+            body: Vec::new(),
+        };
+
+        assert!(is_websocket_upgrade_request(&request));
+    }
+
+    #[test]
+    fn builds_websocket_accept_key() {
+        let accept = websocket_accept_key("dGhlIHNhbXBsZSBub25jZQ==");
+
+        assert_eq!(accept, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
+    }
+
+    #[test]
+    fn prepares_response_create_websocket_request_as_http_post() {
+        let headers = HashMap::from([
+            ("authorization".to_string(), "Bearer local-key".to_string()),
+            ("connection".to_string(), "Upgrade".to_string()),
+            ("sec-websocket-key".to_string(), "abc".to_string()),
+        ]);
+        let request = prepare_responses_websocket_request(
+            r#"{"type":"response.create","model":"gpt-5-codex","input":[],"stream":true}"#,
+            &headers,
+        )
+        .expect("websocket request should parse");
+
+        let ResponsesWebSocketRequest::ResponseCreate(request) = request else {
+            panic!("expected response.create request");
+        };
+        assert_eq!(request.method, "POST");
+        assert_eq!(request.target, "/v1/responses");
+        assert_eq!(
+            request.headers.get("authorization").map(String::as_str),
+            Some("Bearer local-key")
+        );
+        assert!(!request.headers.contains_key("connection"));
+        assert!(!request.headers.contains_key("sec-websocket-key"));
+        assert_eq!(
+            request.headers.get("accept").map(String::as_str),
+            Some("text/event-stream")
+        );
+    }
+
+    #[test]
+    fn prepares_generate_false_websocket_request_as_warmup() {
+        let request = prepare_responses_websocket_request(
+            r#"{"type":"response.create","model":"gpt-5-codex","input":[],"generate":false}"#,
+            &HashMap::new(),
+        )
+        .expect("warmup should parse");
+
+        let ResponsesWebSocketRequest::Warmup { model } = request else {
+            panic!("expected warmup request");
+        };
+        assert_eq!(model, "gpt-5-codex");
+    }
 
     #[test]
     fn extracts_usage_from_codex_response_completed_payload() {
@@ -7360,7 +7957,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             .any(|model| model.get("slug").and_then(Value::as_str) == Some("gpt-5.4")));
         assert!(models
             .iter()
-            .all(|model| model.get("prefer_websockets").and_then(Value::as_bool) == Some(false)));
+            .all(|model| model.get("prefer_websockets").and_then(Value::as_bool) == Some(true)));
     }
 
     #[test]

@@ -760,7 +760,7 @@
       "codexAppSpeedLaunchFailed": "Nie udało się zrestartować Codex: {{error}}"
     },
     "network": {
-      "apiTitle": "API kokpitu antygrawitacyjnego",
+      "apiTitle": "AI Lemon Tools API",
       "wsService": "Usługa WebSocket",
       "wsServiceDesc": "Zezwalaj na połączenie programom zewnętrznym (np. rozszerzenie VS Code)",
       "preferredPort": "Preferowany port",

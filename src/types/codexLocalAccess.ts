@@ -76,6 +76,9 @@ export interface CodexLocalAccessState {
   apiPortUrl: string | null;
   baseUrl: string | null;
   lanBaseUrl: string | null;
+  webSocketUrl: string | null;
+  lanWebSocketUrl: string | null;
+  webSocketEnabled: boolean;
   modelIds: string[];
   lastError: string | null;
   memberCount: number;
