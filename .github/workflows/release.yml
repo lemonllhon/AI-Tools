@@ -5,10 +5,215 @@ on:
       - "v*"
   workflow_dispatch:
 
+env:
+  # PUBLIC_RELEASE_REPOSITORY can be configured as a repository variable
+  # or as a secret. Format: owner/repo
+  PUBLIC_RELEASE_REPOSITORY: ${{ vars.PUBLIC_RELEASE_REPOSITORY || secrets.PUBLIC_RELEASE_REPOSITORY }}
+
 jobs:
-  release:
+  prepare-public-release:
+    name: Prepare public release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     permissions:
-      contents: write
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release_tag: ${{ steps.version.outputs.release_tag }}
+      public_release_repository: ${{ steps.public_repo.outputs.full_name }}
+      public_owner: ${{ steps.public_repo.outputs.owner }}
+      public_repo_name: ${{ steps.public_repo.outputs.repo }}
+      public_release_branch: ${{ steps.public_tag.outputs.branch }}
+    steps:
+      - name: Validate public release config
+        id: public_repo
+        env:
+          PUBLIC_RELEASE_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${PUBLIC_RELEASE_REPOSITORY:-}" ]; then
+            echo "::error::Missing PUBLIC_RELEASE_REPOSITORY. Configure it as a repository variable or secret, for example owner/repo."
+            exit 1
+          fi
+          if [ -z "${PUBLIC_RELEASE_TOKEN:-}" ]; then
+            echo "::error::Missing PUBLIC_RELEASE_TOKEN secret. The token needs contents:write permission on ${PUBLIC_RELEASE_REPOSITORY}."
+            exit 1
+          fi
+          if [[ "${PUBLIC_RELEASE_REPOSITORY}" != */* ]]; then
+            echo "::error::PUBLIC_RELEASE_REPOSITORY must use owner/repo format. Current value: ${PUBLIC_RELEASE_REPOSITORY}"
+            exit 1
+          fi
+          owner="${PUBLIC_RELEASE_REPOSITORY%%/*}"
+          repo="${PUBLIC_RELEASE_REPOSITORY#*/}"
+          if [ -z "$owner" ] || [ -z "$repo" ]; then
+            echo "::error::PUBLIC_RELEASE_REPOSITORY must use owner/repo format."
+            exit 1
+          fi
+          echo "full_name=${PUBLIC_RELEASE_REPOSITORY}" >> "$GITHUB_OUTPUT"
+          echo "owner=${owner}" >> "$GITHUB_OUTPUT"
+          echo "repo=${repo}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout source repository
+        uses: actions/checkout@v4
+
+      - name: Node.js setup
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -e "console.log(require(require('path').join(process.env.GITHUB_WORKSPACE, 'package.json')).version)")"
+          EXPECTED_TAG="v${VERSION}"
+          if [[ "${GITHUB_REF}" == refs/tags/* ]] && [ "${GITHUB_REF_NAME}" != "${EXPECTED_TAG}" ]; then
+            echo "Tag (${GITHUB_REF_NAME}) does not match package.json version (${EXPECTED_TAG})."
+            exit 1
+          fi
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            RELEASE_TAG="${GITHUB_REF_NAME}"
+          else
+            RELEASE_TAG="${EXPECTED_TAG}"
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=${RELEASE_TAG}" >> "$GITHUB_ENV"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build bilingual release notes from changelog
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          extract_section() {
+            local file="$1"
+            local version="$2"
+
+            awk -v version="$version" '
+              BEGIN {
+                capture = 0
+                found = 0
+              }
+
+              /^## / {
+                if (capture) {
+                  exit
+                }
+                if ($0 ~ ("^## \\[" version "\\][[:space:]]*-.*$") || $0 ~ ("^## \\[v" version "\\][[:space:]]*-.*$")) {
+                  capture = 1
+                  found = 1
+                }
+              }
+
+              capture {
+                if ($0 ~ /^---[[:space:]]*$/) {
+                  exit
+                }
+                print
+              }
+
+              END {
+                if (!found) {
+                  exit 2
+                }
+              }
+            ' "$file"
+          }
+
+          if ! zh_section="$(extract_section CHANGELOG.zh-CN.md "$VERSION")"; then
+            echo "Missing changelog section for version $VERSION in CHANGELOG.zh-CN.md"
+            exit 1
+          fi
+
+          if ! en_section="$(extract_section CHANGELOG.md "$VERSION")"; then
+            echo "Missing changelog section for version $VERSION in CHANGELOG.md"
+            exit 1
+          fi
+
+          {
+            echo "## 更新日志（中文）"
+            echo
+            printf '%s\n' "$zh_section"
+            echo
+            echo "## Changelog (English)"
+            echo
+            printf '%s\n' "$en_section"
+          } > release-notes.md
+
+      - name: Checkout public release repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PUBLIC_RELEASE_REPOSITORY }}
+          token: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
+          path: public-release-repo
+
+      - name: Create public release tag commit
+        id: public_tag
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="${GITHUB_WORKSPACE}/public-release-repo"
+          cd "$repo"
+
+          branch="$(git branch --show-current || true)"
+          if [ -z "$branch" ]; then
+            remote_head="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+            branch="${remote_head#origin/}"
+          fi
+          if [ -z "$branch" ]; then
+            branch="main"
+          fi
+          git checkout -B "$branch"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          source_commit_message="$(git -C "$GITHUB_WORKSPACE" log -1 --format=%B | sed '/^[[:space:]]*$/d' | head -n 1)"
+          if [ -z "${source_commit_message}" ]; then
+            source_commit_message="Release ${RELEASE_TAG}"
+          fi
+
+          message_file="${RUNNER_TEMP}/public-release-commit-message.txt"
+          printf '%s\n' "${source_commit_message}" > "$message_file"
+          git commit --allow-empty --file "$message_file"
+
+          git tag -f "${RELEASE_TAG}"
+          git push origin "HEAD:${branch}"
+          git push origin "refs/tags/${RELEASE_TAG}" --force
+          echo "branch=${branch}" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update public draft release
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
+          RELEASE_TAG: ${{ steps.version.outputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          title="AI Lemon Tools v${VERSION}"
+          if gh release view "${RELEASE_TAG}" --repo "${PUBLIC_RELEASE_REPOSITORY}" >/dev/null 2>&1; then
+            gh release edit "${RELEASE_TAG}" \
+              --repo "${PUBLIC_RELEASE_REPOSITORY}" \
+              --title "${title}" \
+              --notes-file release-notes.md \
+              --draft=true \
+              --prerelease=false
+          else
+            gh release create "${RELEASE_TAG}" \
+              --repo "${PUBLIC_RELEASE_REPOSITORY}" \
+              --title "${title}" \
+              --notes-file release-notes.md \
+              --draft
+          fi
+
+  release:
+    needs: prepare-public-release
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -61,6 +266,29 @@ jobs:
 
       - name: Sync versions
         run: npm run sync-version
+
+      - name: Point updater endpoint to public release repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          const repo = process.env.PUBLIC_RELEASE_REPOSITORY;
+          if (!repo || !repo.includes('/')) {
+            throw new Error('PUBLIC_RELEASE_REPOSITORY must use owner/repo format.');
+          }
+
+          const configPath = 'src-tauri/tauri.conf.json';
+          const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+          config.plugins ??= {};
+          config.plugins.updater ??= {};
+          config.plugins.updater.endpoints = [
+            `https://github.com/${repo}/releases/latest/download/latest.json`,
+          ];
+          fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+          console.log(`Updater endpoint: ${config.plugins.updater.endpoints[0]}`);
+          NODE
 
       - name: Read app version
         id: app_version
@@ -148,15 +376,19 @@ jobs:
       - name: Build the app
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: "v${{ steps.app_version.outputs.VERSION }}"
+          owner: ${{ needs.prepare-public-release.outputs.public_owner }}
+          repo: ${{ needs.prepare-public-release.outputs.public_repo_name }}
+          releaseCommitish: ${{ needs.prepare-public-release.outputs.public_release_branch }}
+          tagName: ${{ needs.prepare-public-release.outputs.release_tag }}
           releaseName: "AI Lemon Tools v${{ steps.app_version.outputs.VERSION }}"
           releaseBody: ${{ steps.release_notes.outputs.body }}
           releaseDraft: true
           prerelease: false
+          includeUpdaterJson: false
           args: ${{ matrix.args }}
 
       - name: Package Windows portable ZIP
@@ -244,21 +476,21 @@ jobs:
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
           APP_VERSION: ${{ steps.app_version.outputs.VERSION }}
         run: |
           $ErrorActionPreference = "Stop"
-          gh release upload "v$env:APP_VERSION" "$env:PORTABLE_ZIP" --clobber
+          gh release upload "v$env:APP_VERSION" "$env:PORTABLE_ZIP" --repo "$env:PUBLIC_RELEASE_REPOSITORY" --clobber
 
   rebuild-latest-json:
     name: Rebuild merged latest.json
-    needs: release
+    needs:
+      - prepare-public-release
+      - release
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     permissions:
-      contents: write
-    env:
-      GH_REPO: ${{ github.repository }}
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -271,40 +503,41 @@ jobs:
       - name: Determine version
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${{ needs.prepare-public-release.outputs.version }}"
+          RELEASE_TAG="${{ needs.prepare-public-release.outputs.release_tag }}"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
 
       - name: Download release assets (retry)
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p release-assets
-          TAG="v${VERSION}"
           downloaded="false"
           for i in $(seq 1 30); do
-            if gh release download "$TAG" --dir release-assets --pattern "*" --clobber; then
+            if gh release download "$RELEASE_TAG" --repo "${PUBLIC_RELEASE_REPOSITORY}" --dir release-assets --pattern "*" --clobber; then
               downloaded="true"
-              echo "Downloaded release assets from $TAG"
+              echo "Downloaded release assets from $RELEASE_TAG"
               break
             fi
             echo "Release assets not ready yet (attempt $i/30). Sleeping 10s..."
             sleep 10
           done
           if [ "$downloaded" != "true" ]; then
-            echo "Failed to download release assets from $TAG after retries."
+            echo "Failed to download release assets from $RELEASE_TAG after retries."
             exit 1
           fi
 
       - name: Read release metadata
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          gh release view "v${VERSION}" --json body --jq '.body' > release-notes.md
-          PUBLISHED_AT="$(gh release view "v${VERSION}" --json publishedAt,createdAt --jq '.publishedAt // .createdAt')"
+          gh release view "$RELEASE_TAG" --repo "${PUBLIC_RELEASE_REPOSITORY}" --json body --jq '.body' > release-notes.md
+          PUBLISHED_AT="$(gh release view "$RELEASE_TAG" --repo "${PUBLIC_RELEASE_REPOSITORY}" --json publishedAt,createdAt --jq '.publishedAt // .createdAt')"
           if [ -z "${PUBLISHED_AT}" ] || [ "${PUBLISHED_AT}" = "null" ]; then
             PUBLISHED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
           fi
@@ -316,7 +549,7 @@ jobs:
           set -euo pipefail
           node scripts/release/build_merged_latest_json.cjs \
             --version "${VERSION}" \
-            --repo "${GITHUB_REPOSITORY}" \
+            --repo "${PUBLIC_RELEASE_REPOSITORY}" \
             --assets-dir "release-assets" \
             --notes-file "release-notes.md" \
             --published-at "${PUBLISHED_AT}" \
@@ -342,50 +575,50 @@ jobs:
 
       - name: Upload merged latest.json
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          gh release upload "v${VERSION}" latest.json --clobber
+          gh release upload "$RELEASE_TAG" latest.json --repo "${PUBLIC_RELEASE_REPOSITORY}" --clobber
 
   upload-checksums:
     name: Upload SHA256SUMS
     needs:
+      - prepare-public-release
       - release
       - rebuild-latest-json
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     permissions:
-      contents: write
-    env:
-      GH_REPO: ${{ github.repository }}
+      contents: read
     steps:
       - name: Determine version
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${{ needs.prepare-public-release.outputs.version }}"
+          RELEASE_TAG="${{ needs.prepare-public-release.outputs.release_tag }}"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
 
       - name: Download release assets (retry)
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p release-assets
-          TAG="v${VERSION}"
           downloaded="false"
           for i in $(seq 1 30); do
-            if gh release download "$TAG" --dir release-assets --pattern "*" --clobber; then
+            if gh release download "$RELEASE_TAG" --repo "${PUBLIC_RELEASE_REPOSITORY}" --dir release-assets --pattern "*" --clobber; then
               downloaded="true"
-              echo "Downloaded release assets from $TAG"
+              echo "Downloaded release assets from $RELEASE_TAG"
               break
             fi
             echo "Release assets not ready yet (attempt $i/30). Sleeping 10s..."
             sleep 10
           done
           if [ "$downloaded" != "true" ]; then
-            echo "Failed to download release assets from $TAG after retries."
+            echo "Failed to download release assets from $RELEASE_TAG after retries."
             exit 1
           fi
 
@@ -408,20 +641,19 @@ jobs:
 
       - name: Upload SHA256SUMS.txt to release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          gh release upload "v${VERSION}" SHA256SUMS.txt --clobber
+          gh release upload "$RELEASE_TAG" SHA256SUMS.txt --repo "${PUBLIC_RELEASE_REPOSITORY}" --clobber
 
   update-homebrew-cask:
     name: Update Homebrew Cask
     needs:
-      - release
-      - rebuild-latest-json
-      - upload-checksums
+      - prepare-public-release
+      - publish-release
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: write
       pull-requests: write
@@ -435,14 +667,16 @@ jobs:
       - name: Determine version
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${{ needs.prepare-public-release.outputs.version }}"
+          RELEASE_TAG="${{ needs.prepare-public-release.outputs.release_tag }}"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
 
       - name: Download universal DMG from GitHub Releases (retry)
         shell: bash
         run: |
           set -euo pipefail
-          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/AI%20Lemon%20Tools_${VERSION}_universal.dmg"
+          URL="https://github.com/${PUBLIC_RELEASE_REPOSITORY}/releases/download/${RELEASE_TAG}/AI%20Lemon%20Tools_${VERSION}_universal.dmg"
           echo "Downloading: $URL"
           for i in $(seq 1 30); do
             if curl -fL --retry 3 --retry-delay 1 -o ai-lemon-tools.dmg "$URL"; then
@@ -510,24 +744,27 @@ jobs:
   publish-release:
     name: Publish release as latest
     needs:
+      - prepare-public-release
       - release
       - rebuild-latest-json
       - upload-checksums
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     permissions:
-      contents: write
+      contents: read
     steps:
       - name: Determine version
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${{ needs.prepare-public-release.outputs.version }}"
+          RELEASE_TAG="${{ needs.prepare-public-release.outputs.release_tag }}"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
 
       - name: Publish draft release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          gh release edit "v${VERSION}" --repo "${GITHUB_REPOSITORY}" --draft=false --prerelease=false --latest
+          gh release edit "$RELEASE_TAG" --repo "${PUBLIC_RELEASE_REPOSITORY}" --draft=false --prerelease=false --latest

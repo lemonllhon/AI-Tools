@@ -7,6 +7,8 @@
 - 普通推送代码到 `main`：不会打包 Release。
 - 推送版本标签，例如 `v0.24.0`：会自动打包并创建 GitHub Release。
 - 也可以在 GitHub 网页的 `Actions -> Release -> Run workflow` 手动触发。
+- 构建任务在源码仓库运行；完整 Release 会发布到 `PUBLIC_RELEASE_REPOSITORY` 指向的公开发布仓库。
+- 源码仓库不会保存完整安装包 Release，公开仓库只会收到空提交、版本 tag、Release 资产和更新清单。
 
 ## 1. 发布前准备
 
@@ -81,6 +83,12 @@ https://github.com/lemon-casino/Ai-Lemon-Tools/actions
 
 进入 `Release` workflow，等待所有平台构建完成。
 
+Release 下载页面在公开发布仓库：
+
+```text
+https://github.com/<PUBLIC_RELEASE_REPOSITORY>/releases
+```
+
 当前 workflow 会构建：
 
 - macOS Apple Silicon
@@ -91,7 +99,9 @@ https://github.com/lemon-casino/Ai-Lemon-Tools/actions
 - Linux x64
 - Linux ARM64
 
-完成后会创建 GitHub Release，并上传安装包、Windows portable 免安装 zip、`latest.json` 和 `SHA256SUMS.txt`。
+完成后会在公开发布仓库创建 GitHub Release，并上传安装包、Windows portable 免安装 zip、`latest.json` 和 `SHA256SUMS.txt`。
+
+`latest.json` 里的下载地址也会指向公开发布仓库，应用内自动更新不会依赖源码仓库的 Release。
 
 ### 5.1 Windows portable 免安装版
 
@@ -116,7 +126,45 @@ AI Lemon Tools_0.24.1_windows_x64_portable.zip
 - portable 包会进入 `SHA256SUMS.txt` 校验文件。
 - portable 包不写入 `latest.json` 自动更新清单；自动更新仍使用 Windows NSIS/MSI 安装包链路。
 
-## 6. 必须配置的 Secrets
+## 6. 必须配置的 Secrets 和 Variables
+
+当前发布流程需要两组配置：公开发布仓库配置、Tauri 自动更新签名配置。
+
+### 6.1 公开发布仓库
+
+在源码仓库配置：
+
+```text
+PUBLIC_RELEASE_REPOSITORY
+PUBLIC_RELEASE_TOKEN
+```
+
+推荐配置方式：
+
+```text
+PUBLIC_RELEASE_REPOSITORY = Repository variable
+PUBLIC_RELEASE_TOKEN = Repository secret
+```
+
+`PUBLIC_RELEASE_REPOSITORY` 的格式是：
+
+```text
+owner/repo
+```
+
+例如：
+
+```text
+lemon-casino/Ai-Lemon-Tools
+```
+
+`PUBLIC_RELEASE_TOKEN` 是一个 GitHub token，需要对公开发布仓库有 `Contents: Read and write` 权限。workflow 会用它在公开仓库里创建空提交、强制更新同名 tag、创建/更新 Release、上传安装包、上传 `latest.json` 和 `SHA256SUMS.txt`。
+
+公开发布仓库可以是空仓库。第一次发布时，workflow 会自动在公开仓库创建 `main` 空提交和对应版本 tag。
+
+如果想把 `PUBLIC_RELEASE_REPOSITORY` 也放到 Secret，workflow 也兼容；但它不是敏感值，放 Repository variable 更直观。
+
+### 6.2 Tauri 自动更新签名
 
 因为 Tauri 配置了自动更新产物：
 
@@ -245,19 +293,19 @@ git push lemon v0.0.1 --force
 
 ### 7.3 GitHub 权限
 
-Release workflow 需要创建 Release、上传安装包和修改 Release 资产。仓库建议确认：
+源码仓库只需要运行 Actions、读取源码；如果启用了 Homebrew Cask 自动 PR，源码仓库还需要允许 workflow 创建 PR。仓库建议确认：
 
 ```text
 Settings -> Actions -> General -> Workflow permissions -> Read and write permissions
 ```
 
-如果权限不足，可能会在创建 Release 或上传资产时报 `Resource not accessible by integration`。
+公开发布仓库的写入权限由 `PUBLIC_RELEASE_TOKEN` 提供。如果权限不足，通常会在创建公开 tag、创建 Release 或上传资产时报 `Resource not accessible by integration`、`Not Found` 或 `403`。
 
 ### 7.4 失败的 run 怎么处理
 
 旧的失败 run 不需要删除。修复后重新推 `main`，再更新同一个 `v*` tag，GitHub 会触发新的 Release workflow。
 
-如果 GitHub Release 页面已经产生了失败残留的 draft release，可以在 GitHub 网页手动删除 draft 后重新跑，或者让后续 workflow 覆盖同名资产。
+如果公开发布仓库的 GitHub Release 页面已经产生了失败残留的 draft release，可以在 GitHub 网页手动删除 draft 后重新跑，或者让后续 workflow 覆盖同名资产。
 
 ### 7.5 Windows portable 找不到 release 目录
 
