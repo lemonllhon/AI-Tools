@@ -6,7 +6,7 @@ cask "cockpit-tools" do
       verified: "https://github.com/lemon-casino/ai-lemon-tools-release/"
   name "AI Lemon Tools"
   desc "Codex-focused account manager"
-  homepage "https://github.com/lemon-casino/Ai-Lemon-Tools"
+  homepage "https://github.com/lemon-casino/ai-lemon-tools-release"
 
   auto_updates true
 

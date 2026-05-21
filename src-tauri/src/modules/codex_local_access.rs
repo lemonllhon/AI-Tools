@@ -84,6 +84,7 @@ const RESPONSES_PATH: &str = "/v1/responses";
 const IMAGES_GENERATIONS_PATH: &str = "/v1/images/generations";
 const IMAGES_EDITS_PATH: &str = "/v1/images/edits";
 const WEBSOCKET_ACCEPT_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+const MAX_RESPONSES_WEBSOCKET_SESSION_RESPONSES: usize = 32;
 static GATEWAY_RUNTIME: OnceLock<TokioMutex<GatewayRuntime>> = OnceLock::new();
 static GATEWAY_ROUND_ROBIN_CURSOR: AtomicUsize = AtomicUsize::new(0);
 static UPSTREAM_HTTP_CLIENT: OnceLock<Mutex<Option<CachedUpstreamHttpClient>>> = OnceLock::new();
@@ -125,6 +126,7 @@ struct UsageCapture {
 struct ResponseCapture {
     usage: Option<UsageCapture>,
     response_id: Option<String>,
+    output_items: Vec<Value>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -201,6 +203,7 @@ struct ResponseUsageCollector {
     stream_buffer: Vec<u8>,
     usage: Option<UsageCapture>,
     response_id: Option<String>,
+    output_items: Vec<Value>,
 }
 
 #[derive(Debug)]
@@ -246,6 +249,17 @@ enum ResponsesWebSocketRequest {
     ResponseCreate(ParsedRequest),
     Warmup { model: String },
     ResponseProcessed,
+}
+
+#[derive(Debug, Clone)]
+struct ResponsesWebSocketCachedResponse {
+    request_body: Value,
+    output_items: Vec<Value>,
+}
+
+#[derive(Debug, Default)]
+struct ResponsesWebSocketSessionState {
+    responses: HashMap<String, ResponsesWebSocketCachedResponse>,
 }
 
 fn gateway_runtime() -> &'static TokioMutex<GatewayRuntime> {
@@ -5278,6 +5292,21 @@ fn extract_response_id(value: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
+fn extract_completed_response_output_items(value: &Value) -> Vec<Value> {
+    response_payload_root(value)
+        .get("output")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn extract_stream_output_done_item(value: &Value) -> Option<Value> {
+    if value.get("type").and_then(Value::as_str) != Some("response.output_item.done") {
+        return None;
+    }
+    value.get("item").filter(|item| item.is_object()).cloned()
+}
+
 fn should_treat_response_as_stream(content_type: &str, request_is_stream: bool) -> bool {
     request_is_stream
         || content_type
@@ -5310,6 +5339,7 @@ impl ResponseUsageCollector {
             stream_buffer: Vec::new(),
             usage: None,
             response_id: None,
+            output_items: Vec::new(),
         }
     }
 
@@ -5331,12 +5361,17 @@ impl ResponseUsageCollector {
             ResponseCapture {
                 usage: self.usage,
                 response_id: self.response_id,
+                output_items: self.output_items,
             }
         } else {
             let parsed = serde_json::from_slice::<Value>(&self.body).ok();
             ResponseCapture {
                 usage: parsed.as_ref().and_then(extract_usage_capture),
                 response_id: parsed.as_ref().and_then(extract_response_id),
+                output_items: parsed
+                    .as_ref()
+                    .map(extract_completed_response_output_items)
+                    .unwrap_or_default(),
             }
         }
     }
@@ -5401,6 +5436,9 @@ impl ResponseUsageCollector {
             }
             if self.response_id.is_none() {
                 self.response_id = extract_response_id(&value);
+            }
+            if let Some(item) = extract_stream_output_done_item(&value) {
+                self.output_items.push(item);
             }
         }
     }
@@ -6230,6 +6268,7 @@ async fn write_chat_completions_compatible_response(
     let response_capture = ResponseCapture {
         usage: extract_usage_capture(&parsed),
         response_id: extract_response_id(&parsed),
+        output_items: extract_completed_response_output_items(&parsed),
     };
     let chat_payload =
         build_chat_completion_payload(&parsed, requested_model, original_request_body);
@@ -6291,6 +6330,7 @@ async fn write_images_compatible_response(
     let response_capture = ResponseCapture {
         usage: extract_usage_capture(&parsed),
         response_id: extract_response_id(&parsed),
+        output_items: extract_completed_response_output_items(&parsed),
     };
     let images_payload = build_images_api_payload(&parsed, response_format)?;
     let payload_bytes = serde_json::to_vec(&images_payload)
@@ -6451,9 +6491,72 @@ impl SseWebSocketForwarder {
     }
 }
 
+impl ResponsesWebSocketSessionState {
+    fn remember_response(
+        &mut self,
+        response_id: &str,
+        request_body: Value,
+        output_items: Vec<Value>,
+    ) {
+        let response_id = response_id.trim();
+        if response_id.is_empty() {
+            return;
+        }
+
+        if self.responses.len() >= MAX_RESPONSES_WEBSOCKET_SESSION_RESPONSES {
+            if let Some(oldest_key) = self.responses.keys().next().cloned() {
+                self.responses.remove(&oldest_key);
+            }
+        }
+
+        self.responses.insert(
+            response_id.to_string(),
+            ResponsesWebSocketCachedResponse {
+                request_body,
+                output_items,
+            },
+        );
+    }
+
+    fn expand_incremental_request(&self, obj: &mut Map<String, Value>) {
+        let Some(previous_response_id) = obj
+            .remove("previous_response_id")
+            .and_then(|value| match value {
+                Value::String(value) => Some(value),
+                _ => None,
+            })
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+        else {
+            return;
+        };
+
+        let Some(cached) = self.responses.get(previous_response_id.as_str()) else {
+            logger::log_codex_api_warn(&format!(
+                "[CodexLocalAccess] WebSocket previous_response_id not found locally, forwarding full body without previous_response_id: {}",
+                previous_response_id
+            ));
+            return;
+        };
+
+        let mut merged_input = cached
+            .request_body
+            .get("input")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        merged_input.extend(cached.output_items.clone());
+        if let Some(next_input) = obj.get("input").and_then(Value::as_array).cloned() {
+            merged_input.extend(next_input);
+        }
+        obj.insert("input".to_string(), Value::Array(merged_input));
+    }
+}
+
 fn prepare_responses_websocket_request(
     text: &str,
     base_headers: &HashMap<String, String>,
+    session_state: &ResponsesWebSocketSessionState,
 ) -> Result<ResponsesWebSocketRequest, String> {
     let value = serde_json::from_str::<Value>(text)
         .map_err(|e| format!("Responses WebSocket 消息必须是合法 JSON: {}", e))?;
@@ -6483,6 +6586,7 @@ fn prepare_responses_websocket_request(
                 return Ok(ResponsesWebSocketRequest::Warmup { model });
             }
 
+            session_state.expand_incremental_request(&mut obj);
             let body = serde_json::to_vec(&Value::Object(obj))
                 .map_err(|e| format!("序列化 Responses WebSocket 请求失败: {}", e))?;
             Ok(ResponsesWebSocketRequest::ResponseCreate(ParsedRequest {
@@ -6592,6 +6696,7 @@ async fn forward_upstream_response_to_responses_websocket(
         let response_capture = ResponseCapture {
             usage: extract_usage_capture(&parsed),
             response_id: extract_response_id(&parsed),
+            output_items: extract_completed_response_output_items(&parsed),
         };
         let response = response_payload_root(&parsed).clone();
         ws_stream
@@ -6640,6 +6745,7 @@ async fn handle_responses_websocket_create(
     request: ParsedRequest,
     collection: &CodexLocalAccessCollection,
     addr: &std::net::SocketAddr,
+    session_state: &mut ResponsesWebSocketSessionState,
 ) -> Result<(), String> {
     let started_at = Instant::now();
     let (prepared_request, response_adapter) = match prepare_gateway_request(request) {
@@ -6658,6 +6764,7 @@ async fn handle_responses_websocket_create(
             return Ok(());
         }
     };
+    let session_request_body = parse_request_body_json(&prepared_request.body);
 
     match proxy_request_with_account_pool(&prepared_request, collection).await {
         Ok(success) => {
@@ -6669,6 +6776,13 @@ async fn handle_responses_websocket_create(
             .await?;
             if let Some(response_id) = response_capture.response_id.as_deref() {
                 bind_response_affinity(response_id, &success.account_id).await;
+                if let Some(request_body) = session_request_body {
+                    session_state.remember_response(
+                        response_id,
+                        request_body,
+                        response_capture.output_items.clone(),
+                    );
+                }
             }
             let latency_ms = started_at.elapsed().as_millis() as u64;
             if let Err(err) = record_request_stats(
@@ -6741,17 +6855,19 @@ async fn handle_responses_websocket(
     ));
 
     let base_headers = parsed.headers.clone();
+    let mut session_state = ResponsesWebSocketSessionState::default();
     let mut ws_stream = WebSocketStream::from_raw_socket(stream, Role::Server, None).await;
     while let Some(message) = ws_stream.next().await {
         match message {
             Ok(Message::Text(text)) => {
-                match prepare_responses_websocket_request(&text, &base_headers) {
+                match prepare_responses_websocket_request(&text, &base_headers, &session_state) {
                     Ok(ResponsesWebSocketRequest::ResponseCreate(request)) => {
                         handle_responses_websocket_create(
                             &mut ws_stream,
                             request,
                             &collection,
                             &addr,
+                            &mut session_state,
                         )
                         .await?;
                     }
@@ -6767,13 +6883,14 @@ async fn handle_responses_websocket(
             Ok(Message::Binary(bytes)) => {
                 let text = String::from_utf8(bytes.to_vec())
                     .map_err(|e| format!("WebSocket 二进制消息不是 UTF-8: {}", e))?;
-                match prepare_responses_websocket_request(&text, &base_headers) {
+                match prepare_responses_websocket_request(&text, &base_headers, &session_state) {
                     Ok(ResponsesWebSocketRequest::ResponseCreate(request)) => {
                         handle_responses_websocket_create(
                             &mut ws_stream,
                             request,
                             &collection,
                             &addr,
+                            &mut session_state,
                         )
                         .await?;
                     }
@@ -7533,6 +7650,7 @@ mod tests {
         resolve_supported_model_alias, should_retry_single_account_upstream_status,
         should_treat_response_as_stream, should_try_next_account, websocket_accept_key,
         GatewayResponseAdapter, ParsedRequest, ResponseUsageCollector, ResponsesWebSocketRequest,
+        ResponsesWebSocketSessionState,
     };
     use crate::models::codex_local_access::{
         CodexLocalAccessCustomRoutingRule, CodexLocalAccessRoutingStrategy,
@@ -7575,6 +7693,7 @@ mod tests {
         let request = prepare_responses_websocket_request(
             r#"{"type":"response.create","model":"gpt-5-codex","input":[],"stream":true}"#,
             &headers,
+            &ResponsesWebSocketSessionState::default(),
         )
         .expect("websocket request should parse");
 
@@ -7600,6 +7719,7 @@ mod tests {
         let request = prepare_responses_websocket_request(
             r#"{"type":"response.create","model":"gpt-5-codex","input":[],"generate":false}"#,
             &HashMap::new(),
+            &ResponsesWebSocketSessionState::default(),
         )
         .expect("warmup should parse");
 
@@ -7607,6 +7727,47 @@ mod tests {
             panic!("expected warmup request");
         };
         assert_eq!(model, "gpt-5-codex");
+    }
+
+    #[test]
+    fn prepares_previous_response_websocket_request_as_full_http_body() {
+        let mut session_state = ResponsesWebSocketSessionState::default();
+        session_state.remember_response(
+            "resp_previous",
+            json!({
+                "model": "gpt-5-codex",
+                "input": [
+                    { "type": "message", "role": "user", "content": [{ "type": "input_text", "text": "first" }] }
+                ],
+                "stream": true
+            }),
+            vec![json!({
+                "type": "message",
+                "role": "assistant",
+                "content": [{ "type": "output_text", "text": "answer" }]
+            })],
+        );
+
+        let request = prepare_responses_websocket_request(
+            r#"{"type":"response.create","model":"gpt-5-codex","previous_response_id":"resp_previous","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"second"}]}],"stream":true}"#,
+            &HashMap::new(),
+            &session_state,
+        )
+        .expect("incremental websocket request should parse");
+
+        let ResponsesWebSocketRequest::ResponseCreate(request) = request else {
+            panic!("expected response.create request");
+        };
+        let body = serde_json::from_slice::<Value>(&request.body).expect("valid body");
+        assert!(body.get("previous_response_id").is_none());
+        let input = body
+            .get("input")
+            .and_then(Value::as_array)
+            .expect("input array");
+        assert_eq!(input.len(), 3);
+        assert_eq!(input[0]["role"].as_str(), Some("user"));
+        assert_eq!(input[1]["role"].as_str(), Some("assistant"));
+        assert_eq!(input[2]["role"].as_str(), Some("user"));
     }
 
     #[test]

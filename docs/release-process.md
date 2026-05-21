@@ -155,7 +155,7 @@ owner/repo
 例如：
 
 ```text
-lemon-casino/Ai-Lemon-Tools
+lemon-casino/ai-lemon-tools-release
 ```
 
 `PUBLIC_RELEASE_TOKEN` 是一个 GitHub token，需要对公开发布仓库有 `Contents: Read and write` 权限。workflow 会用它在公开仓库里创建空提交、强制更新同名 tag、创建/更新 Release、上传安装包、上传 `latest.json` 和 `SHA256SUMS.txt`。

@@ -8,11 +8,12 @@ use super::config;
 use super::logger;
 
 const ANNOUNCEMENT_URL: &str =
-    "https://raw.githubusercontent.com/jlcodes99/cockpit-tools/main/announcements.json";
+    "https://github.com/lemon-casino/ai-lemon-tools-release/releases/latest/download/announcements.json";
 const ANNOUNCEMENT_CACHE_FILE: &str = "announcement_cache.json";
 const ANNOUNCEMENT_READ_IDS_FILE: &str = "announcement_read_ids.json";
 const ANNOUNCEMENT_LOCAL_OVERRIDE_FILE: &str = "announcements.local.json";
 const CACHE_TTL_MS: i64 = 3_600_000;
+const ANNOUNCEMENTS_ENABLED: bool = false;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -170,6 +171,14 @@ pub struct TopRightAdState {
 
 fn default_target_versions() -> String {
     "*".to_string()
+}
+
+fn empty_announcement_response() -> AnnouncementResponse {
+    AnnouncementResponse {
+        version: "1.0".to_string(),
+        announcements: Vec::new(),
+        top_right_ad: None,
+    }
 }
 
 fn get_shared_dir() -> Result<PathBuf, String> {
@@ -575,6 +584,10 @@ async fn fetch_remote_announcements() -> Result<AnnouncementResponse, String> {
 }
 
 async fn load_announcements_raw() -> Result<AnnouncementResponse, String> {
+    if !ANNOUNCEMENTS_ENABLED {
+        return Ok(empty_announcement_response());
+    }
+
     if let Some(local_data) = load_local_announcements()? {
         return Ok(local_data);
     }
