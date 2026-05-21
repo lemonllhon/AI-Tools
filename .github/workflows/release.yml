@@ -210,12 +210,21 @@ jobs:
           set -euo pipefail
           title="AI Lemon Tools v${VERSION}"
           if gh release view "${RELEASE_TAG}" --repo "${PUBLIC_RELEASE_REPOSITORY}" >/dev/null 2>&1; then
-            gh release edit "${RELEASE_TAG}" \
-              --repo "${PUBLIC_RELEASE_REPOSITORY}" \
-              --title "${title}" \
-              --notes-file release-notes.md \
-              --draft=true \
-              --prerelease=false
+            is_draft="$(gh release view "${RELEASE_TAG}" --repo "${PUBLIC_RELEASE_REPOSITORY}" --json isDraft --jq '.isDraft')"
+            if [ "$is_draft" = "true" ]; then
+              gh release edit "${RELEASE_TAG}" \
+                --repo "${PUBLIC_RELEASE_REPOSITORY}" \
+                --title "${title}" \
+                --notes-file release-notes.md \
+                --draft=true \
+                --prerelease=false
+            else
+              gh release edit "${RELEASE_TAG}" \
+                --repo "${PUBLIC_RELEASE_REPOSITORY}" \
+                --title "${title}" \
+                --notes-file release-notes.md \
+                --prerelease=false
+            fi
           else
             gh release create "${RELEASE_TAG}" \
               --repo "${PUBLIC_RELEASE_REPOSITORY}" \
