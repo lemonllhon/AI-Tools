@@ -786,6 +786,7 @@ jobs:
         id: create_cask_pr
         uses: peter-evans/create-pull-request@v6
         with:
+          token: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
           commit-message: "chore(homebrew): update cask for v${{ env.VERSION }}"
           title: "chore(homebrew): update cask for v${{ env.VERSION }}"
           body: |
@@ -800,7 +801,7 @@ jobs:
       - name: Enable auto-merge for cask PR
         if: ${{ steps.create_cask_pr.outputs.pull-request-number != '' }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail

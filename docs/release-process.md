@@ -299,7 +299,15 @@ git push lemon v0.0.1 --force
 Settings -> Actions -> General -> Workflow permissions -> Read and write permissions
 ```
 
-公开发布仓库的写入权限由 `PUBLIC_RELEASE_TOKEN` 提供。如果权限不足，通常会在创建公开 tag、创建 Release 或上传资产时报 `Resource not accessible by integration`、`Not Found` 或 `403`。
+如果继续使用默认 `GITHUB_TOKEN` 创建 PR，还需要勾选：
+
+```text
+Settings -> Actions -> General -> Workflow permissions -> Allow GitHub Actions to create and approve pull requests
+```
+
+当前 workflow 已把 Homebrew Cask PR 的创建和自动合并切到 `PUBLIC_RELEASE_TOKEN`，因此 `PUBLIC_RELEASE_TOKEN` 除了公开发布仓库权限外，也需要能写入源码仓库的 Cask 分支并创建 PR。Fine-grained token 至少给源码仓库 `Contents: Read and write`、`Pull requests: Read and write`；如果使用 classic token，通常需要 `repo` 权限。
+
+公开发布仓库的写入权限也由 `PUBLIC_RELEASE_TOKEN` 提供。如果权限不足，通常会在创建公开 tag、创建 Release、上传资产或创建 Cask PR 时报 `Resource not accessible by integration`、`Not Found`、`403` 或 `GitHub Actions is not permitted to create or approve pull requests`。
 
 ### 7.4 失败的 run 怎么处理
 
