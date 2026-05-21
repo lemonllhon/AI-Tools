@@ -248,8 +248,17 @@ export function SideNav({
     [isClassicLayout, orderedEntries, sidebarMenuEntryIdSet, sidebarMenuPlatformIdSet],
   );
 
-  const isMoreActive = !!currentEntryId && !sidebarMenuEntryIdSet.has(currentEntryId);
-  const shouldLockActiveOnMore = showMore;
+  const visiblePlatformCount = useMemo(
+    () =>
+      orderedEntries
+        .filter((entry) => !entry.hidden)
+        .reduce((count, entry) => count + entry.platformIds.length, 0),
+    [orderedEntries],
+  );
+  const shouldShowMorePlatforms = visiblePlatformCount >= 2;
+  const isMoreActive =
+    shouldShowMorePlatforms && !!currentEntryId && !sidebarMenuEntryIdSet.has(currentEntryId);
+  const shouldLockActiveOnMore = showMore && shouldShowMorePlatforms;
 
   const shouldShowUpdateEntry = updateActionState !== 'hidden'
     && (
@@ -593,7 +602,7 @@ export function SideNav({
       ? 'progress'
       : 'update';
 
-  const morePopoverContent = showMore ? (
+  const morePopoverContent = showMore && shouldShowMorePlatforms ? (
     <div
       className={`side-nav-more-popover${isClassicLayout ? ' side-nav-more-popover-classic' : ''}`}
       ref={morePopoverRef}
@@ -801,19 +810,21 @@ export function SideNav({
           );
         })}
 
-        <button
-          ref={moreButtonRef}
-          className={`nav-item ${showMore || isMoreActive ? 'active' : ''}`}
-          onClick={() => setShowMore((prev) => !prev)}
-          title={t('nav.morePlatforms', '更多平台')}
-        >
-          <LayoutGrid size={isClassicLayout ? classicMainIconSize : 20} />
-          {showClassicLabels ? (
-            <span className="nav-item-text">{t('nav.morePlatforms', '更多平台')}</span>
-          ) : !isClassicLayout ? (
-            <span className="tooltip">{t('nav.morePlatforms', '更多平台')}</span>
-          ) : null}
-        </button>
+        {shouldShowMorePlatforms && (
+          <button
+            ref={moreButtonRef}
+            className={`nav-item ${showMore || isMoreActive ? 'active' : ''}`}
+            onClick={() => setShowMore((prev) => !prev)}
+            title={t('nav.morePlatforms', '更多平台')}
+          >
+            <LayoutGrid size={isClassicLayout ? classicMainIconSize : 20} />
+            {showClassicLabels ? (
+              <span className="nav-item-text">{t('nav.morePlatforms', '更多平台')}</span>
+            ) : !isClassicLayout ? (
+              <span className="tooltip">{t('nav.morePlatforms', '更多平台')}</span>
+            ) : null}
+          </button>
+        )}
 
         {morePopoverContent && (
           isClassicLayout && typeof document !== 'undefined'

@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { confirm as confirmDialog } from '@tauri-apps/plugin-dialog';
 import { useAccountStore } from '../stores/useAccountStore';
 import { useCodexAccountStore } from '../stores/useCodexAccountStore';
 import { useGitHubCopilotAccountStore } from '../stores/useGitHubCopilotAccountStore';
@@ -22,7 +23,7 @@ import {
   usePlatformLayoutStore,
 } from '../stores/usePlatformLayoutStore';
 import { Page } from '../types/navigation';
-import { Users, CheckCircle2, Sparkles, RotateCw, Play, Github, Tag, ChevronDown, EyeOff, Server, Power, Settings2 } from 'lucide-react';
+import { Users, CheckCircle2, Sparkles, RotateCw, Play, Github, Tag, ChevronDown, EyeOff, Server, Power, Settings2, FolderPlus } from 'lucide-react';
 import { TagEditModal } from '../components/TagEditModal';
 import { Account } from '../types/account';
 import {
@@ -76,8 +77,13 @@ import { ALL_PLATFORM_IDS, PlatformId, PLATFORM_PAGE_MAP, isMenuVisiblePlatform 
 import { getPlatformLabel, renderPlatformIcon } from '../utils/platformMeta';
 import { ManualHelpIconButton } from '../components/ManualHelpIconButton';
 import { AnnouncementCenter } from '../components/AnnouncementCenter';
+import { CodexLocalAccessModal } from '../components/CodexLocalAccessModal';
 import { isPrivacyModeEnabledByDefault, maskSensitiveValue } from '../utils/privacy';
 import { DisplayGroup, getDisplayGroups } from '../services/groupService';
+import {
+  CodexAccountGroup,
+  getCodexAccountGroups,
+} from '../services/codexAccountGroupService';
 import {
   buildAntigravityAccountPresentation,
   buildCodebuddyAccountPresentation,
@@ -95,7 +101,15 @@ import {
   UnifiedQuotaMetric,
 } from '../presentation/platformAccountPresentation';
 import * as codexLocalAccessService from '../services/codexLocalAccessService';
-import type { CodexLocalAccessState } from '../types/codexLocalAccess';
+import type {
+  CodexLocalAccessAddressKind,
+  CodexLocalAccessCustomRoutingRule,
+  CodexLocalAccessRoutingStrategy,
+  CodexLocalAccessScope,
+  CodexLocalAccessState,
+  CodexLocalAccessTestResult,
+  CodexLocalAccessUpstreamProxyMode,
+} from '../types/codexLocalAccess';
 
 interface DashboardPageProps {
   onNavigate: (page: Page) => void;
@@ -106,7 +120,35 @@ interface DashboardPageProps {
 const DASHBOARD_DEFERRED_PREFETCH_DELAY_MS = 6000;
 const DASHBOARD_DEFERRED_PREFETCH_BATCH_SIZE = 1;
 const DASHBOARD_DEFERRED_PREFETCH_BATCH_DELAY_MS = 1200;
+const DASHBOARD_CODEX_LOCAL_ACCESS_ADDRESS_KIND_KEY =
+  'agtools.codex.local_access.address_kind.v1';
 let dashboardStartupPrefetched = false;
+
+function normalizeDashboardLocalAccessAddressKind(
+  value: string | null | undefined,
+): CodexLocalAccessAddressKind {
+  return value === 'lan' ? 'lan' : 'local';
+}
+
+function readDashboardLocalAccessAddressKind(): CodexLocalAccessAddressKind {
+  try {
+    return normalizeDashboardLocalAccessAddressKind(
+      localStorage.getItem(DASHBOARD_CODEX_LOCAL_ACCESS_ADDRESS_KIND_KEY),
+    );
+  } catch {
+    return 'local';
+  }
+}
+
+function persistDashboardLocalAccessAddressKind(
+  value: CodexLocalAccessAddressKind,
+): void {
+  try {
+    localStorage.setItem(DASHBOARD_CODEX_LOCAL_ACCESS_ADDRESS_KIND_KEY, value);
+  } catch {
+    // Ignore storage failures; address preference is non-critical.
+  }
+}
 
 function toFiniteNumber(value: number | null | undefined): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -172,7 +214,16 @@ export function DashboardPage({
   });
   const [apiServiceState, setApiServiceState] = React.useState<CodexLocalAccessState | null>(null);
   const [apiServiceBusy, setApiServiceBusy] = React.useState<'load' | 'toggle' | 'activate' | null>(null);
+  const [apiServiceSaving, setApiServiceSaving] = React.useState(false);
+  const [apiServiceTesting, setApiServiceTesting] = React.useState(false);
+  const [apiServicePortCleanupBusy, setApiServicePortCleanupBusy] = React.useState(false);
   const [apiServiceMessage, setApiServiceMessage] = React.useState<{ text: string; tone?: 'success' | 'error' } | null>(null);
+  const [apiServiceModalMode, setApiServiceModalMode] = React.useState<'panel' | 'members'>('panel');
+  const [showApiServiceModal, setShowApiServiceModal] = React.useState(false);
+  const [apiServiceAccountGroups, setApiServiceAccountGroups] = React.useState<CodexAccountGroup[]>([]);
+  const [apiServiceAddressKind, setApiServiceAddressKind] = React.useState<CodexLocalAccessAddressKind>(() =>
+    readDashboardLocalAccessAddressKind(),
+  );
   const apiServicePlatformIds = useMemo(
     () => ALL_PLATFORM_IDS.filter(isMenuVisiblePlatform),
     [],
@@ -200,13 +251,65 @@ export function DashboardPage({
     void reloadApiServiceState();
   }, [reloadApiServiceState]);
 
+  const reloadApiServiceAccountGroups = useCallback(async () => {
+    try {
+      const groups = await getCodexAccountGroups();
+      setApiServiceAccountGroups(groups);
+    } catch (error) {
+      console.error('Failed to load Codex API service account groups:', error);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (!isMenuVisiblePlatform('codex')) return;
+    void reloadApiServiceAccountGroups();
+  }, [reloadApiServiceAccountGroups]);
+
+  const openCodexApiServiceModal = useCallback(
+    (mode: 'panel' | 'members') => {
+      setApiServiceModalMode(mode);
+      setShowApiServiceModal(true);
+      void reloadApiServiceState();
+      void reloadApiServiceAccountGroups();
+    },
+    [reloadApiServiceAccountGroups, reloadApiServiceState],
+  );
+
+  const runApiServiceStateMutation = useCallback(
+    async (
+      action: () => Promise<CodexLocalAccessState>,
+      successMessage: string,
+    ) => {
+      setApiServiceSaving(true);
+      try {
+        const nextState = await action();
+        setApiServiceState(nextState);
+        setApiServiceMessage({ text: successMessage, tone: 'success' });
+        return nextState;
+      } catch (error) {
+        setApiServiceMessage({
+          text: t('dashboard.apiServices.actionFailed', {
+            defaultValue: 'API 服务操作失败：{{error}}',
+            error: error instanceof Error ? error.message : String(error),
+          }),
+          tone: 'error',
+        });
+        throw error;
+      } finally {
+        setApiServiceSaving(false);
+      }
+    },
+    [t],
+  );
+
   const handleToggleCodexApiService = useCallback(async () => {
     const collection = apiServiceState?.collection;
     if (!collection) {
       setApiServiceMessage({
-        text: t('dashboard.apiServices.needCodexAccounts', '请先在 Codex 页面配置 API 服务账号集合。'),
+        text: t('dashboard.apiServices.needCodexAccounts', '请先在仪表盘服务控制台添加 Codex API 服务账号集合。'),
         tone: 'error',
       });
+      openCodexApiServiceModal('members');
       return;
     }
 
@@ -231,15 +334,16 @@ export function DashboardPage({
     } finally {
       setApiServiceBusy(null);
     }
-  }, [apiServiceState?.collection, t]);
+  }, [apiServiceState?.collection, openCodexApiServiceModal, t]);
 
   const handleActivateCodexApiService = useCallback(async () => {
     const collection = apiServiceState?.collection;
     if (!collection) {
       setApiServiceMessage({
-        text: t('dashboard.apiServices.needCodexAccounts', '请先在 Codex 页面配置 API 服务账号集合。'),
+        text: t('dashboard.apiServices.needCodexAccounts', '请先在仪表盘服务控制台添加 Codex API 服务账号集合。'),
         tone: 'error',
       });
+      openCodexApiServiceModal('members');
       return;
     }
 
@@ -267,7 +371,182 @@ export function DashboardPage({
     } finally {
       setApiServiceBusy(null);
     }
-  }, [apiServiceState, t]);
+  }, [apiServiceState, openCodexApiServiceModal, t]);
+
+  const handleApiServiceAddressKindChange = useCallback((value: string) => {
+    const next = normalizeDashboardLocalAccessAddressKind(value);
+    setApiServiceAddressKind(next);
+    persistDashboardLocalAccessAddressKind(next);
+  }, []);
+
+  const selectedApiServiceAddressKind: CodexLocalAccessAddressKind =
+    apiServiceAddressKind === 'lan' && apiServiceState?.lanBaseUrl ? 'lan' : 'local';
+
+  const apiServiceAddressOptions = useMemo(
+    () => [
+      {
+        value: 'local',
+        label: t('codex.localAccess.addressLocal', '本机'),
+      },
+      ...(apiServiceState?.lanBaseUrl
+        ? [
+            {
+              value: 'lan',
+              label: t('codex.localAccess.addressLan', '局域网'),
+            },
+          ]
+        : []),
+    ],
+    [apiServiceState?.lanBaseUrl, t],
+  );
+
+  const apiServiceModalSelectedIds = useMemo(
+    () => [...(apiServiceState?.collection?.accountIds ?? [])],
+    [apiServiceState?.collection?.accountIds],
+  );
+
+  const handleSaveApiServiceAccounts = useCallback(
+    async (accountIds: string[], options: { restrictFreeAccounts: boolean }) => {
+      await runApiServiceStateMutation(
+        () => codexLocalAccessService.saveCodexLocalAccessAccounts(
+          accountIds,
+          options.restrictFreeAccounts,
+        ),
+        t('codex.localAccess.saveSuccess', 'API 服务集合已更新'),
+      );
+    },
+    [runApiServiceStateMutation, t],
+  );
+
+  const handleClearApiServiceStats = useCallback(async () => {
+    await runApiServiceStateMutation(
+      () => codexLocalAccessService.clearCodexLocalAccessStats(),
+      t('codex.localAccess.clearStatsSuccess', 'API 服务统计已清空'),
+    );
+  }, [runApiServiceStateMutation, t]);
+
+  const handleRotateApiServiceKey = useCallback(async () => {
+    await runApiServiceStateMutation(
+      () => codexLocalAccessService.rotateCodexLocalAccessApiKey(),
+      t('codex.localAccess.rotateSuccess', 'API 服务密钥已重置'),
+    );
+  }, [runApiServiceStateMutation, t]);
+
+  const handleUpdateApiServicePort = useCallback(
+    async (port: number) => {
+      await runApiServiceStateMutation(
+        () => codexLocalAccessService.updateCodexLocalAccessPort(port),
+        t('codex.localAccess.portSaveSuccess', 'API 服务端口已更新'),
+      );
+    },
+    [runApiServiceStateMutation, t],
+  );
+
+  const handleUpdateApiServiceRoutingStrategy = useCallback(
+    async (strategy: CodexLocalAccessRoutingStrategy) => {
+      await runApiServiceStateMutation(
+        () => codexLocalAccessService.updateCodexLocalAccessRoutingStrategy(strategy),
+        t('codex.localAccess.routingSaveSuccess', 'API 服务调度策略已更新'),
+      );
+    },
+    [runApiServiceStateMutation, t],
+  );
+
+  const handleUpdateApiServiceCustomRouting = useCallback(
+    async (rules: CodexLocalAccessCustomRoutingRule[]) => {
+      await runApiServiceStateMutation(
+        () => codexLocalAccessService.updateCodexLocalAccessCustomRouting(rules),
+        t('codex.localAccess.customRoutingSaveSuccess', 'API 服务自定义调度已更新'),
+      );
+    },
+    [runApiServiceStateMutation, t],
+  );
+
+  const handleUpdateApiServiceAccessScope = useCallback(
+    async (accessScope: CodexLocalAccessScope) => {
+      await runApiServiceStateMutation(
+        () => codexLocalAccessService.updateCodexLocalAccessAccessScope(accessScope),
+        t('codex.localAccess.accessScopeSaveSuccess', 'API 服务访问范围已更新'),
+      );
+    },
+    [runApiServiceStateMutation, t],
+  );
+
+  const handleUpdateApiServiceUpstreamProxyMode = useCallback(
+    async (upstreamProxyMode: CodexLocalAccessUpstreamProxyMode) => {
+      await runApiServiceStateMutation(
+        () => codexLocalAccessService.updateCodexLocalAccessUpstreamProxyMode(upstreamProxyMode),
+        t('codex.localAccess.upstreamProxySaveSuccess', 'API 服务上游连接方式已更新'),
+      );
+    },
+    [runApiServiceStateMutation, t],
+  );
+
+  const handleUpdateApiServiceBoundOAuthAccount = useCallback(
+    async (accountId: string | null) => {
+      await runApiServiceStateMutation(
+        () => codexLocalAccessService.updateCodexLocalAccessBoundOAuthAccount(accountId),
+        t('codex.localAccess.oauthBinding.saveSuccess', 'API 服务 OAuth 绑定已更新'),
+      );
+    },
+    [runApiServiceStateMutation, t],
+  );
+
+  const handleKillApiServicePort = useCallback(async () => {
+    const port = apiServiceState?.collection?.port;
+    const confirmed = await confirmDialog(
+      t('codex.localAccess.killPortConfirmMessage', {
+        port,
+        defaultValue:
+          '将强制结束占用本机 {{port}} 端口的其他进程，然后重新启动 API 服务。确认继续吗？',
+      }),
+      {
+        title: t('codex.localAccess.killPortTitle', '清理 API 服务端口'),
+        okLabel: t('codex.localAccess.killPortAction', '清理端口'),
+        cancelLabel: t('common.cancel', '取消'),
+      },
+    );
+    if (!confirmed) return;
+
+    setApiServicePortCleanupBusy(true);
+    try {
+      const result = await codexLocalAccessService.killCodexLocalAccessPort();
+      setApiServiceState(result.state);
+      setApiServiceMessage({
+        text:
+          result.killedCount > 0
+            ? t('codex.localAccess.killPortSuccess', {
+                count: result.killedCount,
+                defaultValue: '已清理 {{count}} 个占用端口的进程',
+              })
+            : t('codex.localAccess.killPortSuccessNone', '没有发现需要清理的占用进程'),
+        tone: 'success',
+      });
+    } catch (error) {
+      setApiServiceMessage({
+        text: t('dashboard.apiServices.actionFailed', {
+          defaultValue: 'API 服务操作失败：{{error}}',
+          error: error instanceof Error ? error.message : String(error),
+        }),
+        tone: 'error',
+      });
+      throw error;
+    } finally {
+      setApiServicePortCleanupBusy(false);
+    }
+  }, [apiServiceState?.collection?.port, t]);
+
+  const handleTestApiService = useCallback(async (): Promise<CodexLocalAccessTestResult> => {
+    if (!apiServiceState?.collection) {
+      throw new Error(t('codex.localAccess.testUnavailable', '当前 API 服务地址不可用'));
+    }
+    setApiServiceTesting(true);
+    try {
+      return await codexLocalAccessService.testCodexLocalAccess();
+    } finally {
+      setApiServiceTesting(false);
+    }
+  }, [apiServiceState?.collection, t]);
 
   const toggleDashboardCardCollapse = useCallback((platform: keyof DashboardCardCollapseState) => {
     setDashboardCardCollapse((prev) => ({
@@ -2892,7 +3171,6 @@ export function DashboardPage({
         <div className="api-services-grid">
           {apiServicePlatformIds.map((platformId) => {
             const isCodex = platformId === 'codex';
-            const page = PLATFORM_PAGE_MAP[platformId];
             const memberCount = isCodex ? apiServiceState?.memberCount ?? 0 : 0;
             const baseUrl = isCodex
               ? apiServiceState?.baseUrl || (codexCollection ? `http://127.0.0.1:${codexCollection.port}/v1` : '-')
@@ -2930,7 +3208,7 @@ export function DashboardPage({
                       <button
                         className="btn btn-primary"
                         onClick={() => void handleActivateCodexApiService()}
-                        disabled={apiServiceBusy !== null || !codexCollection}
+                        disabled={apiServiceBusy !== null || apiServiceSaving}
                       >
                         <Play size={14} />
                         {apiServiceBusy === 'activate'
@@ -2940,16 +3218,28 @@ export function DashboardPage({
                       <button
                         className="btn btn-secondary"
                         onClick={() => void handleToggleCodexApiService()}
-                        disabled={apiServiceBusy !== null || !codexCollection}
+                        disabled={apiServiceBusy !== null || apiServiceSaving}
                       >
                         <Power size={14} />
                         {codexCollection?.enabled
                           ? t('dashboard.apiServices.disable', '停用')
                           : t('dashboard.apiServices.enable', '启用')}
                       </button>
-                      <button className="btn btn-secondary" onClick={() => onNavigate(page)}>
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() => openCodexApiServiceModal('panel')}
+                        disabled={apiServiceBusy !== null || apiServiceSaving}
+                      >
                         <Settings2 size={14} />
-                        {t('dashboard.apiServices.accountConfig', '账号配置')}
+                        {t('codex.localAccess.dashboardAction', '服务面板')}
+                      </button>
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() => openCodexApiServiceModal('members')}
+                        disabled={apiServiceBusy !== null || apiServiceSaving}
+                      >
+                        <FolderPlus size={14} />
+                        {t('codex.localAccess.modal.manageMembers', '管理成员')}
                       </button>
                     </>
                   ) : (
@@ -3089,6 +3379,37 @@ export function DashboardPage({
           onSave={handleSaveTags}
         />
       )}
+
+      <CodexLocalAccessModal
+        isOpen={showApiServiceModal}
+        mode={apiServiceModalMode}
+        state={apiServiceState}
+        addressKind={selectedApiServiceAddressKind}
+        addressOptions={apiServiceAddressOptions}
+        onAddressKindChange={handleApiServiceAddressKindChange}
+        accounts={codexAccounts}
+        accountGroups={apiServiceAccountGroups}
+        initialSelectedIds={apiServiceModalSelectedIds}
+        maskAccountText={maskAccountText}
+        onClose={() => setShowApiServiceModal(false)}
+        onSaveAccounts={({ accountIds, restrictFreeAccounts }) =>
+          handleSaveApiServiceAccounts(accountIds, { restrictFreeAccounts })
+        }
+        onClearStats={handleClearApiServiceStats}
+        onRefreshStats={reloadApiServiceState}
+        onUpdatePort={handleUpdateApiServicePort}
+        onUpdateRoutingStrategy={handleUpdateApiServiceRoutingStrategy}
+        onUpdateCustomRouting={handleUpdateApiServiceCustomRouting}
+        onUpdateAccessScope={handleUpdateApiServiceAccessScope}
+        onUpdateUpstreamProxyMode={handleUpdateApiServiceUpstreamProxyMode}
+        onUpdateBoundOAuthAccount={handleUpdateApiServiceBoundOAuthAccount}
+        onRotateApiKey={handleRotateApiServiceKey}
+        onKillPort={handleKillApiServicePort}
+        onTest={handleTestApiService}
+        saving={apiServiceSaving}
+        testing={apiServiceTesting}
+        portCleanupBusy={apiServicePortCleanupBusy}
+      />
 
     </main>
   );

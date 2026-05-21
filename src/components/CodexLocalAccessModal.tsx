@@ -88,6 +88,9 @@ interface CodexLocalAccessModalProps {
   onUpdateUpstreamProxyMode: (
     upstreamProxyMode: CodexLocalAccessUpstreamProxyMode,
   ) => Promise<unknown> | unknown;
+  onUpdateBoundOAuthAccount?: (
+    accountId: string | null,
+  ) => Promise<unknown> | unknown;
   onRotateApiKey: () => Promise<unknown> | unknown;
   onKillPort: () => Promise<unknown> | unknown;
   onTest: () => Promise<CodexLocalAccessTestResult> | CodexLocalAccessTestResult;
@@ -200,6 +203,7 @@ export function CodexLocalAccessModal({
   onUpdateCustomRouting,
   onUpdateAccessScope,
   onUpdateUpstreamProxyMode,
+  onUpdateBoundOAuthAccount,
   onRotateApiKey,
   onKillPort,
   onTest,
@@ -343,6 +347,32 @@ export function CodexLocalAccessModal({
     () => accounts.filter((account) => !isCodexApiKeyAccount(account)),
     [accounts],
   );
+  const boundOAuthAccount = useMemo(
+    () =>
+      collection?.boundOauthAccountId
+        ? oauthAccounts.find((account) => account.id === collection.boundOauthAccountId) ?? null
+        : null,
+    [collection?.boundOauthAccountId, oauthAccounts],
+  );
+  const boundOAuthOptions = useMemo(
+    () => [
+      {
+        value: '',
+        label: t('codex.api.oauthBinding.unbound', '未绑定'),
+      },
+      ...oauthAccounts.map((account) => {
+        const presentation = buildCodexAccountPresentation(account, t);
+        return {
+          value: account.id,
+          label: `${maskAccountText(presentation.displayName)} · ${presentation.planLabel}`,
+        };
+      }),
+    ],
+    [maskAccountText, oauthAccounts, t],
+  );
+  const boundOAuthLabel = boundOAuthAccount
+    ? maskAccountText(buildCodexAccountPresentation(boundOAuthAccount, t).displayName)
+    : t('codex.api.oauthBinding.unbound', '未绑定');
   const quotaPoolSummary = useMemo(
     () => summarizeCodexQuotaPool(oauthAccounts),
     [oauthAccounts],
@@ -986,6 +1016,20 @@ export function CodexLocalAccessModal({
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
+  };
+
+  const handleChangeBoundOAuthAccount = async (nextValue: string) => {
+    if (!collection || !onUpdateBoundOAuthAccount) return;
+    const nextAccountId = nextValue.trim() || null;
+    const currentAccountId = collection.boundOauthAccountId ?? null;
+    if (nextAccountId === currentAccountId) return;
+
+    await runAction(
+      async () => {
+        await onUpdateBoundOAuthAccount(nextAccountId);
+      },
+      t('codex.localAccess.oauthBinding.saveSuccess', 'API 服务 OAuth 绑定已更新'),
+    );
   };
 
   const toggleSelectAllVisible = () => {
@@ -1737,6 +1781,34 @@ export function CodexLocalAccessModal({
                         </div>
                         <code className="codex-local-access-code" title={apiPortUrl}>
                           {apiPortUrl}
+                        </code>
+                      </div>
+                    ) : null}
+
+                    {collection ? (
+                      <div className="codex-local-access-config-card codex-local-access-config-card-oauth">
+                        <div className="codex-local-access-config-head">
+                          <span className="codex-local-access-config-label">
+                            {t('codex.api.oauthBinding.label', 'OAuth 绑定')}
+                          </span>
+                          <div className="codex-local-access-config-actions">
+                            <SingleSelectDropdown
+                              value={collection.boundOauthAccountId ?? ''}
+                              options={boundOAuthOptions}
+                              onChange={(value) => void handleChangeBoundOAuthAccount(value)}
+                              disabled={!onUpdateBoundOAuthAccount || saving || testing}
+                              ariaLabel={t('codex.api.oauthBinding.label', 'OAuth 绑定')}
+                              menuWidth={220}
+                              menuMaxHeight={280}
+                              menuPlacement="up"
+                            />
+                          </div>
+                        </div>
+                        <code
+                          className="codex-local-access-code"
+                          title={boundOAuthLabel}
+                        >
+                          {boundOAuthLabel}
                         </code>
                       </div>
                     ) : null}

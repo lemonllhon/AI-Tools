@@ -2655,29 +2655,6 @@ export function SettingsPage() {
                 <div className="settings-group">
               <div className="settings-row">
                 <div className="row-label">
-                  <div className="row-title">
-                    {t('settings.general.codexLocalAccessEntryVisible', '显示 API 服务入口')}
-                  </div>
-                  <div className="row-desc">
-                    {t(
-                      'settings.general.codexLocalAccessEntryVisibleDesc',
-                      '仅控制 Codex 总览中的 API 服务入口显示，不会停止本地 API 服务；关闭后可在这里重新打开。',
-                    )}
-                  </div>
-                </div>
-                <div className="row-control">
-                  <label className="switch">
-                    <input
-                      type="checkbox"
-                      checked={codexLocalAccessEntryVisible}
-                      onChange={(e) => setCodexLocalAccessEntryVisible(e.target.checked)}
-                    />
-                    <span className="slider"></span>
-                  </label>
-                </div>
-              </div>
-              <div className="settings-row">
-                <div className="row-label">
                   <div className="row-title">{t('settings.general.codexAutoRefresh')}</div>
                   <div className="row-desc">{t('settings.general.codexAutoRefreshDesc')}</div>
                 </div>

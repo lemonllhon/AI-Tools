@@ -261,6 +261,7 @@ const DEFAULT_CODEX_API_BASE_URL = COCKPIT_API_BASE_URL;
 const CODEX_LOCAL_ACCESS_FALLBACK_PORT = 54140;
 const CODEX_LOCAL_ACCESS_FALLBACK_BASE_URL = `http://127.0.0.1:${CODEX_LOCAL_ACCESS_FALLBACK_PORT}/v1`;
 const CODEX_LOCAL_ACCESS_FALLBACK_API_KEY_MASK = "agt_codex_••••••••••••";
+const CODEX_LOCAL_ACCESS_ACCOUNT_PAGE_ENTRY_ENABLED = false;
 const CODEX_FILTER_PERSISTENCE_SCOPE = normalizeAccountsOverviewScope("Codex");
 const FILTER_TYPES_FIELD = "filter_types";
 const EXPIRY_FILTER_FIELD = "expiry_filter";
@@ -5529,7 +5530,9 @@ export function CodexAccountsPage() {
         .filter(Boolean);
       const visibleTags = accountTags.slice(0, 2);
       const moreTagCount = Math.max(0, accountTags.length - visibleTags.length);
-      const isInLocalAccess = localAccessAccountIdSet.has(account.id);
+      const isInLocalAccess =
+        CODEX_LOCAL_ACCESS_ACCOUNT_PAGE_ENTRY_ENABLED &&
+        localAccessAccountIdSet.has(account.id);
       const subscriptionInfo = resolveSubscriptionPresentation(account);
       const isSubscriptionInfoMissing = subscriptionInfo.bucket === "missing";
       return (
@@ -5891,7 +5894,7 @@ export function CodexAccountsPage() {
     });
 
   const renderLocalAccessInlineCard = () => {
-    if (!localAccessEntryVisible) {
+    if (!CODEX_LOCAL_ACCESS_ACCOUNT_PAGE_ENTRY_ENABLED || !localAccessEntryVisible) {
       return null;
     }
 
@@ -6563,7 +6566,9 @@ export function CodexAccountsPage() {
       const apiProviderLine = `${t("codex.api.provider.label", "供应商")}：${apiProviderName}`;
       const apiBaseUrlText = (account.api_base_url || "").trim() || "-";
       const apiBaseUrlLine = `${t("codex.api.baseUrl", "Base URL")}：${apiBaseUrlText}`;
-      const isInLocalAccess = localAccessAccountIdSet.has(account.id);
+      const isInLocalAccess =
+        CODEX_LOCAL_ACCESS_ACCOUNT_PAGE_ENTRY_ENABLED &&
+        localAccessAccountIdSet.has(account.id);
       const subscriptionInfo = resolveSubscriptionPresentation(account);
       return (
         <tr
