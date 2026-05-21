@@ -6,6 +6,16 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+
+## [0.0.4] - 2026-05-22
+###New addition
+-* * Added/v1/responses WebSocket handshake, authentication, responsive.create forwarding, SSE to WS event forwarding
+-Optimize layout logic structure, dashboard service console display Codex WS address and status
+-Add multi account functionality
+-Add WebSocket entry, status, and copy buttons to the service panel functionality
+-Optimize the button status in the dashboard service console
+
+
 ## [0.0.3] - 2026-05-22
 ### Added
 - **Optimize the Codex API service for rapid startup**

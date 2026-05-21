@@ -6,6 +6,17 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+
+---
+## [0.0.4] - 2026-05-22
+
+### 新增 
+- **新增 /v1/responses WebSocket 握手、鉴权、response.create 转发、SSE 到 WS 事件转发
+- **优化布局逻辑结构 仪表盘服务控制台显示 Codex WS 地址和状态
+- ** 增加多账号功能
+- **增加服务面板功能 服务面板里增加 WebSocket 入口、状态和复制按钮 
+- **优化仪表盘服务控制台里的按钮状态
+
 ---
 ## [0.0.3] - 2026-05-22
 
