@@ -334,6 +334,29 @@ fatal: couldn't find remote ref refs/heads/main
 
 说明公开发布仓库还是空仓库，没有任何分支。当前 workflow 已改为手动初始化公开发布仓库：如果公开仓库没有默认分支，会自动创建 `main` 的第一条空提交，再创建版本 tag 和 Release。
 
+### 7.7 Homebrew Cask 下载 universal DMG 404
+
+如果 `Update Homebrew Cask` 报错类似：
+
+```text
+curl: (22) The requested URL returned error: 404
+Failed to download release asset after retries.
+```
+
+通常是 Tauri 上传的 DMG 文件名和 workflow 里硬编码的文件名不一致。例如实际 asset 可能是：
+
+```text
+AI.Lemon.Tools_0.0.3_universal.dmg
+```
+
+而不是：
+
+```text
+AI Lemon Tools_0.0.3_universal.dmg
+```
+
+当前 workflow 已改为从公开 Release assets 里按 `*_universal.dmg` 自动查找并下载，同时把 Cask 的 `url` 和 `verified` 更新为实际公开发布仓库地址。
+
 ## 8. 失败后怎么重发
 
 如果 workflow 失败，先修代码并重新提交：

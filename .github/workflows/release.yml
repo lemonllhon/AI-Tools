@@ -687,14 +687,27 @@ jobs:
           echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
 
       - name: Download universal DMG from GitHub Releases (retry)
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          URL="https://github.com/${PUBLIC_RELEASE_REPOSITORY}/releases/download/${RELEASE_TAG}/AI%20Lemon%20Tools_${VERSION}_universal.dmg"
-          echo "Downloading: $URL"
+          mkdir -p cask-asset
           for i in $(seq 1 30); do
-            if curl -fL --retry 3 --retry-delay 1 -o ai-lemon-tools.dmg "$URL"; then
-              exit 0
+            rm -f cask-asset/*
+            if gh release download "$RELEASE_TAG" \
+              --repo "${PUBLIC_RELEASE_REPOSITORY}" \
+              --pattern "*_universal.dmg" \
+              --dir cask-asset \
+              --clobber; then
+              DMG_PATH="$(find cask-asset -maxdepth 1 -type f -name '*_universal.dmg' | sort | head -n 1)"
+              if [ -n "$DMG_PATH" ] && [ -f "$DMG_PATH" ]; then
+                mv "$DMG_PATH" ai-lemon-tools.dmg
+                DMG_ASSET_NAME="$(basename "$DMG_PATH")"
+                echo "DMG_ASSET_NAME=${DMG_ASSET_NAME}" >> "$GITHUB_ENV"
+                echo "Downloaded universal DMG asset: ${DMG_ASSET_NAME}"
+                exit 0
+              fi
             fi
             echo "Asset not ready yet (attempt $i/30). Sleeping 10s..."
             sleep 10
@@ -708,6 +721,22 @@ jobs:
           set -euo pipefail
           SHA256="$(sha256sum ai-lemon-tools.dmg | awk '{print $1}')"
           echo "SHA256=$SHA256" >> "$GITHUB_ENV"
+          CASK_URL="$(node <<'NODE'
+          const assetName = process.env.DMG_ASSET_NAME;
+          const version = process.env.VERSION;
+          const repo = process.env.PUBLIC_RELEASE_REPOSITORY;
+
+          if (!assetName || !version || !repo) {
+            throw new Error('Missing DMG_ASSET_NAME, VERSION, or PUBLIC_RELEASE_REPOSITORY');
+          }
+
+          const encodedAssetName = encodeURIComponent(assetName);
+          const encodedVersion = encodeURIComponent(version);
+          const assetTemplate = encodedAssetName.split(encodedVersion).join('#{version}');
+          console.log(`https://github.com/${repo}/releases/download/v#{version}/${assetTemplate}`);
+          NODE
+          )"
+          echo "CASK_URL=$CASK_URL" >> "$GITHUB_ENV"
 
       - name: Update Cask file
         shell: bash
@@ -719,9 +748,28 @@ jobs:
             exit 1
           fi
 
-          perl -0777 -i -pe \
-            's/version \"[^\"]+\"/version \"'"$VERSION"'\"/; s/sha256 \"[0-9a-f]{64}\"/sha256 \"'"$SHA256"'\"/' \
-            "$FILE"
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          const file = 'Casks/cockpit-tools.rb';
+          const version = process.env.VERSION;
+          const sha256 = process.env.SHA256;
+          const caskUrl = process.env.CASK_URL;
+          const repo = process.env.PUBLIC_RELEASE_REPOSITORY;
+
+          if (!version || !sha256 || !caskUrl || !repo) {
+            throw new Error('Missing VERSION, SHA256, CASK_URL, or PUBLIC_RELEASE_REPOSITORY');
+          }
+
+          let text = fs.readFileSync(file, 'utf8');
+          text = text.replace(/version "[^"]+"/, `version "${version}"`);
+          text = text.replace(/sha256 "[0-9a-f]{64}"/, `sha256 "${sha256}"`);
+          text = text.replace(
+            /url "[^"]+",\n\s+verified: "[^"]+"/,
+            `url "${caskUrl}",\n      verified: "https://github.com/${repo}/"`
+          );
+          fs.writeFileSync(file, text);
+          NODE
 
           git diff -- "$FILE"
 
