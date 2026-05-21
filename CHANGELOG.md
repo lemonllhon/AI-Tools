@@ -7,6 +7,16 @@ All notable changes to Cockpit Tools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [0.0.6] - 2026-05-22
+### Added
+- Added the first built-in proxy runtime foundation for xray and sing-box, with pinned multi-platform manifests for Windows, macOS Intel, macOS Apple Silicon, Linux x64, and Linux arm64.
+- Added proxy runtime prepare and verify scripts that download, extract, checksum, and package only the runtime binaries required by the current build target.
+- Added the Rust-side runtime resolver and cache layer, including manifest validation, sha256 verification, environment override paths, and data-directory runtime cache preparation.
+
+### Changed
+- Updated build and release workflows so packaged releases can include the correct proxy runtime targets, including macOS universal builds.
+- Updated the release workflow to accept both `0.0.6` and `v0.0.6` style tags.
+
 ## [0.0.5] - 2026-05-22
 ### New Addition
 - **Added codex auto-join feature**

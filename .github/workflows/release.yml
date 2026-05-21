@@ -3,6 +3,7 @@ on:
   push:
     tags:
       - "v*"
+      - "[0-9]*"
   workflow_dispatch:
 
 env:
@@ -14,7 +15,7 @@ jobs:
   prepare-public-release:
     name: Prepare public release
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
     outputs:
@@ -68,9 +69,10 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="$(node -e "console.log(require(require('path').join(process.env.GITHUB_WORKSPACE, 'package.json')).version)")"
-          EXPECTED_TAG="v${VERSION}"
-          if [[ "${GITHUB_REF}" == refs/tags/* ]] && [ "${GITHUB_REF_NAME}" != "${EXPECTED_TAG}" ]; then
-            echo "Tag (${GITHUB_REF_NAME}) does not match package.json version (${EXPECTED_TAG})."
+          EXPECTED_TAG="${VERSION}"
+          EXPECTED_V_TAG="v${VERSION}"
+          if [[ "${GITHUB_REF}" == refs/tags/* ]] && [ "${GITHUB_REF_NAME}" != "${EXPECTED_TAG}" ] && [ "${GITHUB_REF_NAME}" != "${EXPECTED_V_TAG}" ]; then
+            echo "Tag (${GITHUB_REF_NAME}) does not match package.json version (${EXPECTED_TAG} or ${EXPECTED_V_TAG})."
             exit 1
           fi
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
@@ -244,21 +246,27 @@ jobs:
           # macOS Apple Silicon
           - platform: "macos-latest"
             args: "--target aarch64-apple-darwin"
+            proxy_runtime_targets: "darwin-aarch64"
           # macOS Intel
           - platform: "macos-latest"
             args: "--target x86_64-apple-darwin"
+            proxy_runtime_targets: "darwin-x86_64"
           # macOS Universal (同时支持 Intel 和 Apple Silicon)
           - platform: "macos-latest"
             args: "--target universal-apple-darwin"
+            proxy_runtime_targets: "darwin-x86_64,darwin-aarch64"
           # Linux x86_64
           - platform: "ubuntu-22.04"
             args: ""
+            proxy_runtime_targets: "linux-x86_64"
           # Linux ARM64
           - platform: "ubuntu-24.04-arm"
             args: ""
+            proxy_runtime_targets: "linux-aarch64"
           # Windows x86_64
           - platform: "windows-latest"
             args: ""
+            proxy_runtime_targets: "windows-x86_64"
 
     runs-on: ${{ matrix.platform }}
 
@@ -325,9 +333,10 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: |
-          EXPECTED_TAG="v${{ steps.app_version.outputs.VERSION }}"
-          if [ "${GITHUB_REF_NAME}" != "${EXPECTED_TAG}" ]; then
-            echo "Tag (${GITHUB_REF_NAME}) does not match package.json version (${EXPECTED_TAG})."
+          VERSION="${{ steps.app_version.outputs.VERSION }}"
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "${TAG_VERSION}" != "${VERSION}" ]; then
+            echo "Tag (${GITHUB_REF_NAME}) does not match package.json version (${VERSION} or v${VERSION})."
             exit 1
           fi
 
@@ -402,6 +411,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          PROXY_RUNTIME_TARGETS: ${{ matrix.proxy_runtime_targets }}
         with:
           owner: ${{ needs.prepare-public-release.outputs.public_owner }}
           repo: ${{ needs.prepare-public-release.outputs.public_repo_name }}
@@ -501,9 +511,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
           APP_VERSION: ${{ steps.app_version.outputs.VERSION }}
+          RELEASE_TAG: ${{ needs.prepare-public-release.outputs.release_tag }}
         run: |
           $ErrorActionPreference = "Stop"
-          gh release upload "v$env:APP_VERSION" "$env:PORTABLE_ZIP" --repo "$env:PUBLIC_RELEASE_REPOSITORY" --clobber
+          gh release upload "$env:RELEASE_TAG" "$env:PORTABLE_ZIP" --repo "$env:PUBLIC_RELEASE_REPOSITORY" --clobber
 
   rebuild-latest-json:
     name: Rebuild merged latest.json
@@ -511,7 +522,7 @@ jobs:
       - prepare-public-release
       - release
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
     steps:
@@ -572,6 +583,7 @@ jobs:
           set -euo pipefail
           node scripts/release/build_merged_latest_json.cjs \
             --version "${VERSION}" \
+            --release-tag "${RELEASE_TAG}" \
             --repo "${PUBLIC_RELEASE_REPOSITORY}" \
             --assets-dir "release-assets" \
             --notes-file "release-notes.md" \
@@ -611,7 +623,7 @@ jobs:
       - release
       - rebuild-latest-json
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
     steps:
@@ -676,7 +688,7 @@ jobs:
       - prepare-public-release
       - publish-release
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: write
       pull-requests: write
@@ -733,16 +745,22 @@ jobs:
           CASK_URL="$(node <<'NODE'
           const assetName = process.env.DMG_ASSET_NAME;
           const version = process.env.VERSION;
+          const releaseTag = process.env.RELEASE_TAG;
           const repo = process.env.PUBLIC_RELEASE_REPOSITORY;
 
-          if (!assetName || !version || !repo) {
-            throw new Error('Missing DMG_ASSET_NAME, VERSION, or PUBLIC_RELEASE_REPOSITORY');
+          if (!assetName || !version || !releaseTag || !repo) {
+            throw new Error('Missing DMG_ASSET_NAME, VERSION, RELEASE_TAG, or PUBLIC_RELEASE_REPOSITORY');
           }
 
           const encodedAssetName = encodeURIComponent(assetName);
           const encodedVersion = encodeURIComponent(version);
+          const encodedReleaseTag = encodeURIComponent(releaseTag);
           const assetTemplate = encodedAssetName.split(encodedVersion).join('#{version}');
-          console.log(`https://github.com/${repo}/releases/download/v#{version}/${assetTemplate}`);
+          const releaseTagTemplate = encodedReleaseTag.split(encodedVersion).join('#{version}');
+          if (releaseTagTemplate === encodedReleaseTag) {
+            throw new Error(`RELEASE_TAG must contain VERSION. RELEASE_TAG=${releaseTag}, VERSION=${version}`);
+          }
+          console.log(`https://github.com/${repo}/releases/download/${releaseTagTemplate}/${assetTemplate}`);
           NODE
           )"
           echo "CASK_URL=$CASK_URL" >> "$GITHUB_ENV"
@@ -821,7 +839,7 @@ jobs:
       - rebuild-latest-json
       - upload-checksums
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
     steps:

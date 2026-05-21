@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "AI Lemon Tools",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "identifier": "com.jlcodes.cockpit-tools",
   "build": {
-    "beforeDevCommand": "node scripts/prepare-tauri.cjs && npm run dev",
+    "beforeDevCommand": "node scripts/prepare-tauri.cjs && node scripts/prepare-proxy-runtime.cjs && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "node scripts/prepare-tauri.cjs && npm run build",
+    "beforeBuildCommand": "node scripts/prepare-tauri.cjs && node scripts/prepare-proxy-runtime.cjs && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -73,7 +73,8 @@
       "../src/assets/icons/trae.png": "native-menu-icons/trae.png",
       "../src/assets/icons/windsurf.svg": "native-menu-icons/windsurf.svg",
       "../src/assets/icons/workbuddy.png": "native-menu-icons/workbuddy.png",
-      "../src/assets/icons/zed.png": "native-menu-icons/zed.png"
+      "../src/assets/icons/zed.png": "native-menu-icons/zed.png",
+      "proxy-runtime-bundle": "proxy-runtime"
     }
   },
   "plugins": {

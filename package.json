@@ -1,13 +1,15 @@
 {
   "name": "ai-lemon-tools",
   "private": true,
-  "version": "0.0.5",
+  "version": "0.0.6",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --noEmit",
     "prebuild": "npm run typecheck",
     "build": "npm run sync-version && tsc && vite build",
+    "proxy-runtime:prepare": "node scripts/prepare-proxy-runtime.cjs",
+    "proxy-runtime:verify": "node scripts/verify-proxy-runtime.cjs",
     "release:preflight": "node scripts/release/preflight.cjs",
     "preview": "vite preview",
     "pretauri": "npm run typecheck",

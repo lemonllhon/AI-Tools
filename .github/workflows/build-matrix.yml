@@ -56,26 +56,32 @@ jobs:
             platform: "macos-latest"
             args: "--target aarch64-apple-darwin"
             release_dir: "src-tauri/target/aarch64-apple-darwin/release"
+            proxy_runtime_targets: "darwin-aarch64"
           - label: "macos-x86_64"
             platform: "macos-latest"
             args: "--target x86_64-apple-darwin"
             release_dir: "src-tauri/target/x86_64-apple-darwin/release"
+            proxy_runtime_targets: "darwin-x86_64"
           - label: "macos-universal"
             platform: "macos-latest"
             args: "--target universal-apple-darwin"
             release_dir: "src-tauri/target/universal-apple-darwin/release"
+            proxy_runtime_targets: "darwin-x86_64,darwin-aarch64"
           - label: "ubuntu-22.04"
             platform: "ubuntu-22.04"
             args: ""
             release_dir: "src-tauri/target/release"
+            proxy_runtime_targets: "linux-x86_64"
           - label: "ubuntu-24.04-arm"
             platform: "ubuntu-24.04-arm"
             args: ""
             release_dir: "src-tauri/target/release"
+            proxy_runtime_targets: "linux-aarch64"
           - label: "windows-latest"
             platform: "windows-latest"
             args: ""
             release_dir: "src-tauri/target/release"
+            proxy_runtime_targets: "windows-x86_64"
 
     steps:
       - name: Checkout repository
@@ -111,6 +117,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          PROXY_RUNTIME_TARGETS: ${{ matrix.proxy_runtime_targets }}
         run: |
           set -euo pipefail
           npx tauri build --ci ${{ matrix.args }} 2>&1 | tee "build-${{ matrix.label }}.log"
