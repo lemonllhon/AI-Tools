@@ -277,9 +277,9 @@ fn open_connection_at(db_path: &Path) -> Result<Connection, String> {
     })?;
     conn.busy_timeout(Duration::from_secs(5))
         .map_err(|err| format!("设置代理池数据库超时失败: {}", err))?;
-    conn.pragma_update(None::<&str>, "journal_mode", "WAL")
+    conn.pragma_update(None, "journal_mode", "WAL")
         .map_err(|err| format!("启用代理池数据库 WAL 失败: {}", err))?;
-    conn.pragma_update(None::<&str>, "foreign_keys", "ON")
+    conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(|err| format!("启用代理池数据库外键失败: {}", err))?;
     Ok(conn)
 }
