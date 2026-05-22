@@ -24,6 +24,8 @@ const BRIDGE_DIR_NAME: &str = "bridge";
 const XRAY_RUNTIME: &str = "xray";
 const SING_BOX_RUNTIME: &str = "sing-box";
 const MIHOMO_RUNTIME: &str = "mihomo";
+const MIHOMO_PROXY_NAME: &str = "selected-node";
+const MIHOMO_GROUP_NAME: &str = "proxy";
 const BRIDGE_READY_TIMEOUT: Duration = Duration::from_secs(8);
 const BRIDGE_READY_INTERVAL: Duration = Duration::from_millis(120);
 
@@ -45,6 +47,10 @@ pub struct TemporaryBridge {
 impl TemporaryBridge {
     pub fn endpoint(&self) -> &BridgeEndpoint {
         &self.endpoint
+    }
+
+    pub fn log_snippet(&self) -> Option<String> {
+        read_bridge_log_snippet(self.log_path.as_ref())
     }
 }
 
@@ -126,6 +132,16 @@ pub async fn ensure_bridge(target: &GatewayOutboundTarget) -> Result<BridgeEndpo
     let config_path = write_bridge_config(target, runtime_name(&kind), &key, &config)?;
     let log_path = bridge_log_path(&config_path);
     let binary_path = resolve_runtime_binary(runtime_name(&kind)).await?;
+    crate::modules::logger::log_info(&format!(
+        "[ProxyBridge] 启动内置桥接: runtime={}, node={} ({}), listen=socks5://{}:{}, binary={}, config={}",
+        runtime_name(&kind),
+        target.name,
+        target.protocol,
+        endpoint.host,
+        endpoint.port,
+        binary_path.display(),
+        config_path.display()
+    ));
     let child = spawn_bridge_process(&binary_path, &config_path, &log_path, &kind)?;
 
     runtime_state.child = Some(child);
@@ -139,6 +155,14 @@ pub async fn ensure_bridge(target: &GatewayOutboundTarget) -> Result<BridgeEndpo
         return Err(error);
     }
 
+    crate::modules::logger::log_info(&format!(
+        "[ProxyBridge] 内置桥接已就绪: runtime={}, node={} ({}), listen=socks5://{}:{}",
+        runtime_name(&kind),
+        target.name,
+        target.protocol,
+        endpoint.host,
+        endpoint.port
+    ));
     Ok(endpoint)
 }
 
@@ -160,6 +184,16 @@ pub async fn start_temporary_bridge(
     let config_path = write_bridge_config(target, runtime_name(&kind), &key, &config)?;
     let log_path = bridge_log_path(&config_path);
     let binary_path = resolve_runtime_binary(runtime_name(&kind)).await?;
+    crate::modules::logger::log_info(&format!(
+        "[ProxyBridge] 启动临时桥接检测: runtime={}, node={} ({}), listen=socks5://{}:{}, binary={}, config={}",
+        runtime_name(&kind),
+        target.name,
+        target.protocol,
+        endpoint.host,
+        endpoint.port,
+        binary_path.display(),
+        config_path.display()
+    ));
     let child = spawn_bridge_process(&binary_path, &config_path, &log_path, &kind)?;
     let mut temporary = TemporaryBridge {
         child: Some(child),
@@ -173,12 +207,25 @@ pub async fn start_temporary_bridge(
         return Err(error);
     }
 
+    crate::modules::logger::log_info(&format!(
+        "[ProxyBridge] 临时桥接检测已就绪: runtime={}, node={} ({}), listen=socks5://{}:{}",
+        runtime_name(&kind),
+        target.name,
+        target.protocol,
+        temporary.endpoint.host,
+        temporary.endpoint.port
+    ));
     Ok(temporary)
 }
 
 pub async fn stop_bridge() {
     let mut runtime_state = bridge_runtime().lock().await;
     stop_bridge_locked(&mut runtime_state);
+}
+
+pub async fn current_bridge_log_snippet() -> Option<String> {
+    let runtime_state = bridge_runtime().lock().await;
+    read_bridge_log_snippet(runtime_state.log_path.as_ref())
 }
 
 fn stop_bridge_locked(runtime_state: &mut BridgeRuntime) {
@@ -449,28 +496,37 @@ fn build_mihomo_config(target: &GatewayOutboundTarget, local_port: u16) -> Resul
         "bind-address": BRIDGE_BIND_HOST,
         "allow-lan": false,
         "mode": "rule",
-        "log-level": "warning",
+        "log-level": "info",
         "ipv6": true,
         "unified-delay": true,
         "tcp-concurrent": true,
         "find-process-mode": "off",
         "proxies": [
-            build_mihomo_proxy(target)?
+            build_mihomo_proxy(target, MIHOMO_PROXY_NAME)?
+        ],
+        "proxy-groups": [
+            {
+                "name": MIHOMO_GROUP_NAME,
+                "type": "select",
+                "proxies": [
+                    MIHOMO_PROXY_NAME
+                ]
+            }
         ],
         "rules": [
-            "MATCH,proxy"
+            format!("MATCH,{}", MIHOMO_GROUP_NAME)
         ]
     }))
 }
 
-fn build_mihomo_proxy(target: &GatewayOutboundTarget) -> Result<Value, String> {
-    if let Some(proxy) = build_mihomo_proxy_from_clash_options(target) {
+fn build_mihomo_proxy(target: &GatewayOutboundTarget, proxy_name: &str) -> Result<Value, String> {
+    if let Some(proxy) = build_mihomo_proxy_from_clash_options(target, proxy_name) {
         return Ok(Value::Object(proxy));
     }
 
     let protocol = target.protocol.to_ascii_lowercase();
     let mut proxy = Map::new();
-    proxy.insert("name".to_string(), Value::String("proxy".to_string()));
+    proxy.insert("name".to_string(), Value::String(proxy_name.to_string()));
     proxy.insert(
         "type".to_string(),
         Value::String(match protocol.as_str() {
@@ -656,6 +712,7 @@ fn build_mihomo_proxy(target: &GatewayOutboundTarget) -> Result<Value, String> {
 
 fn build_mihomo_proxy_from_clash_options(
     target: &GatewayOutboundTarget,
+    proxy_name: &str,
 ) -> Option<Map<String, Value>> {
     let options = value_at(&target.standard_config, "options")?.as_object()?;
     if !options.contains_key("type") || !options.contains_key("server") {
@@ -663,7 +720,7 @@ fn build_mihomo_proxy_from_clash_options(
     }
 
     let mut proxy = options.clone();
-    proxy.insert("name".to_string(), Value::String("proxy".to_string()));
+    proxy.insert("name".to_string(), Value::String(proxy_name.to_string()));
     proxy.insert("server".to_string(), Value::String(target.host.clone()));
     proxy.insert("port".to_string(), json!(target.port));
     if let Some(proxy_type) = text_at(&Value::Object(proxy.clone()), "type") {
@@ -706,7 +763,17 @@ fn insert_mihomo_tls_options(
     insert_if_present(proxy, "servername", first_server_name(target));
     if first_bool(
         target,
-        &["allowInsecure", "skip-cert-verify", "options.skip-cert-verify"],
+        &[
+            "allowInsecure",
+            "insecure",
+            "skip-cert-verify",
+            "query.allowInsecure",
+            "query.allow_insecure",
+            "query.insecure",
+            "query.skip-cert-verify",
+            "query.skip_cert_verify",
+            "options.skip-cert-verify",
+        ],
     )
     .unwrap_or(false)
     {
@@ -1317,9 +1384,14 @@ fn first_server_name(target: &GatewayOutboundTarget) -> Option<String> {
             "peer",
             "query.sni",
             "query.peer",
+            "query.servername",
+            "query.serverName",
+            "query.host",
             "options.sni",
             "options.servername",
+            "options.serverName",
             "options.server-name",
+            "options.peer",
         ],
     )
 }
@@ -1605,5 +1677,80 @@ fn csv_list_value(value: Option<String>) -> Option<Value> {
 fn insert_if_present(map: &mut Map<String, Value>, key: &str, value: Option<String>) {
     if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
         map.insert(key.to_string(), Value::String(value));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        build_mihomo_config, build_mihomo_proxy, GatewayOutboundTarget, MIHOMO_GROUP_NAME,
+        MIHOMO_PROXY_NAME,
+    };
+    use serde_json::{json, Value};
+
+    fn target(protocol: &str, standard_config: Value) -> GatewayOutboundTarget {
+        GatewayOutboundTarget {
+            id: "node-1".to_string(),
+            name: "Test Node".to_string(),
+            protocol: protocol.to_string(),
+            host: "proxy.example.com".to_string(),
+            port: 443,
+            username: "11111111-1111-4111-8111-111111111111".to_string(),
+            password: String::new(),
+            gateway_port: 7897,
+            standard_config,
+        }
+    }
+
+    #[test]
+    fn mihomo_config_routes_traffic_through_proxy_group() {
+        let config = build_mihomo_config(
+            &target(
+                "vless",
+                json!({
+                    "options": {
+                        "name": "Subscription Node",
+                        "type": "vless",
+                        "server": "proxy.example.com",
+                        "port": 443,
+                        "uuid": "11111111-1111-4111-8111-111111111111",
+                        "tls": true,
+                        "servername": "edge.example.com"
+                    }
+                }),
+            ),
+            19001,
+        )
+        .expect("mihomo config");
+
+        assert_eq!(config["mixed-port"], json!(19001));
+        assert_eq!(config["proxies"][0]["name"], json!(MIHOMO_PROXY_NAME));
+        assert_eq!(config["proxy-groups"][0]["name"], json!(MIHOMO_GROUP_NAME));
+        assert_eq!(
+            config["proxy-groups"][0]["proxies"][0],
+            json!(MIHOMO_PROXY_NAME)
+        );
+        assert_eq!(
+            config["rules"][0],
+            json!(format!("MATCH,{}", MIHOMO_GROUP_NAME))
+        );
+    }
+
+    #[test]
+    fn mihomo_share_link_config_reads_servername_query() {
+        let node = target(
+            "vless",
+            json!({
+                "id": "11111111-1111-4111-8111-111111111111",
+                "query": {
+                    "security": "tls",
+                    "servername": "edge.example.com"
+                }
+            }),
+        );
+
+        let proxy = build_mihomo_proxy(&node, MIHOMO_PROXY_NAME).expect("mihomo proxy");
+        assert_eq!(proxy["name"], json!(MIHOMO_PROXY_NAME));
+        assert_eq!(proxy["servername"], json!("edge.example.com"));
     }
 }

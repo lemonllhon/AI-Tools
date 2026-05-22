@@ -6,6 +6,22 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.17] - 2026-05-23
+### Added
+- Added detailed proxy bridge diagnostics for gateway forwarding, latency tests, and IP health checks, including mihomo log snippets when node dialing fails.
+- Added bridge startup and readiness logs with runtime, node, local SOCKS endpoint, binary path, and generated config path for easier release-build troubleshooting.
+- Added regression coverage for mihomo bridge config generation so selected advanced nodes route through the expected proxy group.
+
+### Changed
+- Changed mihomo bridge config generation to use a standard `proxies` plus `proxy-groups` layout, with `MATCH` routing through the generated group instead of relying on a bare proxy name.
+- Changed advanced-node TLS handling to read more subscription-compatible SNI fields, including `sni`, `servername`, `serverName`, `peer`, query `host`, and Clash YAML options.
+- Changed advanced-node insecure certificate handling to honor share-link query flags such as `allowInsecure`, `insecure`, and `skip-cert-verify`.
+
+### Fixed
+- Fixed selected VLESS/WS/TLS subscription nodes failing through the built-in proxy gateway because generated mihomo routing config did not define an explicit proxy group.
+- Fixed latency tests and IP health checks hiding the real mihomo failure reason behind generic request errors.
+- Fixed gateway failures showing only opaque CONNECT/tunnel errors instead of surfacing actionable node errors such as WebSocket `502 Bad Gateway`.
+
 ## [0.0.16] - 2026-05-23
 ### Added
 - Added bundled mihomo runtime support for Windows, macOS Intel, macOS Apple Silicon, Linux x86_64, and Linux arm64 proxy bridge packaging.

@@ -377,9 +377,19 @@ async fn open_tunnel(
                 gateway_port: outbound.gateway_port,
                 standard_config: json!({}),
             };
-            open_socks5_tunnel(&bridge_outbound, destination_host, destination_port).await
+            match open_socks5_tunnel(&bridge_outbound, destination_host, destination_port).await {
+                Ok(stream) => Ok(stream),
+                Err(error) => Err(append_bridge_log(error).await),
+            }
         }
         other => Err(format!("内置代理网关暂不支持 {} 协议出口", other)),
+    }
+}
+
+async fn append_bridge_log(error: String) -> String {
+    match bridge::current_bridge_log_snippet().await {
+        Some(output) => format!("{}; 内核输出: {}", error, output),
+        None => error,
     }
 }
 

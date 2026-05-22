@@ -6,6 +6,23 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.0.17] - 2026-05-23
+
+### 新增
+- 新增代理桥接诊断信息，网关转发、延迟测速和 IP 健康检查失败时会带出 mihomo 内核日志片段。
+- 新增桥接启动与就绪日志，记录内核类型、节点、本地 SOCKS 端点、内核路径和生成的配置路径，便于排查发布构建环境问题。
+- 新增 mihomo 桥接配置生成回归测试，确保选中的高级协议节点会通过预期代理组转发。
+
+### 变更
+- 调整 mihomo 桥接配置生成方式，改为标准 `proxies` + `proxy-groups` 结构，并通过 `MATCH` 明确路由到生成的代理组，不再依赖单个裸代理名称。
+- 调整高级节点 TLS 字段兼容，读取更多订阅常见 SNI 字段，包括 `sni`、`servername`、`serverName`、`peer`、query `host` 和 Clash YAML options。
+- 调整高级节点证书跳过校验兼容，支持识别分享链接中的 `allowInsecure`、`insecure`、`skip-cert-verify` 等参数。
+
+### 修复
+- 修复选择 VLESS/WS/TLS 订阅节点后，内置代理网关可能因 mihomo 路由配置缺少明确代理组而无法真正转发的问题。
+- 修复延迟测速和 IP 健康检查失败时只显示泛化请求错误、看不到 mihomo 真实失败原因的问题。
+- 修复网关失败时只显示笼统 CONNECT/tunnel 错误的问题，现在会暴露 WebSocket `502 Bad Gateway` 等可操作的节点错误。
+
 ## [0.0.16] - 2026-05-23
 
 ### 新增

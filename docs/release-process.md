@@ -5,21 +5,22 @@
 结论先说清楚：
 
 - 普通推送代码到 `main`：不会打包 Release。
-- 推送版本标签，例如 `v0.24.0`：会自动打包并创建 GitHub Release。
+- 推送版本标签，例如 `0.0.16` 或 `v0.0.16`：会自动打包并创建 GitHub Release。
 - 也可以在 GitHub 网页的 `Actions -> Release -> Run workflow` 手动触发。
 - 构建任务在源码仓库运行；完整 Release 会发布到 `PUBLIC_RELEASE_REPOSITORY` 指向的公开发布仓库。
 - 源码仓库不会保存完整安装包 Release，公开仓库只会收到空提交、版本 tag、Release 资产和更新清单。
+- 当前常用推送远端是 `lemonllhon`，最近的版本标签使用不带 `v` 的格式，例如 `0.0.16`。
 
 ## 1. 发布前准备
 
 确认版本号已经改好：
 
 ```bash
-npm version 0.24.1 --no-git-tag-version
+npm version 0.0.16 --no-git-tag-version
 npm run sync-version
 ```
 
-`npm run sync-version` 会把 `package.json` 的版本同步到 Tauri 配置。
+`npm run sync-version` 会把 `package.json` 的版本同步到 Tauri 配置和 Cargo 配置。
 
 如果你维护更新日志，还需要在这两个文件里加入同版本段落：
 
@@ -30,6 +31,15 @@ CHANGELOG.zh-CN.md
 
 Release workflow 会读取这两个文件生成中英文 Release Notes；如果缺少对应版本段落，workflow 会失败。
 
+发布日志建议至少覆盖本次版本的：
+
+- 新增功能
+- 行为变更
+- 修复内容
+- 影响发布或使用的注意事项
+
+例如 `0.0.16` 发布时，日志需要明确写入 mihomo 内核、内置代理网关、节点池筛选全选、节点池布局等内容。
+
 ## 2. 本地检查
 
 推荐发版前先跑：
@@ -38,7 +48,21 @@ Release workflow 会读取这两个文件生成中英文 Release Notes；如果�
 npm install
 npm run typecheck
 npm run build
+git diff --check
 ```
+
+如果本次改动涉及代理内核、运行时清单或 Tauri 打包资源，还要跑：
+
+```bash
+npm run proxy-runtime:prepare
+npm run proxy-runtime:verify -- --bundle
+```
+
+说明：
+
+- `proxy-runtime:prepare` 会下载并整理当前平台需要的代理内核到被 `.gitignore` 忽略的缓存目录。
+- `proxy-runtime:verify -- --bundle` 校验本次准备出的 bundle 文件和清单是否匹配。
+- 如果本地下载卡住，可以先用 `curl` 验证 GitHub release asset 是否可访问；不要把 `src-tauri/proxy-runtime/bin/`、`downloads/` 或 `proxy-runtime-bundle/` 提交进仓库。
 
 如果本机安装了 Rust/Cargo，也可以跑：
 
@@ -46,42 +70,106 @@ npm run build
 npm run release:preflight
 ```
 
+注意：`release:preflight` 包含多语言 key 完整性检查。如果仓库已有历史多语言 key 不一致，它可能在本地失败并生成 `locale-check-report.md`。这个报告不要随发布提交一起提交；除非本次就是修复翻译 key，否则可以记录失败原因后继续以 Release workflow 的实际结果为准。
+
 ## 3. 推送代码
 
 先提交版本改动，然后推送到新仓库：
 
 ```bash
 git add -A
-git commit -m "chore: release v0.24.1"
-git push lemon main
+git commit -m "chore: release v0.0.16"
+git push lemonllhon main
 ```
 
 只推 `main` 不会发布 Release，它只是更新代码。
+
+如果推送 `main` 被拒绝：
+
+```text
+! [rejected] main -> main (fetch first)
+```
+
+说明远端 `main` 有本地没有的新提交，常见原因是上一次 Release workflow 自动合并了 Homebrew Cask PR。先查看差异：
+
+```bash
+git fetch lemonllhon main
+git log --oneline --left-right --graph main...lemonllhon/main
+git show --stat --oneline lemonllhon/main -1
+```
+
+如果远端只是类似 `chore(homebrew): update cask for v0.0.x` 的自动提交，并且不冲突，可以合并后再推：
+
+```bash
+git merge --no-ff lemonllhon/main -m "chore: merge remote main before v0.0.16 push"
+git push lemonllhon main
+```
+
+不要用 `git reset --hard` 或强推覆盖远端自动提交，除非你明确确认要丢弃远端内容。
 
 ## 4. 创建并推送版本标签
 
 标签必须和 `package.json` 里的版本一致。
 
-例如 `package.json` 是 `0.24.1`，标签就必须是 `v0.24.1`：
+例如 `package.json` 是 `0.0.16`，标签可以是 `0.0.16` 或 `v0.0.16`。当前仓库最近使用裸版本标签：
 
 ```bash
-git tag v0.24.1
-git push lemon v0.24.1
+git tag 0.0.16
+git push lemonllhon 0.0.16
 ```
 
 推送这个 tag 后，GitHub Actions 会开始打包。
 
-注意：workflow 只监听 `v*` 标签，所以推荐始终使用 `v0.24.1` 这种格式，不要只推 `0.24.1`。
+注意：当前 Release workflow 同时监听 `v*` 和 `[0-9]*` 标签。为了减少混乱，同一个版本只推一种格式，不要同时推 `0.0.16` 和 `v0.0.16`。
+
+如果 tag 已经推送成功，但 `main` 因远端领先被拒绝，先不要移动 tag。按上一节把远端 `main` 合并后推上去即可。Release workflow 会按 tag 指向的发布提交构建。
 
 ## 5. 查看打包进度
 
 打开仓库：
 
 ```text
-https://github.com/lemon-casino/Ai-Lemon-Tools/actions
+https://github.com/lemonllhon/AI-Tools/actions
 ```
 
 进入 `Release` workflow，等待所有平台构建完成。
+
+如果本机安装了 GitHub CLI，也可以：
+
+```bash
+gh run list --repo lemonllhon/AI-Tools --limit 8
+```
+
+如果没有 `gh`，可以用 GitHub API 查看最新 run：
+
+```powershell
+$headers = @{ 'User-Agent' = 'release-check' }
+$runs = Invoke-RestMethod -Headers $headers -Uri 'https://api.github.com/repos/lemonllhon/AI-Tools/actions/runs?per_page=10'
+$runs.workflow_runs | Select-Object -First 5 name,display_title,head_branch,head_sha,status,conclusion,html_url
+```
+
+查看某个 Release run 的 job 状态：
+
+```powershell
+$headers = @{ 'User-Agent' = 'release-check' }
+$run = Invoke-RestMethod -Headers $headers -Uri 'https://api.github.com/repos/lemonllhon/AI-Tools/actions/runs/<RUN_ID>'
+$jobs = Invoke-RestMethod -Headers $headers -Uri $run.jobs_url
+$jobs.jobs | Select-Object name,status,conclusion,started_at,completed_at
+```
+
+一次正常的 Release 应该看到这些 job 成功：
+
+- `Prepare public release`
+- Windows x86_64 release
+- Linux x86_64 release
+- Linux arm64 release
+- macOS Intel release
+- macOS Apple Silicon release
+- macOS universal release
+- `Rebuild merged latest.json`
+- `Upload SHA256SUMS`
+- `Publish release as latest`
+- `Update Homebrew Cask`
 
 Release 下载页面在公开发布仓库：
 
@@ -114,7 +202,7 @@ AI Lemon Tools_版本号_windows_x64_portable.zip
 例如：
 
 ```text
-AI Lemon Tools_0.24.1_windows_x64_portable.zip
+AI Lemon Tools_0.0.16_windows_x64_portable.zip
 ```
 
 用户下载后解压，直接运行里面的 `AI Lemon Tools.exe` 即可，不需要安装。
@@ -230,13 +318,13 @@ src-tauri/tauri.conf.json
 如果 Actions 报错：
 
 ```text
-Tag (v0.0.1) does not match package.json version (v0.24.0).
+Tag (0.0.16) does not match package.json version (0.0.15 or v0.0.15).
 ```
 
 通常原因是只执行了：
 
 ```bash
-npm version 0.0.1 --no-git-tag-version
+npm version 0.0.16 --no-git-tag-version
 npm run sync-version
 ```
 
@@ -247,20 +335,20 @@ npm run sync-version
 正确顺序：
 
 ```bash
-npm version 0.0.1 --no-git-tag-version
+npm version 0.0.16 --no-git-tag-version
 npm run sync-version
 git add package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml
-git commit -m "chore: release v0.0.1"
-git push lemon main
-git tag v0.0.1
-git push lemon v0.0.1
+git commit -m "chore: release v0.0.16"
+git push lemonllhon main
+git tag 0.0.16
+git push lemonllhon 0.0.16
 ```
 
 如果错误 tag 已经推到远程，修好 commit 后更新 tag：
 
 ```bash
-git tag -f v0.0.1
-git push lemon v0.0.1 --force
+git tag -f 0.0.16
+git push lemonllhon 0.0.16 --force
 ```
 
 ### 7.2 缺少 changelog 段落
@@ -268,7 +356,7 @@ git push lemon v0.0.1 --force
 如果 Actions 报错：
 
 ```text
-Missing changelog section for version 0.0.1 in CHANGELOG.zh-CN.md
+Missing changelog section for version 0.0.16 in CHANGELOG.zh-CN.md
 ```
 
 说明 workflow 没有在更新日志里找到对应版本。两个文件都必须有同版本段落：
@@ -281,23 +369,23 @@ CHANGELOG.zh-CN.md
 格式必须类似：
 
 ```markdown
-## [0.0.1] - 2026-05-21
+## [0.0.16] - 2026-05-23
 ```
 
 或者：
 
 ```markdown
-## [v0.0.1] - 2026-05-21
+## [v0.0.16] - 2026-05-23
 ```
 
 只改一个文件不够，中英文两个文件都要加。补完后提交、推送，并把 tag 更新到新 commit：
 
 ```bash
 git add CHANGELOG.md CHANGELOG.zh-CN.md
-git commit -m "docs: add changelog for v0.0.1"
-git push lemon main
-git tag -f v0.0.1
-git push lemon v0.0.1 --force
+git commit -m "docs: add changelog for v0.0.16"
+git push lemonllhon main
+git tag -f 0.0.16
+git push lemonllhon 0.0.16 --force
 ```
 
 ### 7.3 GitHub 权限
@@ -381,16 +469,16 @@ AI Lemon Tools_0.0.3_universal.dmg
 ```bash
 git add -A
 git commit -m "fix: release build"
-git push lemon main
+git push lemonllhon main
 ```
 
 如果同一个 tag 已经推过，需要删除本地和远程旧 tag 后重推：
 
 ```bash
-git tag -d v0.24.1
-git push lemon :refs/tags/v0.24.1
-git tag v0.24.1
-git push lemon v0.24.1
+git tag -d 0.0.16
+git push lemonllhon :refs/tags/0.0.16
+git tag 0.0.16
+git push lemonllhon 0.0.16
 ```
 
 只在你确认要覆盖这次发布时这么做。
@@ -400,11 +488,23 @@ git push lemon v0.24.1
 日常发布可以记这几行：
 
 ```bash
-npm version 0.24.1 --no-git-tag-version
+npm version 0.0.16 --no-git-tag-version
 npm run sync-version
+npm run build
+npm run proxy-runtime:prepare
+npm run proxy-runtime:verify -- --bundle
 git add -A
-git commit -m "chore: release v0.24.1"
-git push lemon main
-git tag v0.24.1
-git push lemon v0.24.1
+git commit -m "chore: release v0.0.16"
+git push lemonllhon main
+git tag 0.0.16
+git push lemonllhon 0.0.16
+```
+
+如果 `git push lemonllhon main` 提示 `fetch first`，插入这几行后再推：
+
+```bash
+git fetch lemonllhon main
+git log --oneline --left-right --graph main...lemonllhon/main
+git merge --no-ff lemonllhon/main -m "chore: merge remote main before v0.0.16 push"
+git push lemonllhon main
 ```

@@ -24,7 +24,20 @@ pub struct ProxyCheckTarget {
 
 struct ProxyClientContext {
     client: Client,
-    _temporary_bridge: Option<bridge::TemporaryBridge>,
+    temporary_bridge: Option<bridge::TemporaryBridge>,
+}
+
+impl ProxyClientContext {
+    fn append_bridge_log(&self, message: String) -> String {
+        match self
+            .temporary_bridge
+            .as_ref()
+            .and_then(bridge::TemporaryBridge::log_snippet)
+        {
+            Some(output) => format!("{}; 内核输出: {}", message, output),
+            None => message,
+        }
+    }
 }
 
 pub async fn test_latency(target: ProxyCheckTarget) -> ProxyPoolLatencyTestResult {
@@ -77,7 +90,7 @@ pub async fn test_latency(target: ProxyCheckTarget) -> ProxyPoolLatencyTestResul
                 node_id: target.id,
                 ok: false,
                 latency_ms: Some(latency_ms),
-                error: format!("测速失败: {}", error),
+                error: client_context.append_bridge_log(format!("测速失败: {}", error)),
             }
         }
     }
@@ -101,7 +114,10 @@ pub async fn check_ip_health(target: ProxyCheckTarget) -> ProxyPoolIpHealthResul
     let response = match response {
         Ok(response) => response,
         Err(error) => {
-            return failed_ip_health_result(target.id, format!("调用 IPPure 接口失败: {}", error));
+            return failed_ip_health_result(
+                target.id,
+                client_context.append_bridge_log(format!("调用 IPPure 接口失败: {}", error)),
+            );
         }
     };
 
@@ -208,7 +224,7 @@ async fn build_proxy_client(
         .map_err(|err| format!("代理 HTTP 客户端初始化失败: {}", err))?;
     Ok(ProxyClientContext {
         client,
-        _temporary_bridge: temporary_bridge,
+        temporary_bridge,
     })
 }
 
