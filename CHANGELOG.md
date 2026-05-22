@@ -6,6 +6,10 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.13] - 2026-05-22
+### Fixed
+- Fixed macOS universal release builds by forcing proxy subscription source query rows to be collected before their SQLite statements are dropped.
+
 ## [0.0.12] - 2026-05-22
 ### Added
 - Added URL subscription import for the built-in proxy node pool, including `http`/`https` fetch validation, a 2 MB content limit, preview, and selective import.

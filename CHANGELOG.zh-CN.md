@@ -6,6 +6,11 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.0.13] - 2026-05-22
+
+### 修复
+- 修复 macOS universal 发布构建失败问题，确保代理订阅来源查询结果在 SQLite statement 释放前完成收集。
+
 ## [0.0.12] - 2026-05-22
 
 ### 新增

@@ -608,10 +608,13 @@ fn list_sources_from_conn(conn: &Connection) -> Result<Vec<ProxySource>, String>
         )
         .map_err(|err| format!("读取订阅来源失败: {}", err))?;
 
-    stmt.query_map([], map_source_row)
+    let sources = stmt
+        .query_map([], map_source_row)
         .map_err(|err| format!("读取订阅来源失败: {}", err))?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|err| format!("读取订阅来源失败: {}", err))
+        .map_err(|err| format!("读取订阅来源失败: {}", err))?;
+
+    Ok(sources)
 }
 
 fn map_source_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProxySource> {
@@ -661,10 +664,13 @@ fn list_subscription_source_records(
         .prepare("SELECT id, url, name_prefix, group_name FROM proxy_sources ORDER BY updated_at DESC, created_at DESC")
         .map_err(|err| format!("读取订阅来源失败: {}", err))?;
 
-    stmt.query_map([], map_source_record_row)
+    let sources = stmt
+        .query_map([], map_source_record_row)
         .map_err(|err| format!("读取订阅来源失败: {}", err))?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|err| format!("读取订阅来源失败: {}", err))
+        .map_err(|err| format!("读取订阅来源失败: {}", err))?;
+
+    Ok(sources)
 }
 
 fn map_source_record_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SubscriptionSourceRecord> {
