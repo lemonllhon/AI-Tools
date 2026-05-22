@@ -6,6 +6,20 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.10] - 2026-05-22
+### Added
+- Added the first built-in proxy node pool database with SQLite persistence, schema migrations, built-in direct/local nodes, basic CRUD commands, enable/disable support, search/filter metadata, and credential-masked node output.
+- Added the Network Services proxy node pool panel for manually adding `http`, `https`, and `socks5` nodes, searching by name/address/group, filtering by protocol/group, and deleting single or selected nodes.
+- Added resource import preview and selective import for Clash YAML `proxies`, Base64 subscription text, and share links including `http`, `https`, `socks5`, `vmess`, `vless`, `trojan`, `ss`, `hysteria`, `hysteria2`, `tuic`, and `anytls`.
+- Added structured YAML parsing for proxy resource imports.
+
+### Changed
+- Improved the built-in proxy runtime settings layout so runtime status, cache paths, and action buttons use a full-width responsive panel.
+- Kept imported proxy credentials inside the backend/database import flow and returned only masked preview data to the frontend.
+
+### Fixed
+- Updated the workspace `Cargo.lock` for the new proxy resource YAML parser so CI release builds can run with locked Cargo dependencies.
+
 ## [0.0.9] - 2026-05-22
 ### Added
 - Added the first built-in proxy node pool database with SQLite persistence, schema migrations, built-in direct/local nodes, basic CRUD commands, enable/disable support, search/filter metadata, and credential-masked node output.
