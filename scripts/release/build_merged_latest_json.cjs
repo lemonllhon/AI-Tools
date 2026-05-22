@@ -44,6 +44,56 @@ function readText(filePath) {
   return fs.readFileSync(filePath, 'utf8').trim();
 }
 
+function decodeBase64Text(value, label) {
+  try {
+    return Buffer.from(value.trim(), 'base64').toString('utf8');
+  } catch (error) {
+    throw new Error(`Failed to decode ${label}: ${error.message}`);
+  }
+}
+
+function readBase64PayloadLine(armoredText, label) {
+  const lines = armoredText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length < 2) {
+    throw new Error(`${label} is missing its base64 payload line`);
+  }
+  return lines[1];
+}
+
+function keyIdFromPayload(payload, label) {
+  let raw;
+  try {
+    raw = Buffer.from(payload, 'base64');
+  } catch (error) {
+    throw new Error(`Failed to decode ${label} payload: ${error.message}`);
+  }
+  if (raw.length < 10) {
+    throw new Error(`${label} payload is too short to contain a key id`);
+  }
+  return Buffer.from(raw.subarray(2, 10)).reverse().toString('hex').toUpperCase();
+}
+
+function updaterPubkeyIdFromConfig(configPath) {
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  const pubkey = config?.plugins?.updater?.pubkey;
+  if (typeof pubkey !== 'string' || !pubkey.trim()) {
+    throw new Error(`Missing plugins.updater.pubkey in ${configPath}`);
+  }
+  const armored = decodeBase64Text(pubkey, 'updater public key');
+  return keyIdFromPayload(readBase64PayloadLine(armored, 'updater public key'), 'updater public key');
+}
+
+function signatureKeyId(signature, assetName) {
+  const armored = decodeBase64Text(signature, `signature for ${assetName}`);
+  return keyIdFromPayload(
+    readBase64PayloadLine(armored, `signature for ${assetName}`),
+    `signature for ${assetName}`,
+  );
+}
+
 function buildUrl(repo, releaseTag, fileName) {
   const encoded = encodeURIComponent(fileName);
   return `https://github.com/${repo}/releases/download/${encodeURIComponent(releaseTag)}/${encoded}`;
@@ -72,6 +122,18 @@ function cloneEntry(entry) {
   return { signature: entry.signature, url: entry.url };
 }
 
+function validateSignatureKeyIds(signatures, updaterPubkeyId) {
+  for (const [assetName, signature] of signatures.entries()) {
+    const keyId = signatureKeyId(signature, assetName);
+    if (keyId !== updaterPubkeyId) {
+      throw new Error(
+        `Updater signature key mismatch for ${assetName}: signature=${keyId}, configured pubkey=${updaterPubkeyId}`,
+      );
+    }
+  }
+  console.log(`Updater signature key id verified: ${updaterPubkeyId}`);
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const version = requiredArg(args, 'version');
@@ -81,6 +143,7 @@ function main() {
   const notesFile = requiredArg(args, 'notes-file');
   const publishedAt = normalizePubDate(requiredArg(args, 'published-at'));
   const output = args.output || 'latest.json';
+  const tauriConfig = args['tauri-config'] || path.join('src-tauri', 'tauri.conf.json');
 
   if (!fs.existsSync(assetsDir) || !fs.statSync(assetsDir).isDirectory()) {
     throw new Error(`Assets directory not found: ${assetsDir}`);
@@ -99,6 +162,8 @@ function main() {
     const assetName = name.slice(0, -4);
     signatures.set(assetName, readText(path.join(assetsDir, name)));
   }
+
+  validateSignatureKeyIds(signatures, updaterPubkeyIdFromConfig(tauriConfig));
 
   const assets = files.filter(
     (name) => !name.endsWith('.sig') && name !== 'latest.json' && name !== 'SHA256SUMS.txt'

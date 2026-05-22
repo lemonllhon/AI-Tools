@@ -1305,11 +1305,12 @@ function MainApp() {
       console.error('[App] Shared update download failed:', error);
       writeUpdateLog('error', `统一更新下载失败: error=${sanitizeUpdaterErrorMessage(error)}`);
       setUpdateRetryStatus('');
-      setUpdateDownloadError(
-        t('update_notification.autoUpdateFailedAfterRetries', {
-          count: Math.max(usedAttempts, 1),
-        }),
-      );
+      const retryCount = Math.max(usedAttempts - 1, 0);
+      setUpdateDownloadError(retryCount > 0
+        ? t('update_notification.autoUpdateFailedAfterRetries', {
+          count: retryCount,
+        })
+        : t('update_notification.autoUpdateFailed', '自动更新失败，您可以手动下载安装。'));
       setUpdateErrorDetails(sanitizeUpdaterErrorMessage(error));
       setUpdateAction({
         state: 'available',

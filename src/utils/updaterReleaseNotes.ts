@@ -1,7 +1,7 @@
 const ZH_SECTION_HEADER = '## 更新日志（中文）';
 const EN_SECTION_HEADER = '## Changelog (English)';
 const GITHUB_RELEASE_TAG_BASE_URL =
-  'https://github.com/lemon-casino/ai-lemon-tools-release/releases/tag/v';
+  'https://github.com/lemon-casino/ai-lemon-tools-release/releases/tag/';
 
 export interface ParsedUpdaterReleaseNotes {
   releaseNotes: string;

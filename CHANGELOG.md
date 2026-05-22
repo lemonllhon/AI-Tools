@@ -6,6 +6,15 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.8] - 2026-05-22
+### Fixed
+- Fixed automatic updater signature verification by aligning the app updater public key with the release signing key.
+- Fixed update failure messaging so non-retryable signature errors are no longer shown as network retry failures.
+- Fixed the manual release download fallback URL for numeric release tags such as `0.0.8`.
+
+### Changed
+- Added release-time validation that rejects `latest.json` generation when updater signatures are created with a different key than the configured app public key.
+
 ## [0.0.7] - 2026-05-22
 ### Added
 - Added built-in proxy runtime status commands for xray and sing-box, including cache preparation, version detection, and cache directory opening from the desktop app.
