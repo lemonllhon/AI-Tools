@@ -36,10 +36,27 @@ export interface ProxyPoolNode {
   updatedAt: string;
 }
 
+export interface ProxySource {
+  id: string;
+  url: string;
+  displayName: string;
+  namePrefix: string;
+  group: string;
+  dns: string;
+  autoRefreshEnabled: boolean;
+  refreshIntervalMinutes: number;
+  lastRefreshAt: string | null;
+  lastError: string;
+  nodeCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ProxyPoolListResponse {
   dbPath: string;
   nodes: ProxyPoolNode[];
   groups: string[];
+  sources: ProxySource[];
 }
 
 export interface ProxyNodeSaveRequest {
@@ -84,4 +101,42 @@ export interface ProxyImportApplyResponse {
   imported: number;
   skipped: number;
   nodes: ProxyPoolNode[];
+}
+
+export interface ProxySubscriptionPreviewRequest {
+  url: string;
+  group?: string;
+  namePrefix?: string;
+}
+
+export interface ProxySubscriptionApplyRequest extends ProxySubscriptionPreviewRequest {
+  selectedPreviewIds: string[];
+}
+
+export interface ProxySubscriptionApplyResponse {
+  imported: number;
+  skipped: number;
+  nodes: ProxyPoolNode[];
+  source: ProxySource;
+}
+
+export interface ProxySubscriptionRefreshRequest {
+  sourceId: string;
+}
+
+export interface ProxySubscriptionRefreshItem {
+  sourceId: string;
+  displayName: string;
+  imported: number;
+  success: boolean;
+  error: string | null;
+}
+
+export interface ProxySubscriptionRefreshResponse {
+  refreshed: number;
+  failed: number;
+  nodes: ProxyPoolNode[];
+  groups: string[];
+  sources: ProxySource[];
+  results: ProxySubscriptionRefreshItem[];
 }

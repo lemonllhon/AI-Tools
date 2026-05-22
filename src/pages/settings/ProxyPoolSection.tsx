@@ -1,11 +1,15 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, FileText, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
+import { AlertCircle, FileText, Link, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import {
   applyProxyPoolImport,
+  applyProxyPoolSubscription,
   deleteProxyPoolNode,
   deleteProxyPoolNodes,
   listProxyPoolNodes,
   previewProxyPoolImport,
+  previewProxyPoolSubscription,
+  refreshAllProxyPoolSubscriptions,
+  refreshProxyPoolSubscription,
   saveProxyPoolNode,
   setProxyPoolNodeEnabled,
 } from '../../services/proxyPoolService';
@@ -40,6 +44,7 @@ const DEFAULT_FORM_STATE: ProxyNodeFormState = {
 };
 
 const MANUAL_PROTOCOLS: ManualProxyNodeProtocol[] = ['http', 'https', 'socks5'];
+type ImportMode = 'paste' | 'url';
 
 export function ProxyPoolSection() {
   const [data, setData] = useState<ProxyPoolListResponse | null>(null);
@@ -50,13 +55,17 @@ export function ProxyPoolSection() {
   const [showForm, setShowForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [form, setForm] = useState<ProxyNodeFormState>(DEFAULT_FORM_STATE);
+  const [importMode, setImportMode] = useState<ImportMode>('paste');
   const [importContent, setImportContent] = useState('');
+  const [subscriptionUrl, setSubscriptionUrl] = useState('');
   const [importGroup, setImportGroup] = useState('');
   const [importNamePrefix, setImportNamePrefix] = useState('');
   const [importPreview, setImportPreview] = useState<ProxyImportPreviewResponse | null>(null);
   const [selectedPreviewIds, setSelectedPreviewIds] = useState<Set<string>>(() => new Set());
   const [previewLoading, setPreviewLoading] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [refreshingAllSources, setRefreshingAllSources] = useState(false);
+  const [refreshingSourceIds, setRefreshingSourceIds] = useState<Set<string>>(() => new Set());
   const [search, setSearch] = useState('');
   const [groupFilter, setGroupFilter] = useState('all');
   const [protocolFilter, setProtocolFilter] = useState('all');
@@ -68,7 +77,7 @@ export function ProxyPoolSection() {
     return isChinese
       ? {
           title: '代理节点池',
-          desc: '当前阶段支持手动添加 http、https、socks5 节点；订阅、测速和桥接在后续阶段接入。',
+          desc: '当前阶段支持手动添加 http、https、socks5 节点，并可通过粘贴内容或 URL 订阅导入代理资源。',
           add: '添加节点',
           addResource: '添加资源',
           close: '收起',
@@ -104,9 +113,13 @@ export function ProxyPoolSection() {
           directLocked: '直连节点不能禁用',
           passwordStored: '已保存密码',
           importTitle: '添加资源',
-          importDesc: '粘贴 Clash YAML、Base64 订阅内容或分享链接；本阶段只解析并导入节点，不拉取远程订阅。',
+          importDesc: '粘贴 Clash YAML、Base64 订阅内容、分享链接，或输入 http/https 订阅 URL 拉取并导入。',
+          importModePaste: '粘贴内容',
+          importModeUrl: 'URL 订阅',
           importContent: '资源内容',
           importContentPlaceholder: '粘贴 vmess://、vless://、trojan://、ss://、http://、socks5://、Base64 文本或 Clash YAML',
+          subscriptionUrl: '订阅 URL',
+          subscriptionUrlPlaceholder: 'https://example.com/sub',
           namePrefix: '名称前缀',
           previewImport: '预览导入',
           previewing: '解析中...',
@@ -119,10 +132,20 @@ export function ProxyPoolSection() {
           selectAll: '全选',
           importedCount: '已导入 {{count}} 个节点',
           previewCount: '{{count}} 个节点',
+          sourcesTitle: '订阅来源',
+          sourcesCount: '{{count}} 个来源',
+          sourceNodeCount: '{{count}} 个节点',
+          sourceLastRefresh: '上次刷新',
+          sourceNever: '从未',
+          refreshSource: '刷新订阅',
+          refreshAllSources: '刷新全部订阅',
+          refreshing: '刷新中...',
+          refreshedCount: '已刷新 {{count}} 个订阅',
+          refreshFailed: '刷新订阅失败',
         }
       : {
           title: 'Proxy Node Pool',
-          desc: 'This stage supports manually added http, https, and socks5 nodes. Subscriptions, tests, and bridging land later.',
+          desc: 'This stage supports manual http, https, and socks5 nodes plus paste or URL subscription imports.',
           add: 'Add Node',
           addResource: 'Add Resource',
           close: 'Collapse',
@@ -158,9 +181,13 @@ export function ProxyPoolSection() {
           directLocked: 'Direct node cannot be disabled',
           passwordStored: 'Password saved',
           importTitle: 'Add Resource',
-          importDesc: 'Paste Clash YAML, Base64 subscription text, or share links. This stage only parses and imports nodes.',
+          importDesc: 'Paste Clash YAML, Base64 subscription text, share links, or fetch an http/https subscription URL.',
+          importModePaste: 'Paste',
+          importModeUrl: 'URL subscription',
           importContent: 'Resource content',
           importContentPlaceholder: 'Paste vmess://, vless://, trojan://, ss://, http://, socks5://, Base64 text, or Clash YAML',
+          subscriptionUrl: 'Subscription URL',
+          subscriptionUrlPlaceholder: 'https://example.com/sub',
           namePrefix: 'Name prefix',
           previewImport: 'Preview import',
           previewing: 'Parsing...',
@@ -173,6 +200,16 @@ export function ProxyPoolSection() {
           selectAll: 'Select all',
           importedCount: 'Imported {{count}} nodes',
           previewCount: '{{count}} nodes',
+          sourcesTitle: 'Subscription Sources',
+          sourcesCount: '{{count}} sources',
+          sourceNodeCount: '{{count}} nodes',
+          sourceLastRefresh: 'Last refresh',
+          sourceNever: 'Never',
+          refreshSource: 'Refresh subscription',
+          refreshAllSources: 'Refresh all',
+          refreshing: 'Refreshing...',
+          refreshedCount: 'Refreshed {{count}} subscriptions',
+          refreshFailed: 'Failed to refresh subscription',
         };
   }, [currentLanguage]);
 
@@ -199,6 +236,19 @@ export function ProxyPoolSection() {
 
   const nodes = data?.nodes ?? [];
   const groups = data?.groups ?? [];
+  const sources = data?.sources ?? [];
+
+  const protocolOptions = useMemo(() => {
+    const order = ['direct', 'http', 'https', 'socks5', 'vmess', 'vless', 'trojan', 'ss', 'hysteria', 'hysteria2', 'tuic', 'anytls'];
+    return Array.from(new Set(nodes.map((node) => node.protocol))).sort((left, right) => {
+      const leftIndex = order.indexOf(left);
+      const rightIndex = order.indexOf(right);
+      if (leftIndex === -1 && rightIndex === -1) return left.localeCompare(right);
+      if (leftIndex === -1) return 1;
+      if (rightIndex === -1) return -1;
+      return leftIndex - rightIndex;
+    });
+  }, [nodes]);
 
   const filteredNodes = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -231,16 +281,37 @@ export function ProxyPoolSection() {
     setSelectedPreviewIds(new Set());
   };
 
+  const updateImportMode = (mode: ImportMode) => {
+    setImportMode(mode);
+    resetImportPreview();
+    setError(null);
+    setNotice(null);
+  };
+
+  const formatSourceTime = (value: string | null) => {
+    if (!value) return text.sourceNever;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString(currentLanguage.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US');
+  };
+
   const handlePreviewImport = async () => {
     setPreviewLoading(true);
     setError(null);
     setNotice(null);
     try {
-      const preview = await previewProxyPoolImport({
-        content: importContent,
-        group: importGroup || undefined,
-        namePrefix: importNamePrefix || undefined,
-      });
+      const preview =
+        importMode === 'url'
+          ? await previewProxyPoolSubscription({
+              url: subscriptionUrl,
+              group: importGroup || undefined,
+              namePrefix: importNamePrefix || undefined,
+            })
+          : await previewProxyPoolImport({
+              content: importContent,
+              group: importGroup || undefined,
+              namePrefix: importNamePrefix || undefined,
+            });
       setImportPreview(preview);
       setSelectedPreviewIds(new Set(preview.items.map((item) => item.previewId)));
     } catch (err) {
@@ -256,14 +327,23 @@ export function ProxyPoolSection() {
     setError(null);
     setNotice(null);
     try {
-      const result = await applyProxyPoolImport({
-        content: importContent,
-        group: importGroup || undefined,
-        namePrefix: importNamePrefix || undefined,
-        selectedPreviewIds: Array.from(selectedPreviewIds),
-      });
+      const result =
+        importMode === 'url'
+          ? await applyProxyPoolSubscription({
+              url: subscriptionUrl,
+              group: importGroup || undefined,
+              namePrefix: importNamePrefix || undefined,
+              selectedPreviewIds: Array.from(selectedPreviewIds),
+            })
+          : await applyProxyPoolImport({
+              content: importContent,
+              group: importGroup || undefined,
+              namePrefix: importNamePrefix || undefined,
+              selectedPreviewIds: Array.from(selectedPreviewIds),
+            });
       setData((current) => current ? { ...current, nodes: result.nodes } : current);
       setImportContent('');
+      setSubscriptionUrl('');
       setImportGroup('');
       setImportNamePrefix('');
       resetImportPreview();
@@ -365,6 +445,60 @@ export function ProxyPoolSection() {
     }
   };
 
+  const applyRefreshResult = (result: Awaited<ReturnType<typeof refreshAllProxyPoolSubscriptions>>) => {
+    setData((current) => current ? {
+      ...current,
+      nodes: result.nodes,
+      groups: result.groups,
+      sources: result.sources,
+    } : current);
+  };
+
+  const handleRefreshSource = async (sourceId: string) => {
+    setRefreshingSourceIds((current) => new Set(current).add(sourceId));
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await refreshProxyPoolSubscription({ sourceId });
+      applyRefreshResult(result);
+      const failed = result.results.find((item) => !item.success);
+      if (failed) {
+        setError(`${text.refreshFailed}: ${failed.error || failed.displayName}`);
+      } else {
+        setNotice(text.refreshedCount.replace('{{count}}', String(result.refreshed)));
+      }
+    } catch (err) {
+      setError(`${text.refreshFailed}: ${String(err)}`);
+    } finally {
+      setRefreshingSourceIds((current) => {
+        const next = new Set(current);
+        next.delete(sourceId);
+        return next;
+      });
+    }
+  };
+
+  const handleRefreshAllSources = async () => {
+    if (sources.length === 0) return;
+    setRefreshingAllSources(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await refreshAllProxyPoolSubscriptions();
+      applyRefreshResult(result);
+      if (result.failed > 0) {
+        const firstError = result.results.find((item) => !item.success)?.error || '';
+        setError(`${text.refreshFailed}: ${result.failed}/${result.results.length}${firstError ? ` - ${firstError}` : ''}`);
+      } else {
+        setNotice(text.refreshedCount.replace('{{count}}', String(result.refreshed)));
+      }
+    } catch (err) {
+      setError(`${text.refreshFailed}: ${String(err)}`);
+    } finally {
+      setRefreshingAllSources(false);
+    }
+  };
+
   const toggleSelected = (node: ProxyPoolNode, selected: boolean) => {
     if (node.builtin) return;
     setSelectedIds((current) => {
@@ -438,18 +572,51 @@ export function ProxyPoolSection() {
                 <div className="row-desc">{text.importDesc}</div>
               </div>
             </div>
-            <label className="proxy-pool-field proxy-pool-field--full">
-              <span>{text.importContent}</span>
-              <textarea
-                className="settings-input proxy-pool-import-textarea"
-                value={importContent}
-                onChange={(event) => {
-                  setImportContent(event.target.value);
-                  resetImportPreview();
-                }}
-                placeholder={text.importContentPlaceholder}
-              />
-            </label>
+            <div className="proxy-pool-import-mode" role="group" aria-label={text.importTitle}>
+              <button
+                className={`proxy-pool-segment ${importMode === 'paste' ? 'is-active' : ''}`}
+                type="button"
+                onClick={() => updateImportMode('paste')}
+              >
+                <FileText size={15} />
+                {text.importModePaste}
+              </button>
+              <button
+                className={`proxy-pool-segment ${importMode === 'url' ? 'is-active' : ''}`}
+                type="button"
+                onClick={() => updateImportMode('url')}
+              >
+                <Link size={15} />
+                {text.importModeUrl}
+              </button>
+            </div>
+            {importMode === 'paste' ? (
+              <label className="proxy-pool-field proxy-pool-field--full">
+                <span>{text.importContent}</span>
+                <textarea
+                  className="settings-input proxy-pool-import-textarea"
+                  value={importContent}
+                  onChange={(event) => {
+                    setImportContent(event.target.value);
+                    resetImportPreview();
+                  }}
+                  placeholder={text.importContentPlaceholder}
+                />
+              </label>
+            ) : (
+              <label className="proxy-pool-field proxy-pool-field--full">
+                <span>{text.subscriptionUrl}</span>
+                <input
+                  className="settings-input"
+                  value={subscriptionUrl}
+                  onChange={(event) => {
+                    setSubscriptionUrl(event.target.value);
+                    resetImportPreview();
+                  }}
+                  placeholder={text.subscriptionUrlPlaceholder}
+                />
+              </label>
+            )}
             <div className="proxy-pool-import-options">
               <label className="proxy-pool-field">
                 <span>{text.group}</span>
@@ -480,7 +647,7 @@ export function ProxyPoolSection() {
                   className="btn btn-secondary"
                   type="button"
                   onClick={handlePreviewImport}
-                  disabled={previewLoading || !importContent.trim()}
+                  disabled={previewLoading || (importMode === 'url' ? !subscriptionUrl.trim() : !importContent.trim())}
                 >
                   <RefreshCw size={16} className={previewLoading ? 'animate-spin' : undefined} />
                   {previewLoading ? text.previewing : text.previewImport}
@@ -675,8 +842,7 @@ export function ProxyPoolSection() {
             onChange={(event) => setProtocolFilter(event.target.value)}
           >
             <option value="all">{text.allProtocols}</option>
-            <option value="direct">direct</option>
-            {MANUAL_PROTOCOLS.map((protocol) => (
+            {protocolOptions.map((protocol) => (
               <option key={protocol} value={protocol}>
                 {protocol}
               </option>
@@ -692,6 +858,58 @@ export function ProxyPoolSection() {
             {text.deleteSelected}
           </button>
         </div>
+
+        {sources.length > 0 && (
+          <div className="proxy-pool-sources">
+            <div className="proxy-pool-sources-head">
+              <div className="proxy-pool-sources-title">
+                <span>{text.sourcesTitle}</span>
+                <span>{text.sourcesCount.replace('{{count}}', String(sources.length))}</span>
+              </div>
+              <button
+                className="btn btn-secondary proxy-pool-refresh-all"
+                type="button"
+                onClick={() => void handleRefreshAllSources()}
+                disabled={refreshingAllSources}
+              >
+                <RefreshCw size={16} className={refreshingAllSources ? 'animate-spin' : undefined} />
+                {refreshingAllSources ? text.refreshing : text.refreshAllSources}
+              </button>
+            </div>
+            <div className="proxy-pool-source-list">
+              {sources.map((source) => (
+                <div className="proxy-pool-source-item" key={source.id}>
+                  <div className="proxy-pool-source-main">
+                    <div className="proxy-pool-node-title">
+                      <span>{source.displayName}</span>
+                      <span className="proxy-pool-badge">
+                        {text.sourceNodeCount.replace('{{count}}', String(source.nodeCount))}
+                      </span>
+                    </div>
+                    <code title={source.url}>{source.url}</code>
+                  </div>
+                  <div className="proxy-pool-source-meta">
+                    <span>{text.group}: {source.group || '-'}</span>
+                    <span>{text.sourceLastRefresh}: {formatSourceTime(source.lastRefreshAt)}</span>
+                    {source.lastError && <span>{source.lastError}</span>}
+                  </div>
+                  <button
+                    className="proxy-pool-icon-btn proxy-pool-refresh-btn"
+                    type="button"
+                    onClick={() => void handleRefreshSource(source.id)}
+                    disabled={refreshingAllSources || refreshingSourceIds.has(source.id)}
+                    title={text.refreshSource}
+                  >
+                    <RefreshCw
+                      size={16}
+                      className={refreshingSourceIds.has(source.id) ? 'animate-spin' : undefined}
+                    />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="proxy-pool-list">
           {loading && nodes.length === 0 ? (
@@ -714,6 +932,7 @@ export function ProxyPoolSection() {
                     <span>{node.name}</span>
                     <span className={`proxy-pool-protocol is-${node.protocol}`}>{node.protocol}</span>
                     {node.builtin && <span className="proxy-pool-badge">{text.builtin}</span>}
+                    {!node.builtin && node.sourceName && <span className="proxy-pool-badge">{node.sourceName}</span>}
                   </div>
                   <code title={node.maskedUrl}>{node.maskedUrl}</code>
                   <div className="proxy-pool-node-meta">

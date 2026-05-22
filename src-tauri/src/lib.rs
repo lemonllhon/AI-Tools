@@ -435,6 +435,10 @@ pub fn run() {
             commands::proxy_pool::proxy_pool_set_node_enabled,
             commands::proxy_pool::proxy_pool_preview_import,
             commands::proxy_pool::proxy_pool_apply_import,
+            commands::proxy_pool::proxy_pool_preview_subscription,
+            commands::proxy_pool::proxy_pool_apply_subscription,
+            commands::proxy_pool::proxy_pool_refresh_subscription,
+            commands::proxy_pool::proxy_pool_refresh_all_subscriptions,
             // Logs Commands
             commands::logs::logs_get_snapshot,
             commands::logs::logs_open_log_directory,

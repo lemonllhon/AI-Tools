@@ -3,6 +3,8 @@ use tauri_plugin_opener::OpenerExt;
 use crate::modules::proxy_pool::models::{
     ProxyImportApplyRequest, ProxyImportApplyResponse, ProxyImportPreviewRequest,
     ProxyImportPreviewResponse, ProxyNodeSaveRequest, ProxyPoolListResponse, ProxyPoolNode,
+    ProxySubscriptionApplyRequest, ProxySubscriptionApplyResponse, ProxySubscriptionPreviewRequest,
+    ProxySubscriptionRefreshRequest, ProxySubscriptionRefreshResponse,
 };
 use crate::modules::proxy_pool::runtime::{self, ProxyRuntimeStatus};
 use crate::modules::proxy_pool::store;
@@ -64,4 +66,31 @@ pub fn proxy_pool_apply_import(
     request: ProxyImportApplyRequest,
 ) -> Result<ProxyImportApplyResponse, String> {
     store::apply_import(request)
+}
+
+#[tauri::command]
+pub async fn proxy_pool_preview_subscription(
+    request: ProxySubscriptionPreviewRequest,
+) -> Result<ProxyImportPreviewResponse, String> {
+    store::preview_subscription(request).await
+}
+
+#[tauri::command]
+pub async fn proxy_pool_apply_subscription(
+    request: ProxySubscriptionApplyRequest,
+) -> Result<ProxySubscriptionApplyResponse, String> {
+    store::apply_subscription(request).await
+}
+
+#[tauri::command]
+pub async fn proxy_pool_refresh_subscription(
+    request: ProxySubscriptionRefreshRequest,
+) -> Result<ProxySubscriptionRefreshResponse, String> {
+    store::refresh_subscription(request).await
+}
+
+#[tauri::command]
+pub async fn proxy_pool_refresh_all_subscriptions(
+) -> Result<ProxySubscriptionRefreshResponse, String> {
+    store::refresh_all_subscriptions().await
 }

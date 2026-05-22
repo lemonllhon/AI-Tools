@@ -7,6 +7,11 @@ import type {
   ProxyNodeSaveRequest,
   ProxyPoolListResponse,
   ProxyPoolNode,
+  ProxySubscriptionApplyRequest,
+  ProxySubscriptionApplyResponse,
+  ProxySubscriptionPreviewRequest,
+  ProxySubscriptionRefreshRequest,
+  ProxySubscriptionRefreshResponse,
 } from '../types/proxyPool';
 
 export async function listProxyPoolNodes(): Promise<ProxyPoolListResponse> {
@@ -39,4 +44,26 @@ export async function applyProxyPoolImport(
   request: ProxyImportApplyRequest,
 ): Promise<ProxyImportApplyResponse> {
   return await invoke('proxy_pool_apply_import', { request });
+}
+
+export async function previewProxyPoolSubscription(
+  request: ProxySubscriptionPreviewRequest,
+): Promise<ProxyImportPreviewResponse> {
+  return await invoke('proxy_pool_preview_subscription', { request });
+}
+
+export async function applyProxyPoolSubscription(
+  request: ProxySubscriptionApplyRequest,
+): Promise<ProxySubscriptionApplyResponse> {
+  return await invoke('proxy_pool_apply_subscription', { request });
+}
+
+export async function refreshProxyPoolSubscription(
+  request: ProxySubscriptionRefreshRequest,
+): Promise<ProxySubscriptionRefreshResponse> {
+  return await invoke('proxy_pool_refresh_subscription', { request });
+}
+
+export async function refreshAllProxyPoolSubscriptions(): Promise<ProxySubscriptionRefreshResponse> {
+  return await invoke('proxy_pool_refresh_all_subscriptions');
 }

@@ -29,10 +29,29 @@ pub struct ProxyPoolNode {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProxySource {
+    pub id: String,
+    pub url: String,
+    pub display_name: String,
+    pub name_prefix: String,
+    pub group: String,
+    pub dns: String,
+    pub auto_refresh_enabled: bool,
+    pub refresh_interval_minutes: i64,
+    pub last_refresh_at: Option<String>,
+    pub last_error: String,
+    pub node_count: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProxyPoolListResponse {
     pub db_path: String,
     pub nodes: Vec<ProxyPoolNode>,
     pub groups: Vec<String>,
+    pub sources: Vec<ProxySource>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -74,6 +93,33 @@ pub struct ProxyImportApplyRequest {
     pub selected_preview_ids: Vec<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxySubscriptionPreviewRequest {
+    pub url: String,
+    #[serde(default)]
+    pub group: Option<String>,
+    #[serde(default)]
+    pub name_prefix: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxySubscriptionApplyRequest {
+    pub url: String,
+    #[serde(default)]
+    pub group: Option<String>,
+    #[serde(default)]
+    pub name_prefix: Option<String>,
+    pub selected_preview_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxySubscriptionRefreshRequest {
+    pub source_id: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyImportPreviewItem {
@@ -100,4 +146,34 @@ pub struct ProxyImportApplyResponse {
     pub imported: usize,
     pub skipped: usize,
     pub nodes: Vec<ProxyPoolNode>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxySubscriptionApplyResponse {
+    pub imported: usize,
+    pub skipped: usize,
+    pub nodes: Vec<ProxyPoolNode>,
+    pub source: ProxySource,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxySubscriptionRefreshItem {
+    pub source_id: String,
+    pub display_name: String,
+    pub imported: usize,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxySubscriptionRefreshResponse {
+    pub refreshed: usize,
+    pub failed: usize,
+    pub nodes: Vec<ProxyPoolNode>,
+    pub groups: Vec<String>,
+    pub sources: Vec<ProxySource>,
+    pub results: Vec<ProxySubscriptionRefreshItem>,
 }

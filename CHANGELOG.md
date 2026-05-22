@@ -6,6 +6,21 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.12] - 2026-05-22
+### Added
+- Added URL subscription import for the built-in proxy node pool, including `http`/`https` fetch validation, a 2 MB content limit, preview, and selective import.
+- Added stable hashed subscription `source_id` tracking so repeated imports and refreshes are scoped to the same subscription source.
+- Added a subscription source list in Network Services with source URL, group, node count, last refresh time, and last error visibility.
+- Added refresh actions for a single subscription source and all subscription sources.
+
+### Changed
+- Extended proxy pool frontend types, services, and Tauri commands to return subscription sources and refresh results alongside nodes.
+- Updated proxy protocol filtering so imported subscription protocols can appear in the filter list.
+
+### Fixed
+- Preserved existing subscription nodes when a refresh fetch or parse fails, recording `last_error` instead of deleting the old source nodes.
+- Replaced subscription nodes atomically only after a successful fetch and parse, scoped by the matching `source_id`.
+
 ## [0.0.11] - 2026-05-22
 ### Added
 - Added the first built-in proxy node pool database with SQLite persistence, schema migrations, built-in direct/local nodes, basic CRUD commands, enable/disable support, search/filter metadata, and credential-masked node output.

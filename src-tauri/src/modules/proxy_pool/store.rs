@@ -1,17 +1,22 @@
 use super::models::{
     ProxyImportApplyRequest, ProxyImportApplyResponse, ProxyImportPreviewRequest,
     ProxyImportPreviewResponse, ProxyNodeSaveRequest, ProxyPoolListResponse, ProxyPoolNode,
-    DIRECT_NODE_ID, LOCAL_NODE_ID,
+    ProxySource, ProxySubscriptionApplyRequest, ProxySubscriptionApplyResponse,
+    ProxySubscriptionPreviewRequest, ProxySubscriptionRefreshItem, ProxySubscriptionRefreshRequest,
+    ProxySubscriptionRefreshResponse, DIRECT_NODE_ID, LOCAL_NODE_ID,
 };
 use super::parser;
+use super::subscription;
 use crate::modules::data_dir;
 use chrono::{SecondsFormat, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use url::Url;
 use uuid::Uuid;
 
 const DB_DIR_NAME: &str = "proxy-pool";
@@ -44,11 +49,13 @@ pub fn list_nodes() -> Result<ProxyPoolListResponse, String> {
         .map_err(|err| format!("读取代理节点失败: {}", err))?;
 
     let groups = collect_groups(&nodes);
+    let sources = list_sources_from_conn(&conn)?;
 
     Ok(ProxyPoolListResponse {
         db_path: display_path(&db_path),
         nodes,
         groups,
+        sources,
     })
 }
 
@@ -200,7 +207,11 @@ pub fn set_node_enabled(id: &str, enabled: bool) -> Result<ProxyPoolNode, String
     get_node(&conn, id)?.ok_or_else(|| {
         format!(
             "代理节点状态更新后读取失败: {}",
-            if meta.builtin { "内置节点" } else { "自定义节点" }
+            if meta.builtin {
+                "内置节点"
+            } else {
+                "自定义节点"
+            }
         )
     })
 }
@@ -245,7 +256,7 @@ pub fn apply_import(request: ProxyImportApplyRequest) -> Result<ProxyImportApply
         .map_err(|err| format!("导入代理节点失败: {}", err))?;
     let mut imported = 0usize;
     for node in &selected_nodes {
-        insert_imported_node(&tx, node, sort_order, &now)?;
+        insert_imported_node(&tx, node, sort_order, &now, None)?;
         sort_order += 1;
         imported += 1;
     }
@@ -260,6 +271,139 @@ pub fn apply_import(request: ProxyImportApplyRequest) -> Result<ProxyImportApply
     })
 }
 
+pub async fn preview_subscription(
+    request: ProxySubscriptionPreviewRequest,
+) -> Result<ProxyImportPreviewResponse, String> {
+    let fetched = subscription::fetch_subscription(&request.url).await?;
+    parser::preview_import(&ProxyImportPreviewRequest {
+        content: fetched.content,
+        group: request.group,
+        name_prefix: request.name_prefix,
+    })
+}
+
+pub async fn apply_subscription(
+    request: ProxySubscriptionApplyRequest,
+) -> Result<ProxySubscriptionApplyResponse, String> {
+    if request.selected_preview_ids.is_empty() {
+        return Err("请选择要导入的订阅节点".to_string());
+    }
+
+    let selected_ids: HashSet<String> = request.selected_preview_ids.into_iter().collect();
+    let fetched = subscription::fetch_subscription(&request.url).await?;
+    let source_id = subscription_source_id(&fetched.url)?;
+    let source_name = build_source_display_name(&fetched.url);
+    let group = normalize_optional_text(request.group.clone(), 80)?;
+    let group = if group.is_empty() {
+        DEFAULT_GROUP.to_string()
+    } else {
+        group
+    };
+    let name_prefix = normalize_optional_text(request.name_prefix.clone(), 80)?;
+
+    let preview_request = ProxyImportPreviewRequest {
+        content: fetched.content,
+        group: Some(group.clone()),
+        name_prefix: Some(name_prefix.clone()),
+    };
+    let parsed = parser::parse_import_request(&preview_request)?;
+    let selected_nodes: Vec<_> = parsed
+        .nodes
+        .into_iter()
+        .filter(|node| selected_ids.contains(&node.preview_id))
+        .collect();
+    if selected_nodes.is_empty() {
+        return Err("所选订阅节点已失效，请重新预览后再导入".to_string());
+    }
+
+    let db_path = proxy_pool_db_path()?;
+    let mut conn = open_connection_at(&db_path)?;
+    initialize_schema(&conn)?;
+    seed_builtin_nodes(&conn)?;
+
+    let now = now_iso();
+    let mut sort_order = next_sort_order(&conn)?;
+    let tx = conn
+        .transaction()
+        .map_err(|err| format!("导入订阅节点失败: {}", err))?;
+    upsert_subscription_source(
+        &tx,
+        SubscriptionSourceUpsert {
+            id: &source_id,
+            url: &fetched.url,
+            name_prefix: &name_prefix,
+            group: &group,
+            now: &now,
+        },
+    )?;
+    tx.execute(
+        "DELETE FROM proxy_nodes WHERE source_id = ?1 AND builtin = 0",
+        params![&source_id],
+    )
+    .map_err(|err| format!("刷新订阅节点失败: {}", err))?;
+
+    let source_meta = InsertSourceMeta {
+        id: source_id.clone(),
+        name: source_name,
+    };
+    let mut imported = 0usize;
+    for node in &selected_nodes {
+        insert_imported_node(&tx, node, sort_order, &now, Some(&source_meta))?;
+        sort_order += 1;
+        imported += 1;
+    }
+    tx.commit()
+        .map_err(|err| format!("导入订阅节点失败: {}", err))?;
+
+    let list = list_nodes()?;
+    let source = list
+        .sources
+        .iter()
+        .find(|item| item.id == source_meta.id.as_str())
+        .cloned()
+        .ok_or_else(|| "订阅来源保存后读取失败".to_string())?;
+
+    Ok(ProxySubscriptionApplyResponse {
+        imported,
+        skipped: selected_ids.len().saturating_sub(imported),
+        nodes: list.nodes,
+        source,
+    })
+}
+
+pub async fn refresh_subscription(
+    request: ProxySubscriptionRefreshRequest,
+) -> Result<ProxySubscriptionRefreshResponse, String> {
+    let source_id = normalize_required_text(&request.source_id, "订阅来源", 120)?;
+    let db_path = proxy_pool_db_path()?;
+    let conn = open_connection_at(&db_path)?;
+    initialize_schema(&conn)?;
+    seed_builtin_nodes(&conn)?;
+    let Some(source) = load_subscription_source_record(&conn, &source_id)? else {
+        return Err("订阅来源不存在".to_string());
+    };
+    drop(conn);
+
+    let results = vec![refresh_subscription_record(source).await];
+    build_subscription_refresh_response(results)
+}
+
+pub async fn refresh_all_subscriptions() -> Result<ProxySubscriptionRefreshResponse, String> {
+    let db_path = proxy_pool_db_path()?;
+    let conn = open_connection_at(&db_path)?;
+    initialize_schema(&conn)?;
+    seed_builtin_nodes(&conn)?;
+    let sources = list_subscription_source_records(&conn)?;
+    drop(conn);
+
+    let mut results = Vec::with_capacity(sources.len());
+    for source in sources {
+        results.push(refresh_subscription_record(source).await);
+    }
+
+    build_subscription_refresh_response(results)
+}
+
 pub fn proxy_pool_db_path() -> Result<PathBuf, String> {
     let dir = data_dir::get_data_dir()?.join(DB_DIR_NAME);
     fs::create_dir_all(&dir)
@@ -268,13 +412,8 @@ pub fn proxy_pool_db_path() -> Result<PathBuf, String> {
 }
 
 fn open_connection_at(db_path: &Path) -> Result<Connection, String> {
-    let conn = Connection::open(db_path).map_err(|err| {
-        format!(
-            "打开代理池数据库失败 {}: {}",
-            db_path.display(),
-            err
-        )
-    })?;
+    let conn = Connection::open(db_path)
+        .map_err(|err| format!("打开代理池数据库失败 {}: {}", db_path.display(), err))?;
     conn.busy_timeout(Duration::from_secs(5))
         .map_err(|err| format!("设置代理池数据库超时失败: {}", err))?;
     conn.pragma_update(None, "journal_mode", "WAL")
@@ -454,17 +593,300 @@ fn get_node(conn: &Connection, id: &str) -> Result<Option<ProxyPoolNode>, String
     .map_err(|err| format!("读取代理节点失败: {}", err))
 }
 
+fn list_sources_from_conn(conn: &Connection) -> Result<Vec<ProxySource>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT
+                source.id, source.url, source.name_prefix, source.group_name, source.dns,
+                source.auto_refresh_enabled, source.refresh_interval_minutes,
+                source.last_refresh_at, source.last_error, source.created_at, source.updated_at,
+                COUNT(node.id) AS node_count
+             FROM proxy_sources source
+             LEFT JOIN proxy_nodes node ON node.source_id = source.id
+             GROUP BY source.id
+             ORDER BY source.updated_at DESC, source.created_at DESC",
+        )
+        .map_err(|err| format!("读取订阅来源失败: {}", err))?;
+
+    stmt.query_map([], map_source_row)
+        .map_err(|err| format!("读取订阅来源失败: {}", err))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|err| format!("读取订阅来源失败: {}", err))
+}
+
+fn map_source_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProxySource> {
+    let url: String = row.get(1)?;
+    Ok(ProxySource {
+        id: row.get(0)?,
+        display_name: build_source_display_name(&url),
+        url,
+        name_prefix: row.get(2)?,
+        group: row.get(3)?,
+        dns: row.get(4)?,
+        auto_refresh_enabled: row.get::<_, i64>(5)? != 0,
+        refresh_interval_minutes: row.get(6)?,
+        last_refresh_at: row.get(7)?,
+        last_error: row.get(8)?,
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
+        node_count: row.get(11)?,
+    })
+}
+
+#[derive(Debug, Clone)]
+struct SubscriptionSourceRecord {
+    id: String,
+    url: String,
+    name_prefix: String,
+    group: String,
+}
+
+fn load_subscription_source_record(
+    conn: &Connection,
+    source_id: &str,
+) -> Result<Option<SubscriptionSourceRecord>, String> {
+    conn.query_row(
+        "SELECT id, url, name_prefix, group_name FROM proxy_sources WHERE id = ?1",
+        params![source_id],
+        map_source_record_row,
+    )
+    .optional()
+    .map_err(|err| format!("读取订阅来源失败: {}", err))
+}
+
+fn list_subscription_source_records(
+    conn: &Connection,
+) -> Result<Vec<SubscriptionSourceRecord>, String> {
+    let mut stmt = conn
+        .prepare("SELECT id, url, name_prefix, group_name FROM proxy_sources ORDER BY updated_at DESC, created_at DESC")
+        .map_err(|err| format!("读取订阅来源失败: {}", err))?;
+
+    stmt.query_map([], map_source_record_row)
+        .map_err(|err| format!("读取订阅来源失败: {}", err))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|err| format!("读取订阅来源失败: {}", err))
+}
+
+fn map_source_record_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SubscriptionSourceRecord> {
+    Ok(SubscriptionSourceRecord {
+        id: row.get(0)?,
+        url: row.get(1)?,
+        name_prefix: row.get(2)?,
+        group: row.get(3)?,
+    })
+}
+
+struct SubscriptionSourceUpsert<'a> {
+    id: &'a str,
+    url: &'a str,
+    name_prefix: &'a str,
+    group: &'a str,
+    now: &'a str,
+}
+
+fn upsert_subscription_source(
+    tx: &Transaction<'_>,
+    source: SubscriptionSourceUpsert<'_>,
+) -> Result<(), String> {
+    tx.execute(
+        "INSERT INTO proxy_sources (
+            id, url, name_prefix, group_name, dns, auto_refresh_enabled,
+            refresh_interval_minutes, last_refresh_at, last_error, created_at, updated_at
+         ) VALUES (
+            ?1, ?2, ?3, ?4, '', 0,
+            360, ?5, '', ?5, ?5
+         )
+         ON CONFLICT(id) DO UPDATE SET
+            url = excluded.url,
+            name_prefix = excluded.name_prefix,
+            group_name = excluded.group_name,
+            last_refresh_at = excluded.last_refresh_at,
+            last_error = '',
+            updated_at = excluded.updated_at",
+        params![
+            source.id,
+            source.url,
+            source.name_prefix,
+            source.group,
+            source.now,
+        ],
+    )
+    .map_err(|err| format!("保存订阅来源失败: {}", err))?;
+
+    Ok(())
+}
+
+async fn refresh_subscription_record(
+    source: SubscriptionSourceRecord,
+) -> ProxySubscriptionRefreshItem {
+    let display_name = build_source_display_name(&source.url);
+    match fetch_and_parse_subscription_source(&source).await {
+        Ok((fetched_url, nodes)) => {
+            match replace_subscription_source_nodes(&source, &fetched_url, &nodes) {
+                Ok(imported) => ProxySubscriptionRefreshItem {
+                    source_id: source.id,
+                    display_name,
+                    imported,
+                    success: true,
+                    error: None,
+                },
+                Err(error) => {
+                    let _ = mark_subscription_source_error(&source.id, &error);
+                    ProxySubscriptionRefreshItem {
+                        source_id: source.id,
+                        display_name,
+                        imported: 0,
+                        success: false,
+                        error: Some(error),
+                    }
+                }
+            }
+        }
+        Err(error) => {
+            let _ = mark_subscription_source_error(&source.id, &error);
+            ProxySubscriptionRefreshItem {
+                source_id: source.id,
+                display_name,
+                imported: 0,
+                success: false,
+                error: Some(error),
+            }
+        }
+    }
+}
+
+async fn fetch_and_parse_subscription_source(
+    source: &SubscriptionSourceRecord,
+) -> Result<(String, Vec<parser::ParsedProxyNode>), String> {
+    let fetched = subscription::fetch_subscription(&source.url).await?;
+    let group = if source.group.trim().is_empty() {
+        DEFAULT_GROUP.to_string()
+    } else {
+        source.group.clone()
+    };
+    let parsed = parser::parse_import_request(&ProxyImportPreviewRequest {
+        content: fetched.content,
+        group: Some(group),
+        name_prefix: Some(source.name_prefix.clone()),
+    })?;
+    if parsed.nodes.is_empty() {
+        let message = if parsed.errors.is_empty() {
+            "订阅中没有可导入的代理节点".to_string()
+        } else {
+            parsed.errors.join("; ")
+        };
+        return Err(message);
+    }
+
+    Ok((fetched.url, parsed.nodes))
+}
+
+fn replace_subscription_source_nodes(
+    source: &SubscriptionSourceRecord,
+    fetched_url: &str,
+    nodes: &[parser::ParsedProxyNode],
+) -> Result<usize, String> {
+    let db_path = proxy_pool_db_path()?;
+    let mut conn = open_connection_at(&db_path)?;
+    initialize_schema(&conn)?;
+    seed_builtin_nodes(&conn)?;
+
+    let now = now_iso();
+    let mut sort_order = next_sort_order(&conn)?;
+    let source_name = build_source_display_name(fetched_url);
+    let source_meta = InsertSourceMeta {
+        id: source.id.clone(),
+        name: source_name,
+    };
+    let tx = conn
+        .transaction()
+        .map_err(|err| format!("刷新订阅节点失败: {}", err))?;
+    tx.execute(
+        "UPDATE proxy_sources
+         SET url = ?1, last_refresh_at = ?2, last_error = '', updated_at = ?2
+         WHERE id = ?3",
+        params![fetched_url, now, &source.id],
+    )
+    .map_err(|err| format!("更新订阅来源刷新状态失败: {}", err))?;
+    tx.execute(
+        "DELETE FROM proxy_nodes WHERE source_id = ?1 AND builtin = 0",
+        params![&source.id],
+    )
+    .map_err(|err| format!("刷新订阅节点失败: {}", err))?;
+
+    let mut imported = 0usize;
+    for node in nodes {
+        insert_imported_node(&tx, node, sort_order, &now, Some(&source_meta))?;
+        sort_order += 1;
+        imported += 1;
+    }
+
+    tx.commit()
+        .map_err(|err| format!("刷新订阅节点失败: {}", err))?;
+
+    Ok(imported)
+}
+
+fn mark_subscription_source_error(source_id: &str, error: &str) -> Result<(), String> {
+    let db_path = proxy_pool_db_path()?;
+    let conn = open_connection_at(&db_path)?;
+    initialize_schema(&conn)?;
+    seed_builtin_nodes(&conn)?;
+    conn.execute(
+        "UPDATE proxy_sources SET last_error = ?1, updated_at = ?2 WHERE id = ?3",
+        params![truncate_refresh_error(error), now_iso(), source_id],
+    )
+    .map_err(|err| format!("记录订阅刷新错误失败: {}", err))?;
+    Ok(())
+}
+
+fn build_subscription_refresh_response(
+    results: Vec<ProxySubscriptionRefreshItem>,
+) -> Result<ProxySubscriptionRefreshResponse, String> {
+    let refreshed = results.iter().filter(|item| item.success).count();
+    let failed = results.len().saturating_sub(refreshed);
+    let list = list_nodes()?;
+
+    Ok(ProxySubscriptionRefreshResponse {
+        refreshed,
+        failed,
+        nodes: list.nodes,
+        groups: list.groups,
+        sources: list.sources,
+        results,
+    })
+}
+
+fn truncate_refresh_error(error: &str) -> String {
+    let trimmed = error.trim();
+    if trimmed.chars().count() <= 500 {
+        return trimmed.to_string();
+    }
+    trimmed.chars().take(500).collect()
+}
+
+#[derive(Debug, Clone)]
+struct InsertSourceMeta {
+    id: String,
+    name: String,
+}
+
 fn insert_imported_node(
     tx: &Transaction<'_>,
     node: &parser::ParsedProxyNode,
     sort_order: i64,
     now: &str,
+    source: Option<&InsertSourceMeta>,
 ) -> Result<(), String> {
     let id = Uuid::new_v4().to_string();
     let raw_config = serde_json::to_string(&node.raw_config)
         .map_err(|err| format!("序列化导入代理节点原始配置失败: {}", err))?;
     let standard_config = serde_json::to_string(&node.standard_config)
         .map_err(|err| format!("序列化导入代理节点标准配置失败: {}", err))?;
+    let source_id = source.map(|item| item.id.as_str());
+    let source_name = source
+        .map(|item| item.name.as_str())
+        .unwrap_or(node.source_kind.as_str());
 
     tx.execute(
         "INSERT INTO proxy_nodes (
@@ -473,8 +895,8 @@ fn insert_imported_node(
             latency_ms, latency_status, ip_health_json, ip_health_summary, created_at, updated_at
          ) VALUES (
             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
-            ?10, '', NULL, ?11, ?12, 1, 0,
-            NULL, '', '', '', ?13, ?13
+            ?10, '', ?11, ?12, ?13, 1, 0,
+            NULL, '', '', '', ?14, ?14
          )",
         params![
             id,
@@ -487,7 +909,8 @@ fn insert_imported_node(
             raw_config,
             standard_config,
             node.group,
-            node.source_kind,
+            source_id,
+            source_name,
             sort_order,
             now,
         ],
@@ -584,7 +1007,10 @@ struct NormalizedNodeInput {
 
 impl NormalizedNodeInput {
     fn from_request(request: ProxyNodeSaveRequest) -> Result<Self, String> {
-        let id = request.id.map(|value| value.trim().to_string()).filter(|value| !value.is_empty());
+        let id = request
+            .id
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
         let name = normalize_required_text(&request.name, "节点名称", 120)?;
         let protocol = request.protocol.trim().to_ascii_lowercase();
         if !SUPPORTED_MANUAL_PROTOCOLS.contains(&protocol.as_str()) {
@@ -665,7 +1091,11 @@ fn build_standard_config_json(
 
 fn collect_groups(nodes: &[ProxyPoolNode]) -> Vec<String> {
     let mut groups = BTreeSet::new();
-    for group in nodes.iter().map(|node| node.group.trim()).filter(|group| !group.is_empty()) {
+    for group in nodes
+        .iter()
+        .map(|node| node.group.trim())
+        .filter(|group| !group.is_empty())
+    {
         groups.insert(group.to_string());
     }
     groups.into_iter().collect()
@@ -710,6 +1140,31 @@ fn mask_username(value: &str) -> String {
     format!("{}***", first)
 }
 
+fn subscription_source_id(url: &str) -> Result<String, String> {
+    let normalized = subscription::normalize_subscription_url(url)?;
+    let digest = Sha256::digest(normalized.as_bytes());
+    Ok(format!("sub-{digest:x}"))
+}
+
+fn build_source_display_name(url: &str) -> String {
+    let Ok(parsed) = Url::parse(url) else {
+        return "URL 订阅".to_string();
+    };
+
+    let host = parsed.host_str().unwrap_or("subscription");
+    let tail = parsed
+        .path_segments()
+        .and_then(|mut segments| segments.next_back())
+        .unwrap_or("")
+        .trim_matches('/');
+
+    if tail.is_empty() {
+        host.to_string()
+    } else {
+        format!("{host}/{tail}")
+    }
+}
+
 fn now_iso() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
 }
@@ -750,5 +1205,26 @@ mod tests {
 
         let error = NormalizedNodeInput::from_request(request).expect_err("vmess is later phase");
         assert!(error.contains("http、https、socks5"));
+    }
+
+    #[test]
+    fn builds_stable_subscription_source_id_from_normalized_url() {
+        let first = subscription_source_id("https://example.com/sub").expect("valid url");
+        let second = subscription_source_id("https://example.com/sub").expect("valid url");
+
+        assert_eq!(first, second);
+        assert!(first.starts_with("sub-"));
+    }
+
+    #[test]
+    fn builds_readable_subscription_display_name() {
+        assert_eq!(
+            build_source_display_name("https://example.com/path/sub.yaml?token=secret"),
+            "example.com/sub.yaml"
+        );
+        assert_eq!(
+            build_source_display_name("https://example.com"),
+            "example.com"
+        );
     }
 }
