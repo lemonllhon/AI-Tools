@@ -28,6 +28,7 @@ const MIHOMO_PROXY_NAME: &str = "selected-node";
 const MIHOMO_GROUP_NAME: &str = "proxy";
 const BRIDGE_READY_TIMEOUT: Duration = Duration::from_secs(8);
 const BRIDGE_READY_INTERVAL: Duration = Duration::from_millis(120);
+const MIHOMO_PROVIDER_READY_GRACE: Duration = Duration::from_millis(1800);
 
 static BRIDGE_RUNTIME: OnceLock<TokioMutex<BridgeRuntime>> = OnceLock::new();
 
@@ -154,6 +155,7 @@ pub async fn ensure_bridge(target: &GatewayOutboundTarget) -> Result<BridgeEndpo
         stop_bridge_locked(&mut runtime_state);
         return Err(error);
     }
+    wait_for_runtime_provider_ready(&kind).await;
 
     crate::modules::logger::log_info(&format!(
         "[ProxyBridge] 内置桥接已就绪: runtime={}, node={} ({}), listen=socks5://{}:{}",
@@ -206,6 +208,7 @@ pub async fn start_temporary_bridge(
         drop(temporary);
         return Err(error);
     }
+    wait_for_runtime_provider_ready(&kind).await;
 
     crate::modules::logger::log_info(&format!(
         "[ProxyBridge] 临时桥接检测已就绪: runtime={}, node={} ({}), listen=socks5://{}:{}",
@@ -318,6 +321,12 @@ async fn endpoint_is_ready(endpoint: &BridgeEndpoint) -> bool {
         .await,
         Ok(Ok(_))
     )
+}
+
+async fn wait_for_runtime_provider_ready(kind: &BridgeRuntimeKind) {
+    if matches!(kind, BridgeRuntimeKind::Mihomo) {
+        tokio::time::sleep(MIHOMO_PROVIDER_READY_GRACE).await;
+    }
 }
 
 async fn resolve_runtime_binary(runtime_name: &'static str) -> Result<PathBuf, String> {

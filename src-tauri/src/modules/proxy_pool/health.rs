@@ -3,9 +3,10 @@ use super::models::{ProxyPoolIpHealthResult, ProxyPoolLatencyTestResult};
 use super::store::GatewayOutboundTarget;
 use reqwest::{Client, Proxy, Url};
 use serde_json::{json, Value};
+use std::error::Error;
 use std::time::{Duration, Instant};
 
-const LATENCY_TEST_URL: &str = "http://www.gstatic.com/generate_204";
+const LATENCY_TEST_URL: &str = "http://cp.cloudflare.com/generate_204";
 const IPPURE_INFO_URL: &str = "https://my.ippure.com/v1/info";
 const LATENCY_TIMEOUT_SECONDS: u64 = 10;
 const IP_HEALTH_TIMEOUT_SECONDS: u64 = 20;
@@ -90,7 +91,10 @@ pub async fn test_latency(target: ProxyCheckTarget) -> ProxyPoolLatencyTestResul
                 node_id: target.id,
                 ok: false,
                 latency_ms: Some(latency_ms),
-                error: client_context.append_bridge_log(format!("测速失败: {}", error)),
+                error: client_context.append_bridge_log(format!(
+                    "测速失败: {}",
+                    format_reqwest_error(&error)
+                )),
             }
         }
     }
@@ -116,7 +120,10 @@ pub async fn check_ip_health(target: ProxyCheckTarget) -> ProxyPoolIpHealthResul
         Err(error) => {
             return failed_ip_health_result(
                 target.id,
-                client_context.append_bridge_log(format!("调用 IPPure 接口失败: {}", error)),
+                client_context.append_bridge_log(format!(
+                    "调用 IPPure 接口失败: {}",
+                    format_reqwest_error(&error)
+                )),
             );
         }
     };
@@ -311,6 +318,20 @@ fn failed_ip_health_result(node_id: String, error: String) -> ProxyPoolIpHealthR
         raw_data: json!({}),
         updated_at: now_iso(),
     }
+}
+
+fn format_reqwest_error(error: &reqwest::Error) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(detail) = source {
+        let detail_text = detail.to_string();
+        if !detail_text.trim().is_empty() && !message.contains(&detail_text) {
+            message.push_str(" | caused by: ");
+            message.push_str(&detail_text);
+        }
+        source = detail.source();
+    }
+    message
 }
 
 fn value_string(value: &Value, key: &str) -> String {

@@ -6,6 +6,16 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.18] - 2026-05-23
+### Changed
+- Changed temporary mihomo bridge readiness so latency tests and IP health checks wait briefly after the local mixed/SOCKS endpoint is reachable, giving mihomo compatible providers time to finish initialization.
+- Changed the latency probe endpoint from Google `generate_204` to Cloudflare `generate_204` to reduce regional reachability noise.
+- Improved latency and IP health failure messages by including the reqwest source cause chain alongside the bridge log snippet.
+
+### Fixed
+- Fixed a race where selected subscription nodes could work through the built-in gateway, but immediate latency tests or IP health checks failed because mihomo had opened the port before its proxy provider was ready.
+- Fixed advanced node diagnostics hiding lower-level request causes such as connection aborts, resets, or tunnel setup failures.
+
 ## [0.0.17] - 2026-05-23
 ### Added
 - Added detailed proxy bridge diagnostics for gateway forwarding, latency tests, and IP health checks, including mihomo log snippets when node dialing fails.

@@ -6,6 +6,17 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.0.18] - 2026-05-23
+
+### 变更
+- 调整临时 mihomo 桥接就绪逻辑，延迟测速和 IP 健康检查在本地 mixed/SOCKS 端口可连接后会短暂等待，让 mihomo compatible provider 完成初始化。
+- 调整延迟测速探测地址，从 Google `generate_204` 切换为 Cloudflare `generate_204`，减少区域网络可达性干扰。
+- 优化延迟测速和 IP 健康失败信息，错误中会附带 reqwest 底层 cause 链和桥接日志片段，便于定位连接中断、重置或 tunnel 失败。
+
+### 修复
+- 修复选择订阅节点后，内置网关可以正常代理，但立即执行延迟测速或 IP 健康检查时，可能因为 mihomo 已监听端口但 provider 尚未准备完成而失败的问题。
+- 修复高级节点检测失败时底层请求原因不够清晰的问题。
+
 ## [0.0.17] - 2026-05-23
 
 ### 新增
