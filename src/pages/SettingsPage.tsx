@@ -51,6 +51,7 @@ import type { ProxyRuntimeStatus } from '../types/proxyRuntime';
 import appIconUrl from '../assets/app-icon.png';
 import { SettingsAccountTransferSection } from '../components/SettingsAccountTransferSection';
 import { useEscClose } from '../hooks/useEscClose';
+import { ProxyPoolSection } from './settings/ProxyPoolSection';
 import './settings/Settings.css';
 import { 
   Save, FolderOpen,
@@ -5369,168 +5370,114 @@ export function SettingsPage() {
             </div>
 
             <div className="group-title">{proxyRuntimeText.title}</div>
-            <div className="settings-group">
-              <div className="settings-row settings-row--align-start">
-                <div className="row-label">
+            <div className="settings-group proxy-runtime-panel">
+              <div className="proxy-runtime-header">
+                <div className="proxy-runtime-copy">
                   <div className="row-title">{proxyRuntimeText.name}</div>
                   <div className="row-desc">{proxyRuntimeText.desc}</div>
                 </div>
-                <div
-                  className="row-control"
-                  style={{
-                    minWidth: 0,
-                    width: 'min(560px, 100%)',
-                    maxWidth: '560px',
-                    alignItems: 'stretch',
-                    flexDirection: 'column',
-                    gap: '10px',
-                  }}
-                >
-                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                    <button
-                      className="btn btn-secondary"
-                      type="button"
-                      onClick={() => loadProxyRuntimeStatus(true)}
-                      disabled={proxyRuntimeLoading}
-                    >
-                      <RefreshCw size={16} className={proxyRuntimeLoading ? 'animate-spin' : undefined} />
-                      {proxyRuntimeLoading ? proxyRuntimeText.loading : proxyRuntimeText.verify}
-                    </button>
-                    <button
-                      className="btn btn-secondary"
-                      type="button"
-                      onClick={handleOpenProxyRuntimeCacheDir}
-                    >
-                      <FolderOpen size={16} />
-                      {proxyRuntimeText.openCache}
-                    </button>
-                  </div>
-
-                  {proxyRuntimeError && (
-                    <div style={{
-                      display: 'flex',
-                      gap: '8px',
-                      alignItems: 'flex-start',
-                      padding: '10px 12px',
-                      borderRadius: '8px',
-                      background: 'rgba(239, 68, 68, 0.08)',
-                      color: 'var(--error, #ef4444)',
-                      fontSize: '13px',
-                      lineHeight: 1.5,
-                      wordBreak: 'break-word',
-                    }}>
-                      <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
-                      <span>{proxyRuntimeText.loadFailed}: {proxyRuntimeError}</span>
-                    </div>
-                  )}
-
-                  {proxyRuntimeStatus && (
-                    <div style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '8px',
-                      fontSize: '13px',
-                      color: 'var(--text-secondary)',
-                    }}>
-                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                        <span style={{ fontFamily: 'var(--font-mono)' }}>
-                          {proxyRuntimeText.target}: {proxyRuntimeStatus.target}
-                        </span>
-                        <span>
-                          {proxyRuntimeText.ready}: {proxyRuntimeStatus.runtimes.filter((runtime) => runtime.available).length}/{proxyRuntimeStatus.runtimes.length}
-                        </span>
-                      </div>
-                      <div
-                        title={proxyRuntimeStatus.resourceDir}
-                        style={{
-                          fontFamily: 'var(--font-mono)',
-                          fontSize: '12px',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {proxyRuntimeText.resourceDir}: {proxyRuntimeStatus.resourceDir}
-                      </div>
-                      <div
-                        title={proxyRuntimeStatus.cacheRoot}
-                        style={{
-                          fontFamily: 'var(--font-mono)',
-                          fontSize: '12px',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {proxyRuntimeText.cacheDir}: {proxyRuntimeStatus.cacheRoot}
-                      </div>
-
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {proxyRuntimeStatus.runtimes.map((runtime) => (
-                          <div
-                            key={runtime.runtime}
-                            style={{
-                              display: 'grid',
-                              gridTemplateColumns: 'minmax(92px, 120px) minmax(0, 1fr)',
-                              gap: '8px 12px',
-                              padding: '10px 12px',
-                              borderRadius: '8px',
-                              border: '1px solid var(--border)',
-                              background: 'var(--bg-secondary)',
-                            }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                              {runtime.available ? (
-                                <CheckCircle2 size={15} color="var(--accent)" />
-                              ) : (
-                                <AlertCircle size={15} color="var(--warning, #f59e0b)" />
-                              )}
-                              <span>{runtime.runtime}</span>
-                            </div>
-                            <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                              <span style={{ color: runtime.available ? 'var(--accent)' : 'var(--warning, #f59e0b)' }}>
-                                {runtime.available ? proxyRuntimeText.ready : proxyRuntimeText.unavailable}
-                              </span>
-                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', wordBreak: 'break-all' }}>
-                                {proxyRuntimeText.version}: {runtime.detectedVersion || proxyRuntimeText.unknown}
-                              </span>
-                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', wordBreak: 'break-all' }}>
-                                {proxyRuntimeText.expected}: {runtime.expectedVersion}
-                              </span>
-                              <span
-                                title={runtime.cachePath}
-                                style={{
-                                  fontFamily: 'var(--font-mono)',
-                                  fontSize: '12px',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap',
-                                }}
-                              >
-                                {proxyRuntimeText.cache}: {runtime.cachePath || proxyRuntimeText.unknown}
-                              </span>
-                              <span style={{ fontSize: '12px' }}>
-                                {proxyRuntimeText.source}: {runtime.sourceKind === 'override'
-                                  ? proxyRuntimeText.override
-                                  : runtime.sourceKind === 'bundled'
-                                    ? proxyRuntimeText.bundled
-                                    : proxyRuntimeText.unknown}
-                                {runtime.cacheRefreshed ? ` · ${proxyRuntimeText.refreshed}` : ''}
-                              </span>
-                              {runtime.error && (
-                                <span style={{ color: 'var(--error, #ef4444)', wordBreak: 'break-word' }}>
-                                  {runtime.error}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                <div className="proxy-runtime-actions">
+                  <button
+                    className="btn btn-secondary"
+                    type="button"
+                    onClick={() => loadProxyRuntimeStatus(true)}
+                    disabled={proxyRuntimeLoading}
+                  >
+                    <RefreshCw size={16} className={proxyRuntimeLoading ? 'animate-spin' : undefined} />
+                    {proxyRuntimeLoading ? proxyRuntimeText.loading : proxyRuntimeText.verify}
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    type="button"
+                    onClick={handleOpenProxyRuntimeCacheDir}
+                  >
+                    <FolderOpen size={16} />
+                    {proxyRuntimeText.openCache}
+                  </button>
                 </div>
               </div>
+
+              {proxyRuntimeError && (
+                <div className="proxy-runtime-error">
+                  <AlertCircle size={16} />
+                  <span>{proxyRuntimeText.loadFailed}: {proxyRuntimeError}</span>
+                </div>
+              )}
+
+              {proxyRuntimeStatus && (
+                <div className="proxy-runtime-status">
+                  <div className="proxy-runtime-summary">
+                    <div className="proxy-runtime-summary-item">
+                      <span>{proxyRuntimeText.target}</span>
+                      <strong>{proxyRuntimeStatus.target}</strong>
+                    </div>
+                    <div className="proxy-runtime-summary-item">
+                      <span>{proxyRuntimeText.ready}</span>
+                      <strong>{proxyRuntimeStatus.runtimes.filter((runtime) => runtime.available).length}/{proxyRuntimeStatus.runtimes.length}</strong>
+                    </div>
+                  </div>
+
+                  <div className="proxy-runtime-paths">
+                    <div className="proxy-runtime-path" title={proxyRuntimeStatus.resourceDir}>
+                      <span>{proxyRuntimeText.resourceDir}</span>
+                      <code>{proxyRuntimeStatus.resourceDir}</code>
+                    </div>
+                    <div className="proxy-runtime-path" title={proxyRuntimeStatus.cacheRoot}>
+                      <span>{proxyRuntimeText.cacheDir}</span>
+                      <code>{proxyRuntimeStatus.cacheRoot}</code>
+                    </div>
+                  </div>
+
+                  <div className="proxy-runtime-list">
+                    {proxyRuntimeStatus.runtimes.map((runtime) => (
+                      <div className="proxy-runtime-item" key={runtime.runtime}>
+                        <div className="proxy-runtime-item-main">
+                          {runtime.available ? (
+                            <CheckCircle2 size={16} color="var(--accent)" />
+                          ) : (
+                            <AlertCircle size={16} color="var(--warning, #f59e0b)" />
+                          )}
+                          <span>{runtime.runtime}</span>
+                        </div>
+                        <div className="proxy-runtime-item-detail">
+                          <span className={`proxy-runtime-status-badge ${runtime.available ? 'is-ready' : 'is-unavailable'}`}>
+                            {runtime.available ? proxyRuntimeText.ready : proxyRuntimeText.unavailable}
+                          </span>
+                          <div className="proxy-runtime-detail-row">
+                            <span>{proxyRuntimeText.version}</span>
+                            <code>{runtime.detectedVersion || proxyRuntimeText.unknown}</code>
+                          </div>
+                          <div className="proxy-runtime-detail-row">
+                            <span>{proxyRuntimeText.expected}</span>
+                            <code>{runtime.expectedVersion}</code>
+                          </div>
+                          <div className="proxy-runtime-detail-row" title={runtime.cachePath}>
+                            <span>{proxyRuntimeText.cache}</span>
+                            <code>{runtime.cachePath || proxyRuntimeText.unknown}</code>
+                          </div>
+                          <div className="proxy-runtime-detail-row">
+                            <span>{proxyRuntimeText.source}</span>
+                            <strong>
+                              {runtime.sourceKind === 'override'
+                                ? proxyRuntimeText.override
+                                : runtime.sourceKind === 'bundled'
+                                  ? proxyRuntimeText.bundled
+                                  : proxyRuntimeText.unknown}
+                              {runtime.cacheRefreshed ? ` · ${proxyRuntimeText.refreshed}` : ''}
+                            </strong>
+                          </div>
+                          {runtime.error && (
+                            <div className="proxy-runtime-detail-error">{runtime.error}</div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
+
+            <ProxyPoolSection />
 
             <div className="group-title">{t('settings.network.proxyTitle')}</div>
             <div className="settings-group">

@@ -428,6 +428,13 @@ pub fn run() {
             commands::proxy_pool::proxy_runtime_get_status,
             commands::proxy_pool::proxy_runtime_verify,
             commands::proxy_pool::proxy_runtime_open_cache_dir,
+            commands::proxy_pool::proxy_pool_list_nodes,
+            commands::proxy_pool::proxy_pool_save_node,
+            commands::proxy_pool::proxy_pool_delete_node,
+            commands::proxy_pool::proxy_pool_delete_nodes,
+            commands::proxy_pool::proxy_pool_set_node_enabled,
+            commands::proxy_pool::proxy_pool_preview_import,
+            commands::proxy_pool::proxy_pool_apply_import,
             // Logs Commands
             commands::logs::logs_get_snapshot,
             commands::logs::logs_open_log_directory,

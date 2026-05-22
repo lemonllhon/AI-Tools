@@ -1,6 +1,11 @@
 use tauri_plugin_opener::OpenerExt;
 
+use crate::modules::proxy_pool::models::{
+    ProxyImportApplyRequest, ProxyImportApplyResponse, ProxyImportPreviewRequest,
+    ProxyImportPreviewResponse, ProxyNodeSaveRequest, ProxyPoolListResponse, ProxyPoolNode,
+};
 use crate::modules::proxy_pool::runtime::{self, ProxyRuntimeStatus};
+use crate::modules::proxy_pool::store;
 
 #[tauri::command]
 pub fn proxy_runtime_get_status(app: tauri::AppHandle) -> Result<ProxyRuntimeStatus, String> {
@@ -20,4 +25,43 @@ pub fn proxy_runtime_open_cache_dir(app: tauri::AppHandle) -> Result<(), String>
     app.opener()
         .open_path(cache_root.to_string_lossy().to_string(), None::<String>)
         .map_err(|err| format!("打开代理内核缓存目录失败: {}", err))
+}
+
+#[tauri::command]
+pub fn proxy_pool_list_nodes() -> Result<ProxyPoolListResponse, String> {
+    store::list_nodes()
+}
+
+#[tauri::command]
+pub fn proxy_pool_save_node(request: ProxyNodeSaveRequest) -> Result<ProxyPoolNode, String> {
+    store::save_node(request)
+}
+
+#[tauri::command]
+pub fn proxy_pool_delete_node(id: String) -> Result<(), String> {
+    store::delete_node(&id)
+}
+
+#[tauri::command]
+pub fn proxy_pool_delete_nodes(ids: Vec<String>) -> Result<(), String> {
+    store::delete_nodes(&ids)
+}
+
+#[tauri::command]
+pub fn proxy_pool_set_node_enabled(id: String, enabled: bool) -> Result<ProxyPoolNode, String> {
+    store::set_node_enabled(&id, enabled)
+}
+
+#[tauri::command]
+pub fn proxy_pool_preview_import(
+    request: ProxyImportPreviewRequest,
+) -> Result<ProxyImportPreviewResponse, String> {
+    store::preview_import(request)
+}
+
+#[tauri::command]
+pub fn proxy_pool_apply_import(
+    request: ProxyImportApplyRequest,
+) -> Result<ProxyImportApplyResponse, String> {
+    store::apply_import(request)
 }
