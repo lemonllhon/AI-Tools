@@ -124,6 +124,7 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
   const [ipHealthDetailNodeId, setIpHealthDetailNodeId] = useState<string | null>(null);
   const [nodeListMaxHeight, setNodeListMaxHeight] = useState<string | undefined>(undefined);
   const nodeListRef = useRef<HTMLDivElement | null>(null);
+  const filteredNodeSelectAllRef = useRef<HTMLInputElement | null>(null);
   const currentLanguage = getCurrentLanguage();
 
   const text = useMemo(() => {
@@ -164,6 +165,8 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
           allNodes: '显示全部',
           selectedNodes: '已选择',
           selectedNodesCount: '已选择 {{count}}',
+          selectFilteredNodes: '全选当前筛选节点',
+          unselectFilteredNodes: '取消选择当前筛选节点',
           subscriptionNodes: '订阅',
           collapseNodes: '折叠节点列表',
           expandNodes: '展开节点列表',
@@ -307,6 +310,8 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
           allNodes: 'Show all',
           selectedNodes: 'Selected',
           selectedNodesCount: 'Selected {{count}}',
+          selectFilteredNodes: 'Select current filtered nodes',
+          unselectFilteredNodes: 'Unselect current filtered nodes',
           subscriptionNodes: 'Subscription',
           collapseNodes: 'Collapse node list',
           expandNodes: 'Expand node list',
@@ -519,6 +524,23 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
         .includes(needle);
     });
   }, [groupFilter, protocolFilter, scopedNodes, search]);
+  const filteredSelectableNodeIds = useMemo(
+    () => filteredNodes.filter((node) => !node.builtin).map((node) => node.id),
+    [filteredNodes],
+  );
+  const filteredSelectedNodeCount = useMemo(
+    () => filteredSelectableNodeIds.filter((id) => selectedPoolIdSet.has(id)).length,
+    [filteredSelectableNodeIds, selectedPoolIdSet],
+  );
+  const allFilteredNodesSelected = filteredSelectableNodeIds.length > 0
+    && filteredSelectedNodeCount === filteredSelectableNodeIds.length;
+
+  useEffect(() => {
+    if (filteredNodeSelectAllRef.current) {
+      filteredNodeSelectAllRef.current.indeterminate = filteredSelectedNodeCount > 0
+        && filteredSelectedNodeCount < filteredSelectableNodeIds.length;
+    }
+  }, [filteredSelectableNodeIds.length, filteredSelectedNodeCount]);
 
   useEffect(() => {
     if (nodesCollapsed || filteredNodes.length <= NODE_LIST_VISIBLE_COUNT) {
@@ -912,6 +934,35 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
       : serviceState?.currentNodeId === node.id
         ? nextSelectedIds[0]
         : serviceState?.currentNodeId ?? nextSelectedIds[0];
+
+    await updateServiceOutlet({
+      outletMode: 'node_pool',
+      selectedNodeIds: nextSelectedIds,
+      currentNodeId,
+    });
+  };
+
+  const handleToggleFilteredPoolNodes = async (selected: boolean) => {
+    if (filteredSelectableNodeIds.length === 0) return;
+    const visibleSet = new Set(filteredSelectableNodeIds);
+    const nextSelectedIds = selected
+      ? Array.from(new Set([...selectedPoolIds, ...filteredSelectableNodeIds]))
+      : selectedPoolIds.filter((id) => !visibleSet.has(id));
+
+    if (nextSelectedIds.length === 0) {
+      await updateServiceOutlet({
+        outletMode: 'direct',
+        selectedNodeIds: [],
+        currentNodeId: '__direct__',
+      });
+      return;
+    }
+
+    const currentNodeId = nextSelectedIds.includes(serviceState?.currentNodeId ?? '')
+      ? serviceState?.currentNodeId
+      : selected
+        ? filteredSelectableNodeIds[0]
+        : nextSelectedIds[0];
 
     await updateServiceOutlet({
       outletMode: 'node_pool',
@@ -1687,8 +1738,8 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
           </div>
         )}
 
-        <div className="proxy-pool-list-scope">
-          {hasMultipleSources && (
+        {hasMultipleSources && (
+          <div className="proxy-pool-list-scope">
             <label className="proxy-pool-scope-select">
               <span>{text.nodeListScope}</span>
               <select
@@ -1705,27 +1756,41 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
                 ))}
               </select>
             </label>
-          )}
-          <button
-            className={`btn btn-secondary proxy-pool-selected-scope ${showSelectedNodesOnly ? 'is-active' : ''}`}
-            type="button"
-            onClick={handleShowSelectedNodes}
-            disabled={selectedNodeCount === 0}
-            title={text.selectedNodes}
-          >
-            <Check size={16} />
-            {text.selectedNodesCount.replace('{{count}}', String(selectedNodeCount))}
-          </button>
-        </div>
+          </div>
+        )}
 
         <div className="proxy-pool-list-head">
           <div className="proxy-pool-list-title">
-            <span>{text.nodeListTitle}</span>
-            <span>
-              {text.nodeListCount
-                .replace('{{visible}}', String(filteredNodes.length))
-                .replace('{{total}}', String(scopedNodes.length))}
-            </span>
+            <label
+              className="proxy-pool-filtered-select-all"
+              title={allFilteredNodesSelected ? text.unselectFilteredNodes : text.selectFilteredNodes}
+            >
+              <input
+                ref={filteredNodeSelectAllRef}
+                type="checkbox"
+                checked={allFilteredNodesSelected}
+                disabled={serviceSaving || filteredSelectableNodeIds.length === 0}
+                onChange={(event) => void handleToggleFilteredPoolNodes(event.target.checked)}
+              />
+            </label>
+            <div className="proxy-pool-list-title-copy">
+              <span>{text.nodeListTitle}</span>
+              <span>
+                {text.nodeListCount
+                  .replace('{{visible}}', String(filteredNodes.length))
+                  .replace('{{total}}', String(scopedNodes.length))}
+              </span>
+            </div>
+            <button
+              className={`btn btn-secondary proxy-pool-selected-scope ${showSelectedNodesOnly ? 'is-active' : ''}`}
+              type="button"
+              onClick={handleShowSelectedNodes}
+              disabled={selectedNodeCount === 0}
+              title={text.selectedNodes}
+            >
+              <Check size={16} />
+              {text.selectedNodesCount.replace('{{count}}', String(selectedNodeCount))}
+            </button>
           </div>
           <button
             className="btn btn-secondary proxy-pool-list-toggle"

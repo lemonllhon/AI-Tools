@@ -20,6 +20,7 @@ const CACHE_ROOT_DIR_NAME: &str = "proxy-runtime";
 const CACHE_DIR_NAME: &str = "cache";
 const XRAY_RUNTIME: &str = "xray";
 const SING_BOX_RUNTIME: &str = "sing-box";
+const MIHOMO_RUNTIME: &str = "mihomo";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -293,7 +294,7 @@ fn select_target_entries(
         .collect();
     selected.sort_by_key(|entry| runtime_sort_key(&entry.runtime));
 
-    for runtime in [XRAY_RUNTIME, SING_BOX_RUNTIME] {
+    for runtime in [XRAY_RUNTIME, SING_BOX_RUNTIME, MIHOMO_RUNTIME] {
         if !selected.iter().any(|entry| entry.runtime == runtime) {
             return Err(format!("代理内核资源清单缺少 {} 的 {}", target, runtime));
         }
@@ -392,7 +393,7 @@ fn build_runtime_status_item(
         Ok(cached) => {
             let cache_path = PathBuf::from(cached.cache_path.clone());
             let (detected_version, version_output, version_error) =
-                detect_runtime_version(&cache_path);
+                detect_runtime_version(&cache_path, &entry.runtime);
             let executable = cached.executable;
             let available = executable && version_error.is_none();
             ProxyRuntimeStatusItem {
@@ -476,6 +477,7 @@ fn runtime_override_path(runtime: &str) -> Result<Option<PathBuf>, String> {
     let env_name = match runtime {
         XRAY_RUNTIME => "COCKPIT_XRAY_PATH",
         SING_BOX_RUNTIME => "COCKPIT_SING_BOX_PATH",
+        MIHOMO_RUNTIME => "COCKPIT_MIHOMO_PATH",
         _ => return Err(format!("未知代理内核类型: {}", runtime)),
     };
 
@@ -522,7 +524,7 @@ fn validate_relative_manifest_path(relative_path: &str) -> Result<(), String> {
 
 fn validate_runtime_name(runtime: &str) -> Result<(), String> {
     match runtime {
-        XRAY_RUNTIME | SING_BOX_RUNTIME => Ok(()),
+        XRAY_RUNTIME | SING_BOX_RUNTIME | MIHOMO_RUNTIME => Ok(()),
         _ => Err(format!("未知代理内核类型: {}", runtime)),
     }
 }
@@ -531,7 +533,8 @@ fn runtime_sort_key(runtime: &str) -> u8 {
     match runtime {
         XRAY_RUNTIME => 0,
         SING_BOX_RUNTIME => 1,
-        _ => 2,
+        MIHOMO_RUNTIME => 2,
+        _ => 3,
     }
 }
 
@@ -550,7 +553,7 @@ fn cache_root_for_data_dir(data_dir: &Path, target: &str) -> PathBuf {
         .join(target)
 }
 
-fn detect_runtime_version(path: &Path) -> (String, String, Option<String>) {
+fn detect_runtime_version(path: &Path, runtime: &str) -> (String, String, Option<String>) {
     if !path.is_file() {
         return (
             String::new(),
@@ -560,7 +563,11 @@ fn detect_runtime_version(path: &Path) -> (String, String, Option<String>) {
     }
 
     let mut command = Command::new(path);
-    command.arg("version");
+    if runtime == MIHOMO_RUNTIME {
+        command.arg("-v");
+    } else {
+        command.arg("version");
+    }
     #[cfg(target_os = "windows")]
     command.creation_flags(CREATE_NO_WINDOW);
 
@@ -702,9 +709,12 @@ mod tests {
         let xray_sha = fixture.write_resource_runtime("xray", "xray.exe", b"xray-binary");
         let sing_box_sha =
             fixture.write_resource_runtime("sing-box", "sing-box.exe", b"sing-box-binary");
+        let mihomo_sha =
+            fixture.write_resource_runtime("mihomo", "mihomo.exe", b"mihomo-binary");
         fixture.write_manifest(&[
             ManifestFixtureEntry::new("xray", "xray.exe", &xray_sha),
             ManifestFixtureEntry::new("sing-box", "sing-box.exe", &sing_box_sha),
+            ManifestFixtureEntry::new("mihomo", "mihomo.exe", &mihomo_sha),
         ]);
 
         let state = ensure_runtimes_cached_from_dirs(
@@ -715,7 +725,7 @@ mod tests {
         .expect("runtime cache should be prepared");
 
         assert_eq!(state.target, "windows-x86_64");
-        assert_eq!(state.runtimes.len(), 2);
+        assert_eq!(state.runtimes.len(), 3);
         for runtime in state.runtimes {
             assert!(PathBuf::from(runtime.cache_path).is_file());
             assert_eq!(runtime.source_kind, ProxyRuntimeSourceKind::Bundled);
@@ -730,9 +740,12 @@ mod tests {
         fixture.write_resource_runtime("xray", "xray.exe", b"xray-binary");
         let sing_box_sha =
             fixture.write_resource_runtime("sing-box", "sing-box.exe", b"sing-box-binary");
+        let mihomo_sha =
+            fixture.write_resource_runtime("mihomo", "mihomo.exe", b"mihomo-binary");
         fixture.write_manifest(&[
             ManifestFixtureEntry::new("xray", "xray.exe", &"0".repeat(64)),
             ManifestFixtureEntry::new("sing-box", "sing-box.exe", &sing_box_sha),
+            ManifestFixtureEntry::new("mihomo", "mihomo.exe", &mihomo_sha),
         ]);
 
         let error = ensure_runtimes_cached_from_dirs(
@@ -751,9 +764,12 @@ mod tests {
         let xray_sha = fixture.write_resource_runtime("xray", "xray.exe", b"xray-binary");
         let sing_box_sha =
             fixture.write_resource_runtime("sing-box", "sing-box.exe", b"sing-box-binary");
+        let mihomo_sha =
+            fixture.write_resource_runtime("mihomo", "mihomo.exe", b"mihomo-binary");
         fixture.write_manifest(&[
             ManifestFixtureEntry::new("xray", "xray.exe", &xray_sha),
             ManifestFixtureEntry::new("sing-box", "sing-box.exe", &sing_box_sha),
+            ManifestFixtureEntry::new("mihomo", "mihomo.exe", &mihomo_sha),
         ]);
 
         let xray_cache_path = fixture
@@ -832,7 +848,7 @@ mod tests {
                 .join(file_name);
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(&path, content).unwrap();
-            assert!(runtime == "xray" || runtime == "sing-box");
+            assert!(runtime == "xray" || runtime == "sing-box" || runtime == "mihomo");
             sha256_file(&path).unwrap()
         }
 

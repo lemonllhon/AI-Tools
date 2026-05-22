@@ -17,6 +17,13 @@
       "sha256": "94166c7c4142e4eb8df6ced07208ef286dd700155b9c70024c14f7c57b09149f"
     },
     {
+      "runtime": "mihomo",
+      "version": "1.19.20",
+      "target": "windows-x86_64",
+      "path": "bin/windows-x86_64/mihomo.exe",
+      "sha256": "auto"
+    },
+    {
       "runtime": "xray",
       "version": "26.2.6",
       "target": "darwin-x86_64",
@@ -29,6 +36,13 @@
       "target": "darwin-x86_64",
       "path": "bin/darwin-x86_64/sing-box",
       "sha256": "ccce3d919957add158c5a531b6e2556f4a8a071ce6391017859a51e8411437c1"
+    },
+    {
+      "runtime": "mihomo",
+      "version": "1.19.20",
+      "target": "darwin-x86_64",
+      "path": "bin/darwin-x86_64/mihomo",
+      "sha256": "auto"
     },
     {
       "runtime": "xray",
@@ -45,6 +59,13 @@
       "sha256": "0b3e7947b53c798adadd282e45748117a7820b21bfb10a7e1a43b46f02fac97a"
     },
     {
+      "runtime": "mihomo",
+      "version": "1.19.20",
+      "target": "darwin-aarch64",
+      "path": "bin/darwin-aarch64/mihomo",
+      "sha256": "auto"
+    },
+    {
       "runtime": "xray",
       "version": "26.2.6",
       "target": "linux-x86_64",
@@ -59,6 +80,13 @@
       "sha256": "7f768c4b158264bfc7275e2e540acef0de0c5e28f35762513ec6ee4b8cbf80db"
     },
     {
+      "runtime": "mihomo",
+      "version": "1.19.20",
+      "target": "linux-x86_64",
+      "path": "bin/linux-x86_64/mihomo",
+      "sha256": "auto"
+    },
+    {
       "runtime": "xray",
       "version": "26.2.6",
       "target": "linux-aarch64",
@@ -71,6 +99,13 @@
       "target": "linux-aarch64",
       "path": "bin/linux-aarch64/sing-box",
       "sha256": "22342821fd1b225fcf57fcf7d5ff0629efd466d37fa7c0f7279603f943f105a9"
+    },
+    {
+      "runtime": "mihomo",
+      "version": "1.19.20",
+      "target": "linux-aarch64",
+      "path": "bin/linux-aarch64/mihomo",
+      "sha256": "auto"
     }
   ]
 }

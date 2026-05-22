@@ -6,6 +6,23 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.16] - 2026-05-23
+### Added
+- Added bundled mihomo runtime support for Windows, macOS Intel, macOS Apple Silicon, Linux x86_64, and Linux arm64 proxy bridge packaging.
+- Added mihomo-based bridge generation as the primary path for advanced proxy protocols including `vmess`, `vless`, `trojan`, `ss`, `hysteria`, `hysteria2`, `tuic`, and `anytls`.
+- Added current-filter select-all support in the proxy node list so users can quickly select or unselect all visible subscription/search/group/protocol matches.
+
+### Changed
+- Changed the built-in proxy gateway bridge path to prefer mihomo for selected node-pool outlets, keeping xray and sing-box as compatibility fallbacks for future use.
+- Changed latency tests, IP health checks, and real gateway forwarding so advanced subscription nodes can be bridged through mihomo instead of stopping at unsupported protocol errors.
+- Changed the proxy node pool header so the selected-node view button sits next to the node count, before the collapse/expand control.
+- Changed proxy node pool layout alignment to be left-aligned across source metadata, list headers, node status, and compact node rows.
+
+### Fixed
+- Fixed selected advanced nodes failing to serve Codex API traffic through the built-in gateway because the bridge path was not using the subscription-compatible mihomo core.
+- Fixed proxy node pool controls appearing visually right-aligned in the Network Services settings area.
+- Fixed large filtered node sets requiring manual one-by-one selection by allowing the visible filtered node set to be selected in one action.
+
 ## [0.0.15] - 2026-05-22
 ### Added
 - Added temporary xray/sing-box bridge startup for latency tests and IP health checks, allowing advanced nodes such as `vmess`, `vless`, `trojan`, `ss`, `hysteria`, `hysteria2`, `tuic`, and `anytls` to be checked through the bundled proxy cores.

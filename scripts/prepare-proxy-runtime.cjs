@@ -3,6 +3,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const https = require('node:https');
 const http = require('node:http');
+const zlib = require('node:zlib');
 const { spawnSync } = require('node:child_process');
 
 const repoRoot = path.resolve(__dirname, '..');
@@ -20,7 +21,7 @@ const supportedTargets = new Set([
   'linux-x86_64',
   'linux-aarch64',
 ]);
-const runtimes = new Set(['xray', 'sing-box']);
+const runtimes = new Set(['xray', 'sing-box', 'mihomo']);
 
 function usage() {
   return [
@@ -133,6 +134,10 @@ function assertSha256(value, label) {
   }
 }
 
+function isAutoSha256(value) {
+  return value === 'auto';
+}
+
 function validateManifest(manifest, sources) {
   if (manifest.schemaVersion !== 1) {
     throw new Error('runtime-manifest.json schemaVersion must be 1');
@@ -193,8 +198,8 @@ function validateManifest(manifest, sources) {
 function validateSource(source) {
   validateCommonEntry(source, 'runtime-sources.json');
   assertSha256(source.archiveSha256, `${entryKey(source)} archiveSha256`);
-  if (!['zip', 'tar.gz'].includes(source.archiveType)) {
-    throw new Error(`${entryKey(source)} archiveType must be zip or tar.gz`);
+  if (!['zip', 'tar.gz', 'gz'].includes(source.archiveType)) {
+    throw new Error(`${entryKey(source)} archiveType must be zip, tar.gz, or gz`);
   }
   for (const field of ['id', 'url', 'archiveBinaryPath', 'destPath']) {
     if (typeof source[field] !== 'string' || !source[field]) {
@@ -208,7 +213,9 @@ function validateSource(source) {
 
 function validateManifestEntry(entry) {
   validateCommonEntry(entry, 'runtime-manifest.json');
-  assertSha256(entry.sha256, `${entryKey(entry)} sha256`);
+  if (!isAutoSha256(entry.sha256)) {
+    assertSha256(entry.sha256, `${entryKey(entry)} sha256`);
+  }
   if (typeof entry.path !== 'string' || !entry.path.startsWith(`bin/${entry.target}/`)) {
     throw new Error(`${entryKey(entry)} path must stay under bin/${entry.target}/`);
   }
@@ -253,14 +260,17 @@ function runtimePath(relativePath) {
 
 async function ensureRuntimeFile(entry, source, options) {
   const destination = runtimePath(entry.path);
+  const expectedSha = isAutoSha256(entry.sha256) ? null : entry.sha256;
   if (fs.existsSync(destination)) {
     const actualSha = sha256File(destination);
-    if (actualSha !== entry.sha256) {
+    if (expectedSha && actualSha !== expectedSha) {
       throw new Error(
-        `${entryKey(entry)} sha256 mismatch at ${destination}. Expected ${entry.sha256}, got ${actualSha}. Delete the file and rerun preparation to restore it.`
+        `${entryKey(entry)} sha256 mismatch at ${destination}. Expected ${expectedSha}, got ${actualSha}. Delete the file and rerun preparation to restore it.`
       );
     }
-    return destination;
+    if (expectedSha || options.offline) {
+      return { destination, sha256: actualSha };
+    }
   }
 
   if (options.offline) {
@@ -276,7 +286,7 @@ async function ensureRuntimeFile(entry, source, options) {
   const extractDir = path.join(tempDir, source.id);
   fs.rmSync(extractDir, { recursive: true, force: true });
   fs.mkdirSync(extractDir, { recursive: true });
-  extractArchive(archivePath, extractDir, source.archiveType);
+  extractArchive(archivePath, extractDir, source.archiveType, source.archiveBinaryPath);
 
   const extractedBinary = path.join(extractDir, ...source.archiveBinaryPath.split('/'));
   assertInside(extractDir, extractedBinary, source.archiveBinaryPath);
@@ -289,10 +299,10 @@ async function ensureRuntimeFile(entry, source, options) {
   chmodExecutable(destination);
 
   const actualSha = sha256File(destination);
-  if (actualSha !== entry.sha256) {
-    throw new Error(`${entryKey(entry)} extracted sha256 mismatch. Expected ${entry.sha256}, got ${actualSha}`);
+  if (expectedSha && actualSha !== expectedSha) {
+    throw new Error(`${entryKey(entry)} extracted sha256 mismatch. Expected ${expectedSha}, got ${actualSha}`);
   }
-  return destination;
+  return { destination, sha256: actualSha };
 }
 
 function archiveFileName(source) {
@@ -366,7 +376,7 @@ function download(url, destination, redirects = 0) {
   });
 }
 
-function extractArchive(archivePath, destination, archiveType) {
+function extractArchive(archivePath, destination, archiveType, archiveBinaryPath) {
   if (archiveType === 'zip') {
     extractZip(archivePath, destination);
     return;
@@ -375,7 +385,19 @@ function extractArchive(archivePath, destination, archiveType) {
     runCommand('tar', ['-xzf', archivePath, '-C', destination], `extract ${archivePath}`);
     return;
   }
+  if (archiveType === 'gz') {
+    extractGzip(archivePath, destination, archiveBinaryPath);
+    return;
+  }
   throw new Error(`Unsupported archive type: ${archiveType}`);
+}
+
+function extractGzip(archivePath, destination, archiveBinaryPath) {
+  const outputPath = path.join(destination, ...archiveBinaryPath.split('/'));
+  assertInside(destination, outputPath, archiveBinaryPath);
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  fs.writeFileSync(outputPath, zlib.gunzipSync(fs.readFileSync(archivePath)));
+  chmodExecutable(outputPath);
 }
 
 function extractZip(archivePath, destination) {
@@ -473,7 +495,7 @@ function writeBundle(entries) {
       version: entry.version,
       target: entry.target,
       path: entry.path,
-      sha256: entry.sha256,
+      sha256: entry.preparedSha256 || entry.sha256,
     });
   }
 
@@ -504,7 +526,8 @@ async function main() {
   const entries = selectedEntries(targets, manifestByKey, sourceByKey);
 
   for (const { entry, source } of entries) {
-    await ensureRuntimeFile(entry, source, options);
+    const prepared = await ensureRuntimeFile(entry, source, options);
+    entry.preparedSha256 = prepared.sha256;
   }
   writeBundle(entries);
 

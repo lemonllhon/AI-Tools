@@ -77,7 +77,10 @@ pub async fn sync_gateway_state() -> Result<(), String> {
     }
 
     let preferred_port = service_state.preferred_port;
-    let current_outbound = load_gateway_target().await?;
+    let gateway_targets = load_gateway_targets().await?;
+    let current_outbound = gateway_targets
+        .first()
+        .ok_or_else(|| "内置代理网关没有可用出口节点".to_string())?;
     if !bridge::is_bridge_protocol(&current_outbound.protocol) {
         bridge::stop_bridge().await;
     }
@@ -199,22 +202,22 @@ async fn handle_client(mut client: TcpStream) -> Result<(), String> {
 async fn proxy_client(client: &mut TcpStream) -> Result<(), String> {
     let initial = read_http_head(client).await?;
     let request = parse_proxy_request(&initial.head)?;
-    let outbound = load_gateway_target().await?;
+    let outbounds = load_gateway_targets().await?;
 
     if request.method.eq_ignore_ascii_case("CONNECT") {
-        return proxy_connect_request(client, &request, &outbound).await;
+        return proxy_connect_request(client, &request, &outbounds).await;
     }
 
-    proxy_http_request(client, initial, &request, &outbound).await
+    proxy_http_request(client, initial, &request, &outbounds).await
 }
 
 async fn proxy_connect_request(
     client: &mut TcpStream,
     request: &ProxyRequest,
-    outbound: &GatewayOutboundTarget,
+    outbounds: &[GatewayOutboundTarget],
 ) -> Result<(), String> {
     let (host, port) = parse_authority(&request.target, 443)?;
-    let mut upstream = open_tunnel(outbound, &host, port).await?;
+    let mut upstream = open_tunnel_with_fallback(outbounds, &host, port).await?;
     client
         .write_all(b"HTTP/1.1 200 Connection Established\r\nProxy-Agent: AI-Lemon-Tools\r\n\r\n")
         .await
@@ -229,16 +232,11 @@ async fn proxy_http_request(
     client: &mut TcpStream,
     initial: HttpHead,
     request: &ProxyRequest,
-    outbound: &GatewayOutboundTarget,
+    outbounds: &[GatewayOutboundTarget],
 ) -> Result<(), String> {
     let destination = resolve_http_destination(request)?;
+    let (mut upstream, outbound) = open_http_upstream_with_fallback(outbounds, &destination).await?;
     let use_upstream_http_proxy = outbound.protocol.eq_ignore_ascii_case("http");
-    let mut upstream = if use_upstream_http_proxy {
-        guard_not_self_proxy(outbound)?;
-        connect_tcp(&outbound.host, outbound.port).await?
-    } else {
-        open_tunnel(outbound, &destination.host, destination.port).await?
-    };
     let request_target = if use_upstream_http_proxy {
         destination.absolute_target.as_str()
     } else {
@@ -264,6 +262,81 @@ async fn proxy_http_request(
         .await
         .map_err(|error| format!("HTTP 转发失败: {}", error))?;
     Ok(())
+}
+
+async fn open_tunnel_with_fallback(
+    outbounds: &[GatewayOutboundTarget],
+    destination_host: &str,
+    destination_port: u16,
+) -> Result<TcpStream, String> {
+    let mut errors = Vec::new();
+    for outbound in outbounds {
+        match open_tunnel(outbound, destination_host, destination_port).await {
+            Ok(stream) => {
+                if !errors.is_empty() {
+                    crate::modules::logger::log_info(&format!(
+                        "[ProxyGateway] 已切换到备用出口节点: {} ({})",
+                        outbound.name, outbound.protocol
+                    ));
+                }
+                return Ok(stream);
+            }
+            Err(error) => {
+                crate::modules::logger::log_warn(&format!(
+                    "[ProxyGateway] 出口节点不可用 {} ({}): {}",
+                    outbound.name, outbound.protocol, error
+                ));
+                errors.push(format!("{} ({}): {}", outbound.name, outbound.protocol, error));
+            }
+        }
+    }
+    Err(format_outbound_errors("所有已选择的代理节点均不可用", errors))
+}
+
+async fn open_http_upstream_with_fallback<'a>(
+    outbounds: &'a [GatewayOutboundTarget],
+    destination: &HttpDestination,
+) -> Result<(TcpStream, &'a GatewayOutboundTarget), String> {
+    let mut errors = Vec::new();
+    for outbound in outbounds {
+        let result = if outbound.protocol.eq_ignore_ascii_case("http") {
+            bridge::stop_bridge().await;
+            match guard_not_self_proxy(outbound) {
+                Ok(()) => connect_tcp(&outbound.host, outbound.port).await,
+                Err(error) => Err(error),
+            }
+        } else {
+            open_tunnel(outbound, &destination.host, destination.port).await
+        };
+
+        match result {
+            Ok(stream) => {
+                if !errors.is_empty() {
+                    crate::modules::logger::log_info(&format!(
+                        "[ProxyGateway] 已切换到备用出口节点: {} ({})",
+                        outbound.name, outbound.protocol
+                    ));
+                }
+                return Ok((stream, outbound));
+            }
+            Err(error) => {
+                crate::modules::logger::log_warn(&format!(
+                    "[ProxyGateway] 出口节点不可用 {} ({}): {}",
+                    outbound.name, outbound.protocol, error
+                ));
+                errors.push(format!("{} ({}): {}", outbound.name, outbound.protocol, error));
+            }
+        }
+    }
+    Err(format_outbound_errors("所有已选择的代理节点均不可用", errors))
+}
+
+fn format_outbound_errors(prefix: &str, errors: Vec<String>) -> String {
+    match errors.len() {
+        0 => prefix.to_string(),
+        1 => errors.into_iter().next().unwrap_or_else(|| prefix.to_string()),
+        _ => format!("{}: {}", prefix, errors.join("；")),
+    }
 }
 
 async fn open_tunnel(
@@ -750,8 +823,8 @@ fn proxy_authorization_header(outbound: &GatewayOutboundTarget) -> String {
     format!("Proxy-Authorization: Basic {token}\r\n")
 }
 
-async fn load_gateway_target() -> Result<GatewayOutboundTarget, String> {
-    tokio::task::spawn_blocking(store::load_current_gateway_outbound)
+async fn load_gateway_targets() -> Result<Vec<GatewayOutboundTarget>, String> {
+    tokio::task::spawn_blocking(store::load_gateway_outbound_candidates)
         .await
         .map_err(|error| format!("读取内置代理网关出口失败: {}", error))?
 }

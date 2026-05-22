@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "description": "Pinned upstream proxy runtime archives for reproducible xray and sing-box packaging.",
+  "description": "Pinned upstream proxy runtime archives for reproducible xray, sing-box, and mihomo packaging.",
   "sources": [
     {
       "id": "xray-windows-x86_64",
@@ -25,6 +25,17 @@
       "destPath": "bin/windows-x86_64/sing-box.exe"
     },
     {
+      "id": "mihomo-windows-x86_64",
+      "target": "windows-x86_64",
+      "runtime": "mihomo",
+      "version": "1.19.20",
+      "archiveType": "zip",
+      "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.20/mihomo-windows-amd64-compatible-v1.19.20.zip",
+      "archiveSha256": "bf0be6e1feaef84311a5d901d3d1e5d1171aaa4be04005d368b78865727eae4e",
+      "archiveBinaryPath": "mihomo-windows-amd64-compatible.exe",
+      "destPath": "bin/windows-x86_64/mihomo.exe"
+    },
+    {
       "id": "xray-darwin-x86_64",
       "target": "darwin-x86_64",
       "runtime": "xray",
@@ -45,6 +56,17 @@
       "archiveSha256": "7c95244d9e2af61d2c3182ad7ad7d50859dcc9aaf702f570262b3f2a1ccaacd7",
       "archiveBinaryPath": "sing-box-1.12.17-darwin-amd64/sing-box",
       "destPath": "bin/darwin-x86_64/sing-box"
+    },
+    {
+      "id": "mihomo-darwin-x86_64",
+      "target": "darwin-x86_64",
+      "runtime": "mihomo",
+      "version": "1.19.20",
+      "archiveType": "gz",
+      "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.20/mihomo-darwin-amd64-compatible-v1.19.20.gz",
+      "archiveSha256": "95897369454a9742f1b085f0d308976b445a2b8eebdfb4453f68a228e32c14a5",
+      "archiveBinaryPath": "mihomo-darwin-amd64-compatible-v1.19.20",
+      "destPath": "bin/darwin-x86_64/mihomo"
     },
     {
       "id": "xray-darwin-aarch64",
@@ -69,6 +91,17 @@
       "destPath": "bin/darwin-aarch64/sing-box"
     },
     {
+      "id": "mihomo-darwin-aarch64",
+      "target": "darwin-aarch64",
+      "runtime": "mihomo",
+      "version": "1.19.20",
+      "archiveType": "gz",
+      "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.20/mihomo-darwin-arm64-v1.19.20.gz",
+      "archiveSha256": "1d404f4e32ba18cd175132b52cb92ac321c9bf60d2dcc5d87794c36a48e26e64",
+      "archiveBinaryPath": "mihomo-darwin-arm64-v1.19.20",
+      "destPath": "bin/darwin-aarch64/mihomo"
+    },
+    {
       "id": "xray-linux-x86_64",
       "target": "linux-x86_64",
       "runtime": "xray",
@@ -91,6 +124,17 @@
       "destPath": "bin/linux-x86_64/sing-box"
     },
     {
+      "id": "mihomo-linux-x86_64",
+      "target": "linux-x86_64",
+      "runtime": "mihomo",
+      "version": "1.19.20",
+      "archiveType": "gz",
+      "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.20/mihomo-linux-amd64-compatible-v1.19.20.gz",
+      "archiveSha256": "5e255e9eafd34077d177fc9c22b49c398c6a464b10b7bf3818f61e7179938de1",
+      "archiveBinaryPath": "mihomo-linux-amd64-compatible-v1.19.20",
+      "destPath": "bin/linux-x86_64/mihomo"
+    },
+    {
       "id": "xray-linux-aarch64",
       "target": "linux-aarch64",
       "runtime": "xray",
@@ -111,6 +155,17 @@
       "archiveSha256": "10fc1a95b34ec6cdd897f298ee6e7af34e2c2eab5648fc7e76d3a7ea4e2eaf41",
       "archiveBinaryPath": "sing-box-1.12.17-linux-arm64/sing-box",
       "destPath": "bin/linux-aarch64/sing-box"
+    },
+    {
+      "id": "mihomo-linux-aarch64",
+      "target": "linux-aarch64",
+      "runtime": "mihomo",
+      "version": "1.19.20",
+      "archiveType": "gz",
+      "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.20/mihomo-linux-arm64-v1.19.20.gz",
+      "archiveSha256": "729b04fcf54a7be6dfbb138fe8a972e058c0d7f3fddc6206fd34443342121e7c",
+      "archiveBinaryPath": "mihomo-linux-arm64-v1.19.20",
+      "destPath": "bin/linux-aarch64/mihomo"
     }
   ]
 }

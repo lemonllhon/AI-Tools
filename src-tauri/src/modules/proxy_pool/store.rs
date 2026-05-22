@@ -1330,6 +1330,47 @@ pub fn load_current_gateway_outbound() -> Result<GatewayOutboundTarget, String> 
     Ok(target)
 }
 
+pub fn load_gateway_outbound_candidates() -> Result<Vec<GatewayOutboundTarget>, String> {
+    let db_path = proxy_pool_db_path()?;
+    let conn = open_connection_at(&db_path)?;
+    initialize_schema(&conn)?;
+    seed_builtin_nodes(&conn)?;
+    let service_state = service_state_from_conn(&conn)?;
+
+    if service_state.outlet_mode != OUTLET_MODE_NODE_POOL {
+        return load_current_gateway_outbound().map(|target| vec![target]);
+    }
+
+    let mut candidate_ids = Vec::new();
+    if !service_state.current_node_id.trim().is_empty() {
+        candidate_ids.push(service_state.current_node_id.clone());
+    }
+    for node_id in &service_state.selected_node_ids {
+        if !candidate_ids.iter().any(|candidate_id| candidate_id == node_id) {
+            candidate_ids.push(node_id.clone());
+        }
+    }
+
+    let mut targets = Vec::new();
+    for node_id in candidate_ids {
+        if let Some(mut target) = load_gateway_outbound_by_id(&conn, &node_id)? {
+            target.gateway_port = service_state.preferred_port;
+            targets.push(target);
+        }
+    }
+
+    if targets.is_empty() {
+        return load_gateway_outbound_by_id(&conn, DIRECT_NODE_ID)?
+            .map(|mut target| {
+                target.gateway_port = service_state.preferred_port;
+                vec![target]
+            })
+            .ok_or_else(|| "读取内置直连节点失败".to_string());
+    }
+
+    Ok(targets)
+}
+
 fn load_gateway_outbound_by_id(
     conn: &Connection,
     id: &str,

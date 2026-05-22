@@ -436,10 +436,13 @@
 }
 
 .proxy-pool-panel {
+  width: 100%;
   padding: 20px 24px 22px;
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 14px;
+  text-align: left;
 }
 
 .proxy-pool-header {
@@ -470,7 +473,7 @@
 .proxy-pool-actions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 8px;
   flex-shrink: 0;
 }
@@ -936,12 +939,12 @@
 .proxy-pool-source-meta {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: 4px;
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.35;
-  text-align: right;
+  text-align: left;
 }
 
 .proxy-pool-source-actions {
@@ -972,7 +975,7 @@
   min-width: 0;
   display: flex;
   align-items: flex-end;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 10px;
   padding: 8px 10px;
   border: 1px solid var(--border-light);
@@ -1026,18 +1029,45 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  flex: 1;
 }
 
-.proxy-pool-list-title span:first-child {
+.proxy-pool-list-title-copy {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.proxy-pool-list-title-copy span:first-child {
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 800;
 }
 
-.proxy-pool-list-title span:last-child {
+.proxy-pool-list-title-copy span:last-child {
   color: var(--text-muted);
   font-size: 12px;
   font-weight: 600;
+}
+
+.proxy-pool-filtered-select-all {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
+}
+
+.proxy-pool-filtered-select-all input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--primary);
 }
 
 .proxy-pool-list-toggle {
@@ -1238,7 +1268,7 @@
 .proxy-pool-node-state {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 6px;
 }
 
@@ -1246,7 +1276,7 @@
   min-width: 30px;
   font-size: 11px;
   font-weight: 700;
-  text-align: right;
+  text-align: left;
 }
 
 .proxy-pool-state-text.is-enabled {

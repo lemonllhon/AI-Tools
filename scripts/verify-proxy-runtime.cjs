@@ -15,7 +15,7 @@ const supportedTargets = new Set([
   'linux-x86_64',
   'linux-aarch64',
 ]);
-const runtimes = new Set(['xray', 'sing-box']);
+const runtimes = new Set(['xray', 'sing-box', 'mihomo']);
 
 function usage() {
   return [
@@ -130,6 +130,10 @@ function assertSha256(value, label) {
   }
 }
 
+function isAutoSha256(value) {
+  return value === 'auto';
+}
+
 function validateManifestShape(manifest) {
   if (manifest.schemaVersion !== 1) {
     throw new Error('runtime-manifest.json schemaVersion must be 1');
@@ -152,7 +156,9 @@ function validateManifestShape(manifest) {
     if (typeof entry.path !== 'string' || !entry.path.startsWith(`bin/${entry.target}/`)) {
       throw new Error(`${entryKey(entry)} path must stay under bin/${entry.target}/`);
     }
-    assertSha256(entry.sha256, `${entryKey(entry)} sha256`);
+    if (!isAutoSha256(entry.sha256)) {
+      assertSha256(entry.sha256, `${entryKey(entry)} sha256`);
+    }
     const key = entryKey(entry);
     if (seen.has(key)) {
       throw new Error(`Duplicate manifest entry for ${key}`);
@@ -177,8 +183,8 @@ function validateSourcesShape(sources, manifest) {
     if (!runtimes.has(source.runtime)) {
       throw new Error(`runtime-sources.json has unsupported runtime: ${source.runtime}`);
     }
-    if (!['zip', 'tar.gz'].includes(source.archiveType)) {
-      throw new Error(`${entryKey(source)} archiveType must be zip or tar.gz`);
+    if (!['zip', 'tar.gz', 'gz'].includes(source.archiveType)) {
+      throw new Error(`${entryKey(source)} archiveType must be zip, tar.gz, or gz`);
     }
     for (const field of ['id', 'version', 'url', 'archiveBinaryPath', 'destPath']) {
       if (typeof source[field] !== 'string' || !source[field]) {
@@ -250,7 +256,7 @@ function verifyFiles(rootDir, manifest, targets) {
       throw new Error(`${entryKey(entry)} missing file: ${filePath}`);
     }
     const actualSha = sha256File(filePath);
-    if (actualSha !== entry.sha256) {
+    if (!isAutoSha256(entry.sha256) && actualSha !== entry.sha256) {
       throw new Error(`${entryKey(entry)} sha256 mismatch. Expected ${entry.sha256}, got ${actualSha}`);
     }
   }
