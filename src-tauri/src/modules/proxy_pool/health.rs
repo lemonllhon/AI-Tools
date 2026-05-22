@@ -1,4 +1,6 @@
+use super::bridge;
 use super::models::{ProxyPoolIpHealthResult, ProxyPoolLatencyTestResult};
+use super::store::GatewayOutboundTarget;
 use reqwest::{Client, Proxy, Url};
 use serde_json::{json, Value};
 use std::time::{Duration, Instant};
@@ -11,11 +13,18 @@ const IP_HEALTH_TIMEOUT_SECONDS: u64 = 20;
 #[derive(Debug, Clone)]
 pub struct ProxyCheckTarget {
     pub id: String,
+    pub name: String,
     pub protocol: String,
     pub host: String,
     pub port: u16,
     pub username: String,
     pub password: String,
+    pub standard_config: Value,
+}
+
+struct ProxyClientContext {
+    client: Client,
+    _temporary_bridge: Option<bridge::TemporaryBridge>,
 }
 
 pub async fn test_latency(target: ProxyCheckTarget) -> ProxyPoolLatencyTestResult {
@@ -28,20 +37,22 @@ pub async fn test_latency(target: ProxyCheckTarget) -> ProxyPoolLatencyTestResul
         };
     }
 
-    let client = match build_proxy_client(&target, Duration::from_secs(LATENCY_TIMEOUT_SECONDS)) {
-        Ok(client) => client,
-        Err(error) => {
-            return ProxyPoolLatencyTestResult {
-                node_id: target.id,
-                ok: false,
-                latency_ms: None,
-                error,
-            };
-        }
-    };
+    let client_context =
+        match build_proxy_client(&target, Duration::from_secs(LATENCY_TIMEOUT_SECONDS)).await {
+            Ok(client_context) => client_context,
+            Err(error) => {
+                return ProxyPoolLatencyTestResult {
+                    node_id: target.id,
+                    ok: false,
+                    latency_ms: None,
+                    error,
+                };
+            }
+        };
 
     let started_at = Instant::now();
-    let response = client
+    let response = client_context
+        .client
         .get(LATENCY_TEST_URL)
         .header("Cache-Control", "no-cache")
         .send()
@@ -61,22 +72,26 @@ pub async fn test_latency(target: ProxyCheckTarget) -> ProxyPoolLatencyTestResul
             latency_ms: Some(latency_ms),
             error: format!("HTTP {}", response.status().as_u16()),
         },
-        Err(error) => ProxyPoolLatencyTestResult {
-            node_id: target.id,
-            ok: false,
-            latency_ms: Some(latency_ms),
-            error: format!("测速失败: {}", error),
-        },
+        Err(error) => {
+            ProxyPoolLatencyTestResult {
+                node_id: target.id,
+                ok: false,
+                latency_ms: Some(latency_ms),
+                error: format!("测速失败: {}", error),
+            }
+        }
     }
 }
 
 pub async fn check_ip_health(target: ProxyCheckTarget) -> ProxyPoolIpHealthResult {
-    let client = match build_proxy_client(&target, Duration::from_secs(IP_HEALTH_TIMEOUT_SECONDS)) {
-        Ok(client) => client,
-        Err(error) => return failed_ip_health_result(target.id, error),
-    };
+    let client_context =
+        match build_proxy_client(&target, Duration::from_secs(IP_HEALTH_TIMEOUT_SECONDS)).await {
+            Ok(client_context) => client_context,
+            Err(error) => return failed_ip_health_result(target.id, error),
+        };
 
-    let response = client
+    let response = client_context
+        .client
         .get(IPPURE_INFO_URL)
         .header("Accept", "application/json")
         .header("Cache-Control", "no-cache")
@@ -167,34 +182,46 @@ pub fn summarize_ip_health(result: &ProxyPoolIpHealthResult) -> String {
     }
 }
 
-fn build_proxy_client(target: &ProxyCheckTarget, timeout: Duration) -> Result<Client, String> {
+pub fn is_bridge_check_target(target: &ProxyCheckTarget) -> bool {
+    bridge::is_bridge_protocol(&target.protocol)
+}
+
+async fn build_proxy_client(
+    target: &ProxyCheckTarget,
+    timeout: Duration,
+) -> Result<ProxyClientContext, String> {
     let mut builder = Client::builder()
         .timeout(timeout)
         .user_agent("ai-lemon-tools-proxy-health/1.0");
+    let mut temporary_bridge = None;
 
     if !target.protocol.eq_ignore_ascii_case("direct") {
-        let proxy_url = build_proxy_url(target)?;
+        let (proxy_url, bridge_guard) = build_proxy_url(target).await?;
+        temporary_bridge = bridge_guard;
         let proxy = Proxy::all(proxy_url.as_str())
             .map_err(|err| format!("代理客户端初始化失败: {}", err))?;
         builder = builder.proxy(proxy);
     }
 
-    builder
+    let client = builder
         .build()
-        .map_err(|err| format!("代理 HTTP 客户端初始化失败: {}", err))
+        .map_err(|err| format!("代理 HTTP 客户端初始化失败: {}", err))?;
+    Ok(ProxyClientContext {
+        client,
+        _temporary_bridge: temporary_bridge,
+    })
 }
 
-fn build_proxy_url(target: &ProxyCheckTarget) -> Result<Url, String> {
+async fn build_proxy_url(
+    target: &ProxyCheckTarget,
+) -> Result<(Url, Option<bridge::TemporaryBridge>), String> {
     let scheme = match target.protocol.to_ascii_lowercase().as_str() {
         "http" => "http",
         "https" => "https",
         "socks5" => "socks5h",
         "vmess" | "vless" | "trojan" | "ss" | "hysteria" | "hysteria2" | "tuic"
         | "anytls" => {
-            return Err(format!(
-                "{} 节点需要先完成内置桥接后才能检测",
-                target.protocol
-            ));
+            return build_bridge_proxy_url(target).await;
         }
         other => return Err(format!("暂不支持检测 {} 协议节点", other)),
     };
@@ -219,7 +246,36 @@ fn build_proxy_url(target: &ProxyCheckTarget) -> Result<Url, String> {
         }
     }
 
-    Ok(url)
+    Ok((url, None))
+}
+
+async fn build_bridge_proxy_url(
+    target: &ProxyCheckTarget,
+) -> Result<(Url, Option<bridge::TemporaryBridge>), String> {
+    if target.host.trim().is_empty() || target.port == 0 {
+        return Err("代理节点地址或端口为空".to_string());
+    }
+
+    let outbound = GatewayOutboundTarget {
+        id: target.id.clone(),
+        name: target.name.clone(),
+        protocol: target.protocol.clone(),
+        host: target.host.clone(),
+        port: target.port,
+        username: target.username.clone(),
+        password: target.password.clone(),
+        gateway_port: 0,
+        standard_config: target.standard_config.clone(),
+    };
+    let temporary_bridge = bridge::start_temporary_bridge(&outbound).await?;
+    let endpoint = temporary_bridge.endpoint().clone();
+    let mut url = Url::parse("socks5h://127.0.0.1")
+        .map_err(|err| format!("代理桥接 URL 初始化失败: {}", err))?;
+    url.set_host(Some(&endpoint.host))
+        .map_err(|_| "代理桥接地址格式错误".to_string())?;
+    url.set_port(Some(endpoint.port))
+        .map_err(|_| "代理桥接端口格式错误".to_string())?;
+    Ok((url, Some(temporary_bridge)))
 }
 
 fn failed_ip_health_result(node_id: String, error: String) -> ProxyPoolIpHealthResult {

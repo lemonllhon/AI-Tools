@@ -31,6 +31,7 @@ export interface ProxyPoolNode {
   builtin: boolean;
   latencyMs: number | null;
   latencyStatus: string;
+  ipHealth: ProxyPoolIpHealthResult | null;
   ipHealthSummary: string;
   maskedUrl: string;
   createdAt: string;

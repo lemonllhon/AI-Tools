@@ -1,10 +1,11 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, WheelEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   AlertCircle,
   Check,
   ChevronDown,
   ChevronUp,
+  Eye,
   FileText,
   Link,
   Pencil,
@@ -37,6 +38,7 @@ import {
 import type {
   ManualProxyNodeProtocol,
   ProxyImportPreviewResponse,
+  ProxyPoolIpHealthResult,
   ProxyPoolListResponse,
   ProxyPoolNode,
   ProxyPoolOutletMode,
@@ -78,6 +80,8 @@ const DEFAULT_FORM_STATE: ProxyNodeFormState = {
   enabled: false,
 };
 
+const NODE_LIST_VISIBLE_COUNT = 10;
+
 const MANUAL_PROTOCOLS: ManualProxyNodeProtocol[] = ['http', 'https', 'socks5'];
 type ImportMode = 'paste' | 'url';
 
@@ -110,13 +114,16 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
   const [sourceSavingId, setSourceSavingId] = useState<string | null>(null);
   const [sourceDeletingIds, setSourceDeletingIds] = useState<Set<string>>(() => new Set());
   const [serviceSaving, setServiceSaving] = useState(false);
-  const [gatewayPortInput, setGatewayPortInput] = useState('7897');
-  const [localProxyPortInput, setLocalProxyPortInput] = useState('7890');
   const [search, setSearch] = useState('');
   const [groupFilter, setGroupFilter] = useState('all');
   const [protocolFilter, setProtocolFilter] = useState('all');
+  const [nodeSourceFilter, setNodeSourceFilter] = useState('all');
+  const [showSelectedNodesOnly, setShowSelectedNodesOnly] = useState(false);
   const [nodesCollapsed, setNodesCollapsed] = useState(false);
   const [deleteSelectedIds, setDeleteSelectedIds] = useState<Set<string>>(() => new Set());
+  const [ipHealthDetailNodeId, setIpHealthDetailNodeId] = useState<string | null>(null);
+  const [nodeListMaxHeight, setNodeListMaxHeight] = useState<string | undefined>(undefined);
+  const nodeListRef = useRef<HTMLDivElement | null>(null);
   const currentLanguage = getCurrentLanguage();
 
   const text = useMemo(() => {
@@ -129,8 +136,6 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
           gatewayDesc: '全局代理启用后，受管进程和 Codex API 的跟随全局代理都会连接这个本地网关；直连、本地代理、节点池三种出口互斥，节点池内可多选备用节点。',
           gatewayEnabled: '网关已启用',
           gatewayDisabled: '网关未启用',
-          gatewayAddress: '网关地址',
-          gatewayPort: '网关端口',
           outletMode: '出口模式',
           outletModeDirect: '直连',
           outletModeLocal: '本地代理',
@@ -144,10 +149,6 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
           unselectPoolNode: '移出节点池出口',
           deletePick: '选择用于批量删除',
           addToPool: '保存后加入节点池',
-          localProxyPort: '外部本地代理端口',
-          localProxyPortDesc: '对应内置“本地代理 127.0.0.1”节点；选择它即可接入 Clash 等外部代理软件。',
-          saveGateway: '保存网关设置',
-          savingGateway: '保存中...',
           serviceUpdated: '内置代理网关设置已更新',
           outletUpdated: '出口模式已更新',
           serviceUpdateFailed: '更新内置代理网关失败',
@@ -159,6 +160,11 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
           refresh: '刷新',
           nodeListTitle: '节点列表',
           nodeListCount: '显示 {{visible}} / {{total}} 个节点',
+          nodeListScope: '显示范围',
+          allNodes: '显示全部',
+          selectedNodes: '已选择',
+          selectedNodesCount: '已选择 {{count}}',
+          subscriptionNodes: '订阅',
           collapseNodes: '折叠节点列表',
           expandNodes: '展开节点列表',
           search: '搜索名称、地址、分组',
@@ -206,6 +212,24 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
           checkingIpHealth: '检测中...',
           ipHealthFailed: 'IP 健康检测失败',
           ipHealthDone: 'IP 健康检测完成：{{count}} 个，失败 {{failed}} 个',
+          viewIpHealth: '查看 IP 健康详情',
+          ipHealthDetails: 'IP 健康详情',
+          ipHealthNoDetails: '暂无 IP 健康详情，请先执行检查IP。',
+          ipHealthStatus: '状态',
+          ipHealthOk: '正常',
+          ipHealthError: '异常',
+          ipAddress: 'IP 地址',
+          ipLocation: '位置',
+          ipFraudScore: '风险分',
+          ipResidential: '住宅 IP',
+          ipBroadcast: '广播 IP',
+          ipAsOrganization: '网络组织',
+          ipSource: '来源',
+          ipUpdatedAt: '更新时间',
+          rawData: '原始数据',
+          yes: '是',
+          no: '否',
+          unknown: '未知',
           importTitle: '添加资源',
           importDesc: '粘贴 Clash YAML、Base64 订阅内容、分享链接，或输入 http/https 订阅 URL 拉取并导入。',
           importModePaste: '粘贴内容',
@@ -255,8 +279,6 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
           gatewayDesc: 'When global proxy is enabled, managed processes and Codex API follow-global-proxy mode connect to this local gateway. Direct, local proxy, and node pool are mutually exclusive; the node pool can hold multiple fallback nodes.',
           gatewayEnabled: 'Gateway enabled',
           gatewayDisabled: 'Gateway disabled',
-          gatewayAddress: 'Gateway address',
-          gatewayPort: 'Gateway port',
           outletMode: 'Outlet mode',
           outletModeDirect: 'Direct',
           outletModeLocal: 'Local proxy',
@@ -270,10 +292,6 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
           unselectPoolNode: 'Remove from node pool outlet',
           deletePick: 'Select for batch delete',
           addToPool: 'Add to node pool after saving',
-          localProxyPort: 'External local proxy port',
-          localProxyPortDesc: 'Used by the built-in "Local proxy 127.0.0.1" node; select it to use Clash or another external proxy app.',
-          saveGateway: 'Save gateway',
-          savingGateway: 'Saving...',
           serviceUpdated: 'Built-in proxy gateway updated',
           outletUpdated: 'Outlet mode updated',
           serviceUpdateFailed: 'Failed to update built-in proxy gateway',
@@ -285,6 +303,11 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
           refresh: 'Refresh',
           nodeListTitle: 'Node List',
           nodeListCount: 'Showing {{visible}} / {{total}} nodes',
+          nodeListScope: 'Display scope',
+          allNodes: 'Show all',
+          selectedNodes: 'Selected',
+          selectedNodesCount: 'Selected {{count}}',
+          subscriptionNodes: 'Subscription',
           collapseNodes: 'Collapse node list',
           expandNodes: 'Expand node list',
           search: 'Search name, address, group',
@@ -332,6 +355,24 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
           checkingIpHealth: 'Checking...',
           ipHealthFailed: 'Failed to check IP health',
           ipHealthDone: 'IP health checked: {{count}}, failed {{failed}}',
+          viewIpHealth: 'View IP health details',
+          ipHealthDetails: 'IP Health Details',
+          ipHealthNoDetails: 'No IP health details yet. Run Check IP first.',
+          ipHealthStatus: 'Status',
+          ipHealthOk: 'Healthy',
+          ipHealthError: 'Error',
+          ipAddress: 'IP address',
+          ipLocation: 'Location',
+          ipFraudScore: 'Fraud score',
+          ipResidential: 'Residential IP',
+          ipBroadcast: 'Broadcast IP',
+          ipAsOrganization: 'Network organization',
+          ipSource: 'Source',
+          ipUpdatedAt: 'Updated at',
+          rawData: 'Raw data',
+          yes: 'Yes',
+          no: 'No',
+          unknown: 'Unknown',
           importTitle: 'Add Resource',
           importDesc: 'Paste Clash YAML, Base64 subscription text, share links, or fetch an http/https subscription URL.',
           importModePaste: 'Paste',
@@ -418,17 +459,31 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
   const nodes = data?.nodes ?? [];
   const groups = data?.groups ?? [];
   const sources = data?.sources ?? [];
+  const hasMultipleSources = sources.length > 1;
   const serviceState = data?.serviceState ?? null;
   const outletMode = serviceState?.outletMode ?? 'direct';
   const selectedPoolIds = serviceState?.selectedNodeIds ?? [];
   const selectedPoolIdSet = useMemo(() => new Set(selectedPoolIds), [selectedPoolIds]);
   const normalNodes = useMemo(() => nodes.filter((node) => !node.builtin), [nodes]);
+  const selectedNodeCount = useMemo(
+    () => nodes.filter((node) => selectedPoolIdSet.has(node.id)).length,
+    [nodes, selectedPoolIdSet],
+  );
 
   useEffect(() => {
-    if (!serviceState) return;
-    setGatewayPortInput(String(serviceState.preferredPort));
-    setLocalProxyPortInput(String(serviceState.localProxyPort));
-  }, [serviceState?.preferredPort, serviceState?.localProxyPort]);
+    if (
+      nodeSourceFilter !== 'all' &&
+      (!hasMultipleSources || !sources.some((source) => source.id === nodeSourceFilter))
+    ) {
+      setNodeSourceFilter('all');
+    }
+  }, [hasMultipleSources, nodeSourceFilter, sources]);
+
+  useEffect(() => {
+    if (showSelectedNodesOnly && selectedNodeCount === 0) {
+      setShowSelectedNodesOnly(false);
+    }
+  }, [selectedNodeCount, showSelectedNodesOnly]);
 
   const protocolOptions = useMemo(() => {
     const order = ['direct', 'http', 'https', 'socks5', 'vmess', 'vless', 'trojan', 'ss', 'hysteria', 'hysteria2', 'tuic', 'anytls'];
@@ -442,9 +497,19 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
     });
   }, [nodes]);
 
+  const scopedNodes = useMemo(() => {
+    if (showSelectedNodesOnly) {
+      return nodes.filter((node) => selectedPoolIdSet.has(node.id));
+    }
+    if (nodeSourceFilter !== 'all') {
+      return nodes.filter((node) => node.sourceId === nodeSourceFilter);
+    }
+    return nodes;
+  }, [nodeSourceFilter, nodes, selectedPoolIdSet, showSelectedNodesOnly]);
+
   const filteredNodes = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    return nodes.filter((node) => {
+    return scopedNodes.filter((node) => {
       if (groupFilter !== 'all' && node.group !== groupFilter) return false;
       if (protocolFilter !== 'all' && node.protocol !== protocolFilter) return false;
       if (!needle) return true;
@@ -453,13 +518,92 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
         .toLowerCase()
         .includes(needle);
     });
-  }, [nodes, search, groupFilter, protocolFilter]);
+  }, [groupFilter, protocolFilter, scopedNodes, search]);
+
+  useEffect(() => {
+    if (nodesCollapsed || filteredNodes.length <= NODE_LIST_VISIBLE_COUNT) {
+      setNodeListMaxHeight(undefined);
+      return;
+    }
+
+    const listElement = nodeListRef.current;
+    if (!listElement) return;
+
+    let animationFrame = 0;
+    const measure = () => {
+      cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(() => {
+        const nodeRows = Array.from(
+          listElement.querySelectorAll<HTMLElement>('.proxy-pool-node'),
+        ).slice(0, NODE_LIST_VISIBLE_COUNT);
+        if (nodeRows.length < NODE_LIST_VISIBLE_COUNT) {
+          setNodeListMaxHeight(undefined);
+          return;
+        }
+        const visibleHeight = nodeRows.reduce((total, row) => total + row.offsetHeight, 0);
+        const borderHeight = listElement.offsetHeight - listElement.clientHeight;
+        setNodeListMaxHeight(`${visibleHeight + borderHeight}px`);
+      });
+    };
+
+    measure();
+    const resizeObserver = new ResizeObserver(measure);
+    resizeObserver.observe(listElement);
+    Array.from(listElement.querySelectorAll<HTMLElement>('.proxy-pool-node')).forEach((row) => {
+      resizeObserver.observe(row);
+    });
+    window.addEventListener('resize', measure);
+
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [filteredNodes, nodesCollapsed]);
 
   const selectedDeletableIds = useMemo(
     () => nodes.filter((node) => deleteSelectedIds.has(node.id) && !node.builtin).map((node) => node.id),
     [nodes, deleteSelectedIds],
   );
   const enabledNodeIds = useMemo(() => nodes.filter((node) => node.enabled).map((node) => node.id), [nodes]);
+
+  const resetNodeSearchFilters = () => {
+    setSearch('');
+    setGroupFilter('all');
+    setProtocolFilter('all');
+  };
+
+  const resetNodeScopeFilters = () => {
+    setNodeSourceFilter('all');
+    setShowSelectedNodesOnly(false);
+  };
+
+  const handleSearchChange = (value: string) => {
+    setSearch(value);
+    resetNodeScopeFilters();
+  };
+
+  const handleGroupFilterChange = (value: string) => {
+    setGroupFilter(value);
+    resetNodeScopeFilters();
+  };
+
+  const handleProtocolFilterChange = (value: string) => {
+    setProtocolFilter(value);
+    resetNodeScopeFilters();
+  };
+
+  const handleSourceFilterChange = (value: string) => {
+    setNodeSourceFilter(value);
+    setShowSelectedNodesOnly(false);
+    resetNodeSearchFilters();
+  };
+
+  const handleShowSelectedNodes = () => {
+    setShowSelectedNodesOnly((current) => !current);
+    setNodeSourceFilter('all');
+    resetNodeSearchFilters();
+  };
 
   const updateForm = <K extends keyof ProxyNodeFormState>(key: K, value: ProxyNodeFormState[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -697,14 +841,6 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
     }
   };
 
-  const parseServicePort = (value: string) => {
-    const port = Number(value);
-    if (!Number.isInteger(port) || port < 1 || port > 65535) {
-      throw new Error(text.invalidPort);
-    }
-    return port;
-  };
-
   const updateServiceOutlet = async (
     request: {
       outletMode?: ProxyPoolOutletMode;
@@ -794,26 +930,6 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
       selectedNodeIds: nextSelectedIds,
       currentNodeId: node.id,
     });
-  };
-
-  const handleSaveServiceSettings = async () => {
-    setServiceSaving(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const preferredPort = parseServicePort(gatewayPortInput);
-      const localProxyPort = parseServicePort(localProxyPortInput);
-      const response = await updateProxyPoolServiceState({
-        preferredPort,
-        localProxyPort,
-      });
-      applyProxyPoolListResponse(response);
-      setNotice(text.serviceUpdated);
-    } catch (err) {
-      setError(`${text.serviceUpdateFailed}: ${String(err)}`);
-    } finally {
-      setServiceSaving(false);
-    }
   };
 
   const handleTestLatency = async (node: ProxyPoolNode) => {
@@ -985,11 +1101,53 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
     return text.latencyPending;
   };
 
-  const gatewayPortPreview = Number(gatewayPortInput);
-  const serviceGatewayUrl =
-    Number.isInteger(gatewayPortPreview) && gatewayPortPreview >= 1 && gatewayPortPreview <= 65535
-      ? `http://127.0.0.1:${gatewayPortPreview}`
-      : serviceState?.gatewayUrl ?? '';
+  const handleNodeListWheel = (event: WheelEvent<HTMLDivElement>) => {
+    const listElement = event.currentTarget;
+    const deltaY = event.deltaY;
+    if (deltaY === 0 || listElement.scrollHeight <= listElement.clientHeight + 1) return;
+
+    const atTop = listElement.scrollTop <= 0;
+    const atBottom = listElement.scrollTop + listElement.clientHeight >= listElement.scrollHeight - 1;
+    if ((deltaY < 0 && !atTop) || (deltaY > 0 && !atBottom)) return;
+
+    let scrollParent = listElement.parentElement;
+    while (scrollParent) {
+      const style = window.getComputedStyle(scrollParent);
+      const canScroll = /(auto|scroll)/.test(style.overflowY)
+        && scrollParent.scrollHeight > scrollParent.clientHeight;
+      if (canScroll) break;
+      scrollParent = scrollParent.parentElement;
+    }
+
+    event.preventDefault();
+    if (scrollParent) {
+      scrollParent.scrollBy({ top: deltaY, behavior: 'auto' });
+    } else {
+      window.scrollBy({ top: deltaY, behavior: 'auto' });
+    }
+  };
+
+  const formatHealthValue = (value?: string | number | null) => {
+    if (value === null || value === undefined) return '-';
+    const textValue = String(value).trim();
+    return textValue || '-';
+  };
+
+  const formatHealthBoolean = (value: boolean | null) => {
+    if (value === null) return text.unknown;
+    return value ? text.yes : text.no;
+  };
+
+  const formatHealthLocation = (health: ProxyPoolIpHealthResult) => {
+    const location = [health.country, health.region, health.city]
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .join(' / ');
+    return location || '-';
+  };
+
+  const ipHealthDetailNode = nodes.find((node) => node.id === ipHealthDetailNodeId) ?? null;
+  const ipHealthDetail = ipHealthDetailNode?.ipHealth ?? null;
 
   return (
     <>
@@ -1076,48 +1234,9 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
                   ))}
                 </div>
               </div>
-
-              <label className="proxy-pool-field">
-                <span>{text.gatewayPort}</span>
-                <input
-                  className="settings-input"
-                  type="number"
-                  min={1}
-                  max={65535}
-                  value={gatewayPortInput}
-                  onChange={(event) => setGatewayPortInput(event.target.value)}
-                />
-              </label>
-
-              <label className="proxy-pool-field">
-                <span>{text.localProxyPort}</span>
-                <input
-                  className="settings-input"
-                  type="number"
-                  min={1}
-                  max={65535}
-                  value={localProxyPortInput}
-                  onChange={(event) => setLocalProxyPortInput(event.target.value)}
-                />
-              </label>
-
-              <div className="proxy-pool-service-address">
-                <span>{text.gatewayAddress}</span>
-                <code>{serviceGatewayUrl}</code>
-              </div>
-
-              <button
-                className="btn btn-secondary proxy-pool-service-save"
-                type="button"
-                onClick={() => void handleSaveServiceSettings()}
-                disabled={serviceSaving}
-              >
-                <Check size={16} />
-                {serviceSaving ? text.savingGateway : text.saveGateway}
-              </button>
             </div>
             <div className="proxy-pool-service-note">
-              {text.localProxyPortDesc} · {text.currentOutlet}: {serviceState.currentNodeName} · {serviceState.currentNodeProtocol}
+              {text.currentOutlet}: {serviceState.currentNodeName} · {serviceState.currentNodeProtocol}
             </div>
           </div>
         )}
@@ -1382,11 +1501,11 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
             <Search size={15} />
             <input
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => handleSearchChange(event.target.value)}
               placeholder={text.search}
             />
           </div>
-          <select className="settings-select" value={groupFilter} onChange={(event) => setGroupFilter(event.target.value)}>
+          <select className="settings-select" value={groupFilter} onChange={(event) => handleGroupFilterChange(event.target.value)}>
             <option value="all">{text.allGroups}</option>
             {groups.map((group) => (
               <option key={group} value={group}>
@@ -1397,7 +1516,7 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
           <select
             className="settings-select"
             value={protocolFilter}
-            onChange={(event) => setProtocolFilter(event.target.value)}
+            onChange={(event) => handleProtocolFilterChange(event.target.value)}
           >
             <option value="all">{text.allProtocols}</option>
             {protocolOptions.map((protocol) => (
@@ -1568,13 +1687,44 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
           </div>
         )}
 
+        <div className="proxy-pool-list-scope">
+          {hasMultipleSources && (
+            <label className="proxy-pool-scope-select">
+              <span>{text.nodeListScope}</span>
+              <select
+                className="settings-select"
+                value={nodeSourceFilter}
+                onChange={(event) => handleSourceFilterChange(event.target.value)}
+                disabled={showSelectedNodesOnly}
+              >
+                <option value="all">{text.allNodes}</option>
+                {sources.map((source) => (
+                  <option key={source.id} value={source.id}>
+                    {source.displayName} ({source.nodeCount})
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <button
+            className={`btn btn-secondary proxy-pool-selected-scope ${showSelectedNodesOnly ? 'is-active' : ''}`}
+            type="button"
+            onClick={handleShowSelectedNodes}
+            disabled={selectedNodeCount === 0}
+            title={text.selectedNodes}
+          >
+            <Check size={16} />
+            {text.selectedNodesCount.replace('{{count}}', String(selectedNodeCount))}
+          </button>
+        </div>
+
         <div className="proxy-pool-list-head">
           <div className="proxy-pool-list-title">
             <span>{text.nodeListTitle}</span>
             <span>
               {text.nodeListCount
                 .replace('{{visible}}', String(filteredNodes.length))
-                .replace('{{total}}', String(nodes.length))}
+                .replace('{{total}}', String(scopedNodes.length))}
             </span>
           </div>
           <button
@@ -1589,7 +1739,12 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
         </div>
 
         {!nodesCollapsed && (
-          <div className="proxy-pool-list">
+          <div
+            className="proxy-pool-list"
+            ref={nodeListRef}
+            style={nodeListMaxHeight ? { maxHeight: nodeListMaxHeight } : undefined}
+            onWheel={handleNodeListWheel}
+          >
             {loading && nodes.length === 0 ? (
               <div className="proxy-pool-empty">{text.loading}</div>
             ) : filteredNodes.length === 0 ? (
@@ -1639,12 +1794,15 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
                       >
                         {text.latency}: {formatLatency(node)}
                       </span>
-                      <span
-                        className={`proxy-pool-health-chip ${node.ipHealthSummary ? 'is-info' : 'is-muted'}`}
+                      <button
+                        className={`proxy-pool-health-eye ${node.ipHealthSummary ? 'is-info' : 'is-muted'}`}
+                        type="button"
+                        onClick={() => setIpHealthDetailNodeId(node.id)}
                         title={checkingIpHealthIds.has(node.id) ? text.checkingIpHealth : node.ipHealthSummary || text.ipHealthPending}
+                        aria-label={text.viewIpHealth}
                       >
-                        {text.ipHealth}: {checkingIpHealthIds.has(node.id) ? text.checkingIpHealth : node.ipHealthSummary || text.ipHealthPending}
-                      </span>
+                        <Eye size={14} />
+                      </button>
                     </div>
                   </div>
                   <div className="proxy-pool-node-state">
@@ -1713,6 +1871,73 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
           </div>
         )}
       </div>
+
+      {ipHealthDetailNode && (
+        <div
+          className="proxy-pool-modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setIpHealthDetailNodeId(null);
+            }
+          }}
+        >
+          <div className="proxy-pool-modal" role="dialog" aria-modal="true" aria-label={text.ipHealthDetails}>
+            <div className="proxy-pool-modal-head">
+              <div>
+                <div className="row-title">{text.ipHealthDetails}</div>
+                <div className="row-desc">{ipHealthDetailNode.name}</div>
+              </div>
+              <button
+                className="proxy-pool-icon-btn"
+                type="button"
+                onClick={() => setIpHealthDetailNodeId(null)}
+                title={text.close}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {ipHealthDetail ? (
+              <>
+                <div className="proxy-pool-health-detail-grid">
+                  {[
+                    [text.ipHealthStatus, ipHealthDetail.ok ? text.ipHealthOk : text.ipHealthError],
+                    [text.ipAddress, formatHealthValue(ipHealthDetail.ip)],
+                    [text.ipLocation, formatHealthLocation(ipHealthDetail)],
+                    [text.ipFraudScore, formatHealthValue(ipHealthDetail.fraudScore)],
+                    [text.ipResidential, formatHealthBoolean(ipHealthDetail.isResidential)],
+                    [text.ipBroadcast, formatHealthBoolean(ipHealthDetail.isBroadcast)],
+                    [text.ipAsOrganization, formatHealthValue(ipHealthDetail.asOrganization)],
+                    [text.ipSource, formatHealthValue(ipHealthDetail.source)],
+                    [text.ipUpdatedAt, formatHealthValue(ipHealthDetail.updatedAt)],
+                  ].map(([label, value]) => (
+                    <div className="proxy-pool-health-detail-item" key={label}>
+                      <span>{label}</span>
+                      <strong>{value}</strong>
+                    </div>
+                  ))}
+                </div>
+                {!ipHealthDetail.ok && ipHealthDetail.error && (
+                  <div className="proxy-pool-health-detail-error">
+                    <AlertCircle size={16} />
+                    <span>{ipHealthDetail.error}</span>
+                  </div>
+                )}
+                <div className="proxy-pool-health-raw">
+                  <span>{text.rawData}</span>
+                  <pre>{JSON.stringify(ipHealthDetail.rawData ?? {}, null, 2)}</pre>
+                </div>
+              </>
+            ) : (
+              <div className="proxy-pool-health-empty">
+                <Eye size={18} />
+                <span>{ipHealthDetailNode.ipHealthSummary || text.ipHealthNoDetails}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 }

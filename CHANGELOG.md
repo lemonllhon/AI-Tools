@@ -6,6 +6,28 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.15] - 2026-05-22
+### Added
+- Added temporary xray/sing-box bridge startup for latency tests and IP health checks, allowing advanced nodes such as `vmess`, `vless`, `trojan`, `ss`, `hysteria`, `hysteria2`, `tuic`, and `anytls` to be checked through the bundled proxy cores.
+- Added full IP health result persistence and frontend typing so node rows can open detailed health information instead of showing only a short summary.
+- Added an eye-button IP health detail dialog with IP, location, fraud score, residential/broadcast flags, ASN organization, source, update time, error text, and raw response data.
+- Added a node list display scope control that can switch between all nodes and individual subscriptions when multiple subscription sources exist.
+- Added an "Selected" node list view that shows selected node-pool outlets across all subscriptions.
+
+### Changed
+- Changed advanced protocol latency and IP health checks to create a temporary bridge automatically, keeping the bridge alive for the duration of the request and cleaning it up afterward.
+- Changed batch checks so regular nodes can still run concurrently while bridge-required advanced nodes are processed safely through temporary bridge sessions.
+- Changed node list filtering so search, group, and protocol filters reset the list scope back to all nodes, while switching a subscription clears search/group/protocol filters.
+- Changed the proxy node pool panel to remove duplicated gateway address, gateway port, and external local proxy port controls; those settings now stay only in the main built-in proxy gateway area.
+- Changed the node list height to be calculated from the first 10 rendered node rows instead of using a fixed hard-coded height.
+- Changed node list wheel behavior so scrolling past the top or bottom continues scrolling the surrounding settings page.
+
+### Fixed
+- Fixed legacy advanced-node messages such as "vless node needs built-in bridge first" by routing those checks through the actual temporary bridge path.
+- Fixed advanced-node IP health display so stale bridge-pending summaries are normalized away when listing nodes.
+- Fixed xray bridge config generation so Clash YAML `options.type` is not incorrectly treated as the xray transport network.
+- Fixed large subscription node pools requiring the mouse to leave the node list before the rest of the settings page could scroll.
+
 ## [0.0.14] - 2026-05-22
 ### Added
 - Added a real built-in proxy gateway service that listens on `127.0.0.1` and provides HTTP and CONNECT forwarding for the app.

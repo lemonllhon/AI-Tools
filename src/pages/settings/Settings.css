@@ -544,9 +544,9 @@
 
 .proxy-pool-service-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 1.2fr) minmax(120px, 0.5fr) minmax(140px, 0.5fr) minmax(180px, 0.8fr) auto;
+  grid-template-columns: minmax(220px, max-content);
   gap: 12px;
-  align-items: end;
+  align-items: start;
 }
 
 .proxy-pool-service-address {
@@ -968,6 +968,46 @@
   gap: 8px;
 }
 
+.proxy-pool-list-scope {
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+}
+
+.proxy-pool-scope-select {
+  min-width: 0;
+  flex: 1 1 320px;
+  display: grid;
+  grid-template-columns: auto minmax(180px, 320px);
+  align-items: center;
+  gap: 8px;
+}
+
+.proxy-pool-scope-select span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.proxy-pool-selected-scope {
+  min-height: 34px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.proxy-pool-selected-scope.is-active {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border-light));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
 .proxy-pool-list-head {
   min-width: 0;
   display: flex;
@@ -1009,13 +1049,13 @@
 .proxy-pool-list {
   display: flex;
   flex-direction: column;
-  max-height: 672px;
+  max-height: none;
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
   overflow-x: hidden;
   overflow-y: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior: auto;
   scrollbar-gutter: stable;
 }
 
@@ -1108,6 +1148,36 @@
 
 .proxy-pool-health-chip.is-muted {
   color: var(--text-muted);
+}
+
+.proxy-pool-health-eye {
+  width: 24px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-secondary) 76%, transparent);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.proxy-pool-health-eye.is-info {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border-light));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.proxy-pool-health-eye.is-muted {
+  color: var(--text-muted);
+}
+
+.proxy-pool-health-eye:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border-light));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .proxy-pool-protocol,
@@ -1261,6 +1331,110 @@
 
 .proxy-pool-db-path span {
   white-space: nowrap;
+}
+
+.proxy-pool-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, #0f172a 42%, transparent);
+}
+
+.proxy-pool-modal {
+  width: min(720px, 100%);
+  max-height: min(720px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  box-shadow: 0 22px 60px color-mix(in srgb, #020617 24%, transparent);
+  overflow: auto;
+}
+
+.proxy-pool-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.proxy-pool-health-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.proxy-pool-health-detail-item {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+}
+
+.proxy-pool-health-detail-item span,
+.proxy-pool-health-raw > span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.proxy-pool-health-detail-item strong {
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.proxy-pool-health-detail-error,
+.proxy-pool-health-empty {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--danger, #ef4444) 26%, var(--border-light));
+  background: color-mix(in srgb, var(--danger, #ef4444) 7%, transparent);
+  color: var(--danger, #ef4444);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.proxy-pool-health-empty {
+  border-color: var(--border-light);
+  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+  color: var(--text-secondary);
+}
+
+.proxy-pool-health-raw {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.proxy-pool-health-raw pre {
+  max-height: 260px;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow: auto;
 }
 
 .settings-inline-code {
@@ -2128,14 +2302,31 @@ input:checked + .slider:before {
     flex: 1 1 0;
   }
 
+  .proxy-pool-modal-backdrop {
+    padding: 12px;
+  }
+
+  .proxy-pool-health-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
   .proxy-pool-form,
   .proxy-pool-import-options,
   .proxy-pool-toolbar {
     grid-template-columns: 1fr;
   }
 
-  .proxy-pool-list {
-    max-height: min(672px, 68vh);
+  .proxy-pool-list-scope {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .proxy-pool-scope-select {
+    grid-template-columns: 1fr;
+  }
+
+  .proxy-pool-selected-scope {
+    justify-content: center;
   }
 
   .proxy-pool-list-head {

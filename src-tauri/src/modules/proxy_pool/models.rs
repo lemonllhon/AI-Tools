@@ -25,6 +25,7 @@ pub struct ProxyPoolNode {
     pub builtin: bool,
     pub latency_ms: Option<i64>,
     pub latency_status: String,
+    pub ip_health: Option<ProxyPoolIpHealthResult>,
     pub ip_health_summary: String,
     pub masked_url: String,
     pub created_at: String,
@@ -190,7 +191,7 @@ pub struct ProxyPoolLatencyTestResponse {
     pub sources: Vec<ProxySource>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyPoolIpHealthResult {
     pub node_id: String,

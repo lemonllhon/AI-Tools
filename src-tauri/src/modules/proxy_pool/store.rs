@@ -45,7 +45,7 @@ pub fn list_nodes() -> Result<ProxyPoolListResponse, String> {
             "SELECT
                 id, name, protocol, host, port, username, password, group_name,
                 source_id, source_name, sort_order, enabled, builtin, latency_ms,
-                latency_status, ip_health_summary, created_at, updated_at
+                latency_status, ip_health_json, ip_health_summary, created_at, updated_at
              FROM proxy_nodes
              ORDER BY builtin DESC, sort_order ASC, created_at ASC",
         )
@@ -610,11 +610,16 @@ pub async fn test_node_latency(node_id: &str) -> Result<ProxyPoolLatencyTestResp
 
 pub async fn test_all_latency() -> Result<ProxyPoolLatencyTestResponse, String> {
     let targets = load_enabled_check_targets()?;
-    let results = stream::iter(targets)
+    let (bridge_targets, direct_targets): (Vec<_>, Vec<_>) =
+        targets.into_iter().partition(health::is_bridge_check_target);
+    let mut results = stream::iter(direct_targets)
         .map(health::test_latency)
         .buffer_unordered(LATENCY_BATCH_CONCURRENCY)
         .collect::<Vec<_>>()
         .await;
+    for target in bridge_targets {
+        results.push(health::test_latency(target).await);
+    }
     persist_latency_results(&results)?;
     build_latency_response(results)
 }
@@ -628,11 +633,16 @@ pub async fn check_node_ip_health(node_id: &str) -> Result<ProxyPoolIpHealthResp
 
 pub async fn check_all_ip_health() -> Result<ProxyPoolIpHealthResponse, String> {
     let targets = load_enabled_check_targets()?;
-    let results = stream::iter(targets)
+    let (bridge_targets, direct_targets): (Vec<_>, Vec<_>) =
+        targets.into_iter().partition(health::is_bridge_check_target);
+    let mut results = stream::iter(direct_targets)
         .map(health::check_ip_health)
         .buffer_unordered(IP_HEALTH_BATCH_CONCURRENCY)
         .collect::<Vec<_>>()
         .await;
+    for target in bridge_targets {
+        results.push(health::check_ip_health(target).await);
+    }
     persist_ip_health_results(&results)?;
     build_ip_health_response(results)
 }
@@ -862,7 +872,7 @@ fn get_node(conn: &Connection, id: &str) -> Result<Option<ProxyPoolNode>, String
         "SELECT
             id, name, protocol, host, port, username, password, group_name,
             source_id, source_name, sort_order, enabled, builtin, latency_ms,
-            latency_status, ip_health_summary, created_at, updated_at
+            latency_status, ip_health_json, ip_health_summary, created_at, updated_at
          FROM proxy_nodes
          WHERE id = ?1",
         params![id],
@@ -1387,7 +1397,7 @@ fn load_check_target_by_id(node_id: &str) -> Result<ProxyCheckTarget, String> {
     seed_builtin_nodes(&conn)?;
 
     conn.query_row(
-        "SELECT id, protocol, host, port, username, password
+        "SELECT id, name, protocol, host, port, username, password, standard_config
          FROM proxy_nodes
          WHERE id = ?1",
         params![node_id],
@@ -1406,7 +1416,7 @@ fn load_enabled_check_targets() -> Result<Vec<ProxyCheckTarget>, String> {
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, protocol, host, port, username, password
+            "SELECT id, name, protocol, host, port, username, password, standard_config
              FROM proxy_nodes
              WHERE enabled = 1
              ORDER BY builtin DESC, sort_order ASC, created_at ASC",
@@ -1422,14 +1432,18 @@ fn load_enabled_check_targets() -> Result<Vec<ProxyCheckTarget>, String> {
 }
 
 fn map_check_target_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProxyCheckTarget> {
-    let port_raw: i64 = row.get(3)?;
+    let port_raw: i64 = row.get(4)?;
+    let standard_config_text: String = row.get(7)?;
+    let standard_config = serde_json::from_str(&standard_config_text).unwrap_or_else(|_| json!({}));
     Ok(ProxyCheckTarget {
         id: row.get(0)?,
-        protocol: row.get(1)?,
-        host: row.get(2)?,
+        name: row.get(1)?,
+        protocol: row.get(2)?,
+        host: row.get(3)?,
         port: u16::try_from(port_raw).unwrap_or(0),
-        username: row.get(4)?,
-        password: row.get(5)?,
+        username: row.get(5)?,
+        password: row.get(6)?,
+        standard_config,
     })
 }
 
@@ -1785,7 +1799,7 @@ fn persist_ip_health_results(results: &[ProxyPoolIpHealthResult]) -> Result<(), 
         .transaction()
         .map_err(|err| format!("保存 IP 健康检测结果失败: {}", err))?;
     for result in results {
-        let raw_json = serde_json::to_string(&result.raw_data)
+        let raw_json = serde_json::to_string(result)
             .map_err(|err| format!("序列化 IP 健康检测结果失败: {}", err))?;
         let summary = health::summarize_ip_health(result);
         tx.execute(
@@ -1874,6 +1888,9 @@ fn map_node_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProxyPoolNode> {
     let builtin_raw: i64 = row.get(12)?;
     let port = u16::try_from(port_raw).unwrap_or(0);
     let has_password = !password.is_empty();
+    let ip_health_text: String = row.get(15)?;
+    let ip_health = parse_ip_health_result(&ip_health_text);
+    let ip_health_summary = normalize_ip_health_summary(row.get(16)?, ip_health.as_ref());
 
     Ok(ProxyPoolNode {
         id: row.get(0)?,
@@ -1891,11 +1908,50 @@ fn map_node_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProxyPoolNode> {
         builtin: builtin_raw != 0,
         latency_ms: row.get(13)?,
         latency_status: row.get(14)?,
-        ip_health_summary: row.get(15)?,
+        ip_health,
+        ip_health_summary,
         masked_url: build_masked_url(&protocol, &host, port, &username, has_password),
-        created_at: row.get(16)?,
-        updated_at: row.get(17)?,
+        created_at: row.get(17)?,
+        updated_at: row.get(18)?,
     })
+}
+
+fn parse_ip_health_result(value: &str) -> Option<ProxyPoolIpHealthResult> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let result: ProxyPoolIpHealthResult = serde_json::from_str(trimmed).ok()?;
+    if is_legacy_bridge_pending_message(&result.error) {
+        return None;
+    }
+    Some(result)
+}
+
+fn normalize_ip_health_summary(
+    summary: String,
+    ip_health: Option<&ProxyPoolIpHealthResult>,
+) -> String {
+    let trimmed = summary.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    if is_legacy_bridge_pending_message(trimmed) {
+        return String::new();
+    }
+
+    if ip_health
+        .is_some_and(|health| is_legacy_bridge_pending_message(&health.error))
+    {
+        return String::new();
+    }
+
+    summary
+}
+
+fn is_legacy_bridge_pending_message(value: &str) -> bool {
+    value.contains("需要先完成内置桥接后才能检测")
 }
 
 #[derive(Debug, Clone)]

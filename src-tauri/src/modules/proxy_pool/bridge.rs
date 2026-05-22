@@ -33,6 +33,39 @@ pub struct BridgeEndpoint {
     pub port: u16,
 }
 
+pub struct TemporaryBridge {
+    child: Option<Child>,
+    endpoint: BridgeEndpoint,
+    config_path: Option<PathBuf>,
+}
+
+impl TemporaryBridge {
+    pub fn endpoint(&self) -> &BridgeEndpoint {
+        &self.endpoint
+    }
+}
+
+impl Drop for TemporaryBridge {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            match child.try_wait() {
+                Ok(Some(_)) => {}
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+                Err(_) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+        }
+        if let Some(path) = self.config_path.take() {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
 #[derive(Default)]
 struct BridgeRuntime {
     child: Option<Child>,
@@ -98,6 +131,37 @@ pub async fn ensure_bridge(target: &GatewayOutboundTarget) -> Result<BridgeEndpo
     Ok(endpoint)
 }
 
+pub async fn start_temporary_bridge(
+    target: &GatewayOutboundTarget,
+) -> Result<TemporaryBridge, String> {
+    let kind = runtime_kind_for_protocol(&target.protocol)?;
+    let port = reserve_local_port()?;
+    let endpoint = BridgeEndpoint {
+        host: BRIDGE_BIND_HOST.to_string(),
+        port,
+    };
+    let config = match &kind {
+        BridgeRuntimeKind::Xray => build_xray_config(target, port)?,
+        BridgeRuntimeKind::SingBox => build_sing_box_config(target, port)?,
+    };
+    let key = format!("{}-{}", bridge_key(target), port);
+    let config_path = write_bridge_config(target, runtime_name(&kind), &key, &config)?;
+    let binary_path = resolve_runtime_binary(runtime_name(&kind)).await?;
+    let child = spawn_bridge_process(&binary_path, &config_path, &kind)?;
+    let mut temporary = TemporaryBridge {
+        child: Some(child),
+        endpoint,
+        config_path: Some(config_path),
+    };
+
+    if let Err(error) = wait_for_temporary_bridge_ready(&mut temporary).await {
+        drop(temporary);
+        return Err(error);
+    }
+
+    Ok(temporary)
+}
+
 pub async fn stop_bridge() {
     let mut runtime_state = bridge_runtime().lock().await;
     stop_bridge_locked(&mut runtime_state);
@@ -143,6 +207,30 @@ async fn wait_for_bridge_ready(
             return Err(format!(
                 "代理桥接启动超时: socks5://{}:{}",
                 endpoint.host, endpoint.port
+            ));
+        }
+        tokio::time::sleep(BRIDGE_READY_INTERVAL).await;
+    }
+}
+
+async fn wait_for_temporary_bridge_ready(temporary: &mut TemporaryBridge) -> Result<(), String> {
+    let deadline = tokio::time::Instant::now() + BRIDGE_READY_TIMEOUT;
+    loop {
+        if endpoint_is_ready(&temporary.endpoint).await {
+            return Ok(());
+        }
+        if let Some(child) = temporary.child.as_mut() {
+            if let Some(status) = child
+                .try_wait()
+                .map_err(|err| format!("检查代理桥接进程失败: {}", err))?
+            {
+                return Err(format!("代理桥接进程已退出: {}", status));
+            }
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(format!(
+                "代理桥接启动超时: socks5://{}:{}",
+                temporary.endpoint.host, temporary.endpoint.port
             ));
         }
         tokio::time::sleep(BRIDGE_READY_INTERVAL).await;
@@ -444,11 +532,9 @@ fn build_xray_stream_settings(target: &GatewayOutboundTarget) -> Map<String, Val
         target,
         &[
             "network",
-            "type",
             "query.type",
             "options.network",
             "options.net",
-            "options.type",
         ],
     )
     .unwrap_or_else(|| "tcp".to_string())
