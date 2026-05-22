@@ -32,6 +32,7 @@ import { resolveUpdaterDownloadUrl } from '../utils/updaterReleaseNotes';
 import { getSubscriptionTier } from '../utils/account';
 import type { Account } from '../types/account';
 import type { CodexAccount } from '../types/codex';
+import type { ProxyPoolServiceState } from '../types/proxyPool';
 import {
   FEATURE_UNLOCK_CHANGED_EVENT,
   type FeatureUnlockChangedDetail,
@@ -74,6 +75,15 @@ interface NetworkConfig {
   global_proxy_enabled: boolean;
   global_proxy_url: string;
   global_proxy_no_proxy: string;
+  proxy_pool_service_enabled: boolean;
+  proxy_pool_gateway_port: number;
+  proxy_pool_gateway_url: string;
+  proxy_pool_current_node_id: string;
+  proxy_pool_outlet_mode: string;
+  proxy_pool_selected_node_ids: string[];
+  proxy_pool_current_node_name: string;
+  proxy_pool_current_node_protocol: string;
+  proxy_pool_local_proxy_port: number;
 }
 
 /** 通用配置类型 */
@@ -718,8 +728,15 @@ export function SettingsPage() {
   const [reportDefaultPort, setReportDefaultPort] = useState(18081);
   const [reportToken, setReportToken] = useState('');
   const [globalProxyEnabled, setGlobalProxyEnabled] = useState(false);
-  const [globalProxyUrl, setGlobalProxyUrl] = useState('');
   const [globalProxyNoProxy, setGlobalProxyNoProxy] = useState('');
+  const [proxyPoolGatewayPort, setProxyPoolGatewayPort] = useState('7897');
+  const [proxyPoolGatewayUrl, setProxyPoolGatewayUrl] = useState('http://127.0.0.1:7897');
+  const [proxyPoolCurrentNodeId, setProxyPoolCurrentNodeId] = useState('');
+  const [proxyPoolOutletMode, setProxyPoolOutletMode] = useState('direct');
+  const [proxyPoolSelectedNodeIds, setProxyPoolSelectedNodeIds] = useState<string[]>([]);
+  const [proxyPoolCurrentNodeName, setProxyPoolCurrentNodeName] = useState('');
+  const [proxyPoolCurrentNodeProtocol, setProxyPoolCurrentNodeProtocol] = useState('');
+  const [proxyPoolLocalProxyPort, setProxyPoolLocalProxyPort] = useState('7890');
   const [proxyRuntimeStatus, setProxyRuntimeStatus] = useState<ProxyRuntimeStatus | null>(null);
   const [proxyRuntimeLoading, setProxyRuntimeLoading] = useState(false);
   const [proxyRuntimeError, setProxyRuntimeError] = useState<string | null>(null);
@@ -727,6 +744,18 @@ export function SettingsPage() {
   const reportPreviewToken = encodeURIComponent((reportToken || 'your-token').trim() || 'your-token');
   const reportRawPreviewUrl = `http://<当前IP>:${reportPreviewPort}/report?token=${reportPreviewToken}`;
   const reportRenderedPreviewUrl = `${reportRawPreviewUrl}&render=true`;
+  const proxyGatewayPortPreview = parseInt(proxyPoolGatewayPort, 10);
+  const proxyGatewayPreviewUrl =
+    Number.isInteger(proxyGatewayPortPreview) && proxyGatewayPortPreview >= 1 && proxyGatewayPortPreview <= 65535
+      ? `http://127.0.0.1:${proxyGatewayPortPreview}`
+      : proxyPoolGatewayUrl;
+  const proxyPoolOutletModeLabel =
+    proxyPoolOutletMode === 'node_pool'
+      ? t('settings.network.proxyOutletNodePool', '节点池')
+      : proxyPoolOutletMode === 'local'
+        ? t('settings.network.proxyOutletLocal', '本地代理')
+        : t('settings.network.proxyOutletDirect', '直连');
+  const proxyPoolSelectedNodeCount = proxyPoolSelectedNodeIds.length;
   const [needsRestart, setNeedsRestart] = useState(false);
   const [networkSaving, setNetworkSaving] = useState(false);
   
@@ -1377,12 +1406,30 @@ export function SettingsPage() {
       setReportDefaultPort(config.report_default_port);
       setReportToken(config.report_token || '');
       setGlobalProxyEnabled(Boolean(config.global_proxy_enabled));
-      setGlobalProxyUrl(config.global_proxy_url || '');
       setGlobalProxyNoProxy(config.global_proxy_no_proxy || '');
+      setProxyPoolGatewayPort(String(config.proxy_pool_gateway_port || 7897));
+      setProxyPoolGatewayUrl(config.proxy_pool_gateway_url || config.global_proxy_url || 'http://127.0.0.1:7897');
+      setProxyPoolCurrentNodeId(config.proxy_pool_current_node_id || '');
+      setProxyPoolOutletMode(config.proxy_pool_outlet_mode || 'direct');
+      setProxyPoolSelectedNodeIds(config.proxy_pool_selected_node_ids || []);
+      setProxyPoolCurrentNodeName(config.proxy_pool_current_node_name || '');
+      setProxyPoolCurrentNodeProtocol(config.proxy_pool_current_node_protocol || '');
+      setProxyPoolLocalProxyPort(String(config.proxy_pool_local_proxy_port || 7890));
       setNeedsRestart(false);
     } catch (err) {
       console.error('加载网络配置失败:', err);
     }
+  };
+
+  const applyProxyPoolServiceState = (state: ProxyPoolServiceState) => {
+    setProxyPoolGatewayPort(String(state.preferredPort));
+    setProxyPoolGatewayUrl(state.gatewayUrl);
+    setProxyPoolCurrentNodeId(state.currentNodeId);
+    setProxyPoolOutletMode(state.outletMode);
+    setProxyPoolSelectedNodeIds(state.selectedNodeIds);
+    setProxyPoolCurrentNodeName(state.currentNodeName);
+    setProxyPoolCurrentNodeProtocol(state.currentNodeProtocol);
+    setProxyPoolLocalProxyPort(String(state.localProxyPort));
   };
   
   // 保存网络配置
@@ -1397,10 +1444,15 @@ export function SettingsPage() {
         alert(t('settings.network.reportTokenRequired'));
         return;
       }
-      const normalizedGlobalProxyUrl = globalProxyUrl.trim();
       const normalizedGlobalProxyNoProxy = globalProxyNoProxy.trim();
-      if (globalProxyEnabled && !normalizedGlobalProxyUrl) {
-        alert(t('settings.network.proxyUrlRequired'));
+      const gatewayPortNum = parseInt(proxyPoolGatewayPort, 10);
+      const localProxyPortNum = parseInt(proxyPoolLocalProxyPort, 10);
+      if (!Number.isInteger(gatewayPortNum) || gatewayPortNum < 1 || gatewayPortNum > 65535) {
+        alert(t('settings.network.proxyGatewayPortInvalid', '内置代理网关端口必须在 1-65535 之间。'));
+        return;
+      }
+      if (!Number.isInteger(localProxyPortNum) || localProxyPortNum < 1 || localProxyPortNum > 65535) {
+        alert(t('settings.network.proxyLocalPortInvalid', '本地代理端口必须在 1-65535 之间。'));
         return;
       }
 
@@ -1411,9 +1463,13 @@ export function SettingsPage() {
         reportPort: reportPortNum,
         reportToken: normalizedToken,
         globalProxyEnabled,
-        globalProxyUrl: normalizedGlobalProxyUrl,
+        globalProxyUrl: proxyGatewayPreviewUrl,
         globalProxyNoProxy: normalizedGlobalProxyNoProxy,
+        proxyPoolGatewayPort: gatewayPortNum,
+        proxyPoolCurrentNodeId: proxyPoolCurrentNodeId || null,
+        proxyPoolLocalProxyPort: localProxyPortNum,
       });
+      setProxyPoolGatewayUrl(proxyGatewayPreviewUrl);
       
       if (result) {
         setNeedsRestart(true);
@@ -5477,14 +5533,19 @@ export function SettingsPage() {
               )}
             </div>
 
-            <ProxyPoolSection />
+            <ProxyPoolSection onServiceStateChange={applyProxyPoolServiceState} />
 
-            <div className="group-title">{t('settings.network.proxyTitle')}</div>
+            <div className="group-title">{t('settings.network.proxyGatewayTitle', '内置代理网关')}</div>
             <div className="settings-group">
               <div className="settings-row">
                 <div className="row-label">
-                  <div className="row-title">{t('settings.network.proxyEnabled')}</div>
-                  <div className="row-desc">{t('settings.network.proxyEnabledDesc')}</div>
+                  <div className="row-title">{t('settings.network.proxyGatewayEnabled', '启用内置代理网关')}</div>
+                  <div className="row-desc">
+                    {t(
+                      'settings.network.proxyGatewayEnabledDesc',
+                      '开启后，受管进程和 Codex API 服务的“跟随全局代理”都会连接内置网关；出口节点在代理节点池中选择。',
+                    )}
+                  </div>
                 </div>
                 <div className="row-control">
                   <label className="switch">
@@ -5498,40 +5559,92 @@ export function SettingsPage() {
                 </div>
               </div>
 
-              {globalProxyEnabled && (
-                <>
-                  <div className="settings-row" style={{ animation: 'fadeUp 0.3s ease both' }}>
-                    <div className="row-label">
-                      <div className="row-title">{t('settings.network.proxyUrl')}</div>
-                      <div className="row-desc">{t('settings.network.proxyUrlDesc')}</div>
-                    </div>
-                    <div className="row-control">
-                      <input
-                        type="text"
-                        className="settings-input"
-                        value={globalProxyUrl}
-                        onChange={(e) => setGlobalProxyUrl(e.target.value)}
-                        placeholder={t('settings.network.proxyUrlPlaceholder')}
-                      />
-                    </div>
+              <div className="settings-row" style={{ animation: 'fadeUp 0.3s ease both' }}>
+                <div className="row-label">
+                  <div className="row-title">{t('settings.network.proxyGatewayAddress', '内置网关地址')}</div>
+                  <div className="row-desc">
+                    {t('settings.network.proxyGatewayAddressDesc', '系统代理环境变量会写入这个稳定入口，实际出口由当前节点决定。')}
                   </div>
+                </div>
+                <div className="row-control">
+                  <code className="settings-inline-code">{proxyGatewayPreviewUrl}</code>
+                </div>
+              </div>
 
-                  <div className="settings-row" style={{ animation: 'fadeUp 0.3s ease both' }}>
-                    <div className="row-label">
-                      <div className="row-title">{t('settings.network.proxyNoProxy')}</div>
-                      <div className="row-desc">{t('settings.network.proxyNoProxyDesc')}</div>
-                    </div>
-                    <div className="row-control">
-                      <input
-                        type="text"
-                        className="settings-input"
-                        value={globalProxyNoProxy}
-                        onChange={(e) => setGlobalProxyNoProxy(e.target.value)}
-                        placeholder={t('settings.network.proxyNoProxyPlaceholder')}
-                      />
-                    </div>
+              <div className="settings-row" style={{ animation: 'fadeUp 0.3s ease both' }}>
+                <div className="row-label">
+                  <div className="row-title">{t('settings.network.proxyGatewayPort', '内置网关端口')}</div>
+                  <div className="row-desc">
+                    {t('settings.network.proxyGatewayPortDesc', '默认 7897。保存后全局代理会自动指向新的内置网关地址。')}
                   </div>
-                </>
+                </div>
+                <div className="row-control">
+                  <input
+                    type="number"
+                    min={1}
+                    max={65535}
+                    className="settings-input"
+                    value={proxyPoolGatewayPort}
+                    onChange={(e) => setProxyPoolGatewayPort(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="settings-row" style={{ animation: 'fadeUp 0.3s ease both' }}>
+                <div className="row-label">
+                  <div className="row-title">{t('settings.network.proxyCurrentOutlet', '当前出口节点')}</div>
+                  <div className="row-desc">
+                    {t('settings.network.proxyCurrentOutletDesc', '节点池导入后不会自动成为出口；请在上方代理节点池选择要使用的节点。')}
+                  </div>
+                </div>
+                <div className="row-control">
+                  <code className="settings-inline-code">
+                    {proxyPoolCurrentNodeName
+                      ? `${proxyPoolOutletModeLabel} · ${proxyPoolCurrentNodeName} · ${proxyPoolCurrentNodeProtocol || '-'}${
+                          proxyPoolOutletMode === 'node_pool'
+                            ? ` · ${t('settings.network.proxySelectedNodeCount', '{{count}} 个已选节点').replace('{{count}}', String(proxyPoolSelectedNodeCount))}`
+                            : ''
+                        }`
+                      : t('settings.network.proxyCurrentOutletEmpty', '未选择')}
+                  </code>
+                </div>
+              </div>
+
+              <div className="settings-row" style={{ animation: 'fadeUp 0.3s ease both' }}>
+                <div className="row-label">
+                  <div className="row-title">{t('settings.network.proxyLocalPort', '外部本地代理端口')}</div>
+                  <div className="row-desc">
+                    {t('settings.network.proxyLocalPortDesc', '对应内置“本地代理 127.0.0.1”节点。选择这个节点即可使用 Clash、其他代理软件或自定义本地端口。')}
+                  </div>
+                </div>
+                <div className="row-control">
+                  <input
+                    type="number"
+                    min={1}
+                    max={65535}
+                    className="settings-input"
+                    value={proxyPoolLocalProxyPort}
+                    onChange={(e) => setProxyPoolLocalProxyPort(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {globalProxyEnabled && (
+                <div className="settings-row" style={{ animation: 'fadeUp 0.3s ease both' }}>
+                  <div className="row-label">
+                    <div className="row-title">{t('settings.network.proxyNoProxy')}</div>
+                    <div className="row-desc">{t('settings.network.proxyNoProxyDesc')}</div>
+                  </div>
+                  <div className="row-control">
+                    <input
+                      type="text"
+                      className="settings-input"
+                      value={globalProxyNoProxy}
+                      onChange={(e) => setGlobalProxyNoProxy(e.target.value)}
+                      placeholder={t('settings.network.proxyNoProxyPlaceholder')}
+                    />
+                  </div>
+                </div>
               )}
             </div>
             

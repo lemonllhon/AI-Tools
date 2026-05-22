@@ -6,6 +6,47 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.14] - 2026-05-22
+### Added
+- Added a real built-in proxy gateway service that listens on `127.0.0.1` and provides HTTP and CONNECT forwarding for the app.
+- Added built-in gateway outbound routing for Direct, Local Proxy, and Node Pool modes.
+- Added HTTP upstream forwarding so the built-in gateway can reuse an external local proxy such as `127.0.0.1:7890`.
+- Added SOCKS5 upstream forwarding, including optional username/password authentication.
+- Added gateway startup restore on app launch so the saved built-in proxy state is applied automatically.
+- Added xray bridge startup for advanced node protocols including `vmess`, `vless`, `trojan`, and `ss`.
+- Added sing-box bridge startup for advanced node protocols including `hysteria`, `hysteria2`, `tuic`, and `anytls`.
+- Added per-node bridge config generation under the proxy pool data directory, with local SOCKS bridge endpoints exposed back to the gateway.
+- Added runtime binary resolution for cached xray/sing-box executables so bridge startup can use prepared platform runtimes.
+- Added proxy pool outlet mode persistence with `outlet_mode`, `current_node_id`, and `selected_node_ids_json`.
+- Added multi-select node pool outlets so users can choose more than one proxy node while keeping one current active node.
+- Added latency testing for a single node and for all enabled/selected proxy nodes.
+- Added IP health checks for a single node and for all enabled/selected proxy nodes, with persisted health summaries.
+- Added frontend service and type support for gateway state, outlet modes, selected node IDs, latency results, and IP health results.
+- Added Network Services controls for testing latency, checking IP health, refreshing node state, and managing selected node pool outlets.
+
+### Changed
+- Changed the Network Services global proxy switch to mean enabling the built-in proxy gateway, using the configured gateway port.
+- Changed Codex API "follow global proxy" behavior to use the same built-in gateway address when the gateway is enabled.
+- Changed proxy selection to a mutually exclusive Direct / Local Proxy / Node Pool model.
+- Changed node pool selection so imported nodes are not automatically used as active outlets.
+- Changed node pool mode so only user-selected normal nodes are enabled for outbound use.
+- Changed Direct mode so only the built-in Direct outlet remains enabled.
+- Changed Local Proxy mode so only the built-in Local Proxy outlet remains enabled.
+- Changed local proxy configuration to allow editing the default local proxy port instead of hard-coding `7890`.
+- Changed proxy pool list layout to support collapsing and scroll limiting for large node pools.
+- Changed proxy node row density so Direct, Local Proxy, and up to 10 selected/visible nodes fit in a compact management area.
+- Updated Settings and Network Services summaries to show gateway URL, outlet mode, current node, and selected node count.
+- Updated proxy pool localization strings for the new gateway, outlet, health, selection, and layout controls.
+- Updated the proxy network service implementation plan with the implemented gateway, bridge, selection, and health-check behavior.
+
+### Fixed
+- Fixed outlet synchronization so choosing Direct, Local Proxy, or Node Pool disables the other outlet types.
+- Fixed node pool selection behavior so selecting normal nodes disables Direct and Local Proxy outlets.
+- Fixed Direct and Local Proxy selection behavior so normal proxy nodes are cleared from active outlet selection.
+- Fixed gateway state synchronization when saving Network Services settings or updating proxy pool service state.
+- Fixed gateway fallback behavior so unavailable or unsupported outlet targets fall back to Direct instead of leaving stale state active.
+- Fixed large node pools expanding the Network Services page height excessively.
+
 ## [0.0.13] - 2026-05-22
 ### Fixed
 - Fixed macOS universal release builds by forcing proxy subscription source query rows to be collected before their SQLite statements are dropped.

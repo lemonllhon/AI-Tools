@@ -12,6 +12,10 @@ use crate::modules::config::{
     self, CloseWindowBehavior, MinimizeWindowBehavior, TrayIconStyle, UserConfig,
     DEFAULT_REPORT_PORT, DEFAULT_WS_PORT,
 };
+use crate::modules::proxy_pool::{
+    gateway as proxy_pool_gateway,
+    models::ProxyPoolServiceUpdateRequest, store as proxy_pool_store,
+};
 use crate::modules::web_report;
 use crate::modules::websocket;
 
@@ -46,6 +50,24 @@ pub struct NetworkConfig {
     pub global_proxy_url: String,
     /// NO_PROXY 白名单（逗号分隔）
     pub global_proxy_no_proxy: String,
+    /// 内置代理网关是否启用
+    pub proxy_pool_service_enabled: bool,
+    /// 内置代理网关配置端口
+    pub proxy_pool_gateway_port: u16,
+    /// 内置代理网关地址
+    pub proxy_pool_gateway_url: String,
+    /// 当前内置代理出口节点 ID
+    pub proxy_pool_current_node_id: String,
+    /// 当前内置代理出口模式: direct / local / node_pool
+    pub proxy_pool_outlet_mode: String,
+    /// 节点池模式下选中的普通节点 ID
+    pub proxy_pool_selected_node_ids: Vec<String>,
+    /// 当前内置代理出口节点名称
+    pub proxy_pool_current_node_name: String,
+    /// 当前内置代理出口节点协议
+    pub proxy_pool_current_node_protocol: String,
+    /// 内置“本地代理 127.0.0.1”节点端口
+    pub proxy_pool_local_proxy_port: u16,
 }
 
 /// 通用设置配置（前端使用）
@@ -1055,6 +1077,9 @@ pub fn get_network_config() -> Result<NetworkConfig, String> {
     let user_config = config::get_user_config();
     let ws_actual_port = config::get_actual_port();
     let report_actual_port = web_report::get_actual_port();
+    let proxy_service_state = proxy_pool_store::get_service_state()?;
+    let proxy_gateway_url = proxy_service_state.gateway_url.clone();
+    let proxy_enabled = user_config.global_proxy_enabled || proxy_service_state.enabled;
 
     Ok(NetworkConfig {
         ws_enabled: user_config.ws_enabled,
@@ -1066,15 +1091,24 @@ pub fn get_network_config() -> Result<NetworkConfig, String> {
         report_actual_port,
         report_default_port: DEFAULT_REPORT_PORT,
         report_token: user_config.report_token,
-        global_proxy_enabled: user_config.global_proxy_enabled,
-        global_proxy_url: user_config.global_proxy_url,
+        global_proxy_enabled: proxy_enabled,
+        global_proxy_url: proxy_gateway_url.clone(),
         global_proxy_no_proxy: user_config.global_proxy_no_proxy,
+        proxy_pool_service_enabled: proxy_service_state.enabled,
+        proxy_pool_gateway_port: proxy_service_state.preferred_port,
+        proxy_pool_gateway_url: proxy_gateway_url,
+        proxy_pool_current_node_id: proxy_service_state.current_node_id,
+        proxy_pool_outlet_mode: proxy_service_state.outlet_mode,
+        proxy_pool_selected_node_ids: proxy_service_state.selected_node_ids,
+        proxy_pool_current_node_name: proxy_service_state.current_node_name,
+        proxy_pool_current_node_protocol: proxy_service_state.current_node_protocol,
+        proxy_pool_local_proxy_port: proxy_service_state.local_proxy_port,
     })
 }
 
 /// 保存网络服务配置
 #[tauri::command]
-pub fn save_network_config(
+pub async fn save_network_config(
     ws_enabled: bool,
     ws_port: u16,
     report_enabled: Option<bool>,
@@ -1083,30 +1117,43 @@ pub fn save_network_config(
     global_proxy_enabled: Option<bool>,
     global_proxy_url: Option<String>,
     global_proxy_no_proxy: Option<String>,
+    proxy_pool_gateway_port: Option<u16>,
+    proxy_pool_current_node_id: Option<String>,
+    proxy_pool_local_proxy_port: Option<u16>,
 ) -> Result<bool, String> {
     let current = config::get_user_config();
+    let proxy_service_state = proxy_pool_store::get_service_state()?;
     let next_report_enabled = report_enabled.unwrap_or(current.report_enabled);
     let next_report_port = report_port.unwrap_or(current.report_port);
     let next_report_token = report_token
         .unwrap_or_else(|| current.report_token.clone())
         .trim()
         .to_string();
-    let next_global_proxy_enabled = global_proxy_enabled.unwrap_or(current.global_proxy_enabled);
-    let next_global_proxy_url = global_proxy_url
-        .unwrap_or_else(|| current.global_proxy_url.clone())
-        .trim()
-        .to_string();
+    let next_global_proxy_enabled =
+        global_proxy_enabled.unwrap_or(current.global_proxy_enabled || proxy_service_state.enabled);
+    let _ = global_proxy_url;
     let next_global_proxy_no_proxy = global_proxy_no_proxy
         .unwrap_or_else(|| current.global_proxy_no_proxy.clone())
         .trim()
         .to_string();
+    let next_proxy_gateway_port =
+        proxy_pool_gateway_port.unwrap_or(proxy_service_state.preferred_port);
+    let next_local_proxy_port =
+        proxy_pool_local_proxy_port.unwrap_or(proxy_service_state.local_proxy_port);
 
     if next_report_enabled && next_report_token.is_empty() {
         return Err("网页查询服务 token 不能为空".to_string());
     }
-    if next_global_proxy_enabled && next_global_proxy_url.is_empty() {
-        return Err("启用全局代理时，代理地址不能为空".to_string());
-    }
+
+    let updated_proxy_state =
+        proxy_pool_store::update_service_state_config(ProxyPoolServiceUpdateRequest {
+            enabled: Some(next_global_proxy_enabled),
+            preferred_port: Some(next_proxy_gateway_port),
+            outlet_mode: None,
+            selected_node_ids: None,
+            current_node_id: proxy_pool_current_node_id,
+            local_proxy_port: Some(next_local_proxy_port),
+        })?;
 
     let needs_restart = current.ws_port != ws_port
         || current.ws_enabled != ws_enabled
@@ -1121,7 +1168,7 @@ pub fn save_network_config(
         report_port: next_report_port,
         report_token: next_report_token,
         global_proxy_enabled: next_global_proxy_enabled,
-        global_proxy_url: next_global_proxy_url,
+        global_proxy_url: updated_proxy_state.gateway_url,
         global_proxy_no_proxy: next_global_proxy_no_proxy,
         // 保留其他设置不变
         language: current.language,
@@ -1230,6 +1277,7 @@ pub fn save_network_config(
         workbuddy_quota_alert_threshold: current.workbuddy_quota_alert_threshold,
     };
 
+    proxy_pool_gateway::sync_gateway_state().await?;
     config::save_user_config(&new_config)?;
 
     Ok(needs_restart)

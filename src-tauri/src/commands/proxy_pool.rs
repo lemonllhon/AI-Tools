@@ -3,9 +3,12 @@ use tauri_plugin_opener::OpenerExt;
 use crate::modules::proxy_pool::models::{
     ProxyImportApplyRequest, ProxyImportApplyResponse, ProxyImportPreviewRequest,
     ProxyImportPreviewResponse, ProxyNodeSaveRequest, ProxyPoolListResponse, ProxyPoolNode,
-    ProxySubscriptionApplyRequest, ProxySubscriptionApplyResponse, ProxySubscriptionPreviewRequest,
-    ProxySubscriptionRefreshRequest, ProxySubscriptionRefreshResponse,
+    ProxyPoolIpHealthResponse, ProxyPoolLatencyTestResponse, ProxyPoolServiceUpdateRequest,
+    ProxySourceUpdateRequest, ProxySubscriptionApplyRequest, ProxySubscriptionApplyResponse,
+    ProxySubscriptionPreviewRequest, ProxySubscriptionRefreshRequest,
+    ProxySubscriptionRefreshResponse,
 };
+use crate::modules::proxy_pool::gateway;
 use crate::modules::proxy_pool::runtime::{self, ProxyRuntimeStatus};
 use crate::modules::proxy_pool::store;
 
@@ -93,4 +96,51 @@ pub async fn proxy_pool_refresh_subscription(
 pub async fn proxy_pool_refresh_all_subscriptions(
 ) -> Result<ProxySubscriptionRefreshResponse, String> {
     store::refresh_all_subscriptions().await
+}
+
+#[tauri::command]
+pub fn proxy_pool_update_subscription_source(
+    request: ProxySourceUpdateRequest,
+) -> Result<ProxyPoolListResponse, String> {
+    store::update_subscription_source(request)
+}
+
+#[tauri::command]
+pub fn proxy_pool_delete_subscription_source(
+    source_id: String,
+) -> Result<ProxyPoolListResponse, String> {
+    store::delete_subscription_source(&source_id)
+}
+
+#[tauri::command]
+pub async fn proxy_pool_test_node_latency(
+    id: String,
+) -> Result<ProxyPoolLatencyTestResponse, String> {
+    store::test_node_latency(&id).await
+}
+
+#[tauri::command]
+pub async fn proxy_pool_test_all_latency() -> Result<ProxyPoolLatencyTestResponse, String> {
+    store::test_all_latency().await
+}
+
+#[tauri::command]
+pub async fn proxy_pool_check_node_ip_health(
+    id: String,
+) -> Result<ProxyPoolIpHealthResponse, String> {
+    store::check_node_ip_health(&id).await
+}
+
+#[tauri::command]
+pub async fn proxy_pool_check_all_ip_health() -> Result<ProxyPoolIpHealthResponse, String> {
+    store::check_all_ip_health().await
+}
+
+#[tauri::command]
+pub async fn proxy_pool_update_service_state(
+    request: ProxyPoolServiceUpdateRequest,
+) -> Result<ProxyPoolListResponse, String> {
+    store::update_service_state_config(request)?;
+    gateway::sync_gateway_state().await?;
+    store::list_nodes()
 }

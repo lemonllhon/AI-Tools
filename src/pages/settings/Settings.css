@@ -503,6 +503,103 @@
   line-height: 1.5;
 }
 
+.proxy-pool-service {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  background: color-mix(in srgb, var(--bg-tertiary) 68%, transparent);
+}
+
+.proxy-pool-service-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.proxy-pool-service-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.proxy-pool-service-badge.is-enabled {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.proxy-pool-service-badge.is-disabled {
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
+  border: 1px solid var(--border-light);
+}
+
+.proxy-pool-service-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.2fr) minmax(120px, 0.5fr) minmax(140px, 0.5fr) minmax(180px, 0.8fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.proxy-pool-service-address {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.proxy-pool-service-address span,
+.proxy-pool-service-note {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.proxy-pool-service-address code {
+  min-width: 0;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.proxy-pool-service-save {
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.proxy-pool-outlet-modes {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  padding: 3px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
+}
+
+.proxy-pool-service-note {
+  line-height: 1.5;
+}
+
 .proxy-pool-import {
   display: flex;
   flex-direction: column;
@@ -727,7 +824,7 @@
 
 .proxy-pool-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(140px, auto) minmax(140px, auto) auto;
+  grid-template-columns: minmax(220px, 1fr) minmax(140px, auto) minmax(140px, auto) auto auto auto;
   gap: 8px;
   align-items: center;
 }
@@ -760,6 +857,11 @@
 }
 
 .proxy-pool-delete-selected {
+  justify-content: center;
+}
+
+.proxy-pool-test-all,
+.proxy-pool-check-all {
   justify-content: center;
 }
 
@@ -802,7 +904,7 @@
 
 .proxy-pool-source-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, auto) 34px;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, auto) auto;
   gap: 12px;
   align-items: center;
   padding: 12px 14px;
@@ -842,17 +944,83 @@
   text-align: right;
 }
 
+.proxy-pool-source-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.proxy-pool-source-edit {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(160px, 0.7fr) minmax(160px, 0.7fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-light);
+}
+
+.proxy-pool-source-edit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.proxy-pool-list-head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  background: color-mix(in srgb, var(--bg-tertiary) 60%, transparent);
+}
+
+.proxy-pool-list-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.proxy-pool-list-title span:first-child {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.proxy-pool-list-title span:last-child {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.proxy-pool-list-toggle {
+  min-height: 30px;
+  padding: 0 10px;
+  flex-shrink: 0;
+}
+
 .proxy-pool-list {
   display: flex;
   flex-direction: column;
+  max-height: 672px;
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .proxy-pool-empty {
-  padding: 24px 16px;
+  padding: 18px 14px;
   color: var(--text-secondary);
   font-size: 13px;
   text-align: center;
@@ -860,10 +1028,10 @@
 
 .proxy-pool-node {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) minmax(96px, auto) 34px;
-  gap: 12px;
+  grid-template-columns: 22px minmax(0, 1fr) minmax(88px, auto) auto;
+  gap: 8px;
   align-items: center;
-  padding: 13px 14px;
+  padding: 8px 10px;
   border-top: 1px solid var(--border-light);
 }
 
@@ -881,7 +1049,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 3px;
 }
 
 .proxy-pool-node-title {
@@ -889,10 +1057,11 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
+  line-height: 1.25;
 }
 
 .proxy-pool-node-main code,
@@ -901,7 +1070,8 @@
   display: block;
   color: var(--text-secondary);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -910,19 +1080,44 @@
 .proxy-pool-node-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 5px 7px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.proxy-pool-health-chip {
+  min-width: 0;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.proxy-pool-health-chip.is-ok {
+  color: var(--accent);
+}
+
+.proxy-pool-health-chip.is-error {
+  color: var(--danger, #ef4444);
+}
+
+.proxy-pool-health-chip.is-info {
+  color: var(--text-secondary);
+}
+
+.proxy-pool-health-chip.is-muted {
+  color: var(--text-muted);
 }
 
 .proxy-pool-protocol,
 .proxy-pool-badge {
   display: inline-flex;
   align-items: center;
-  min-height: 20px;
-  padding: 0 7px;
+  min-height: 18px;
+  padding: 0 6px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   line-height: 1;
 }
@@ -958,16 +1153,28 @@
   border: 1px solid var(--border-light);
 }
 
+.proxy-pool-badge.is-current {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 25%, var(--border-light));
+}
+
+.proxy-pool-badge.is-selected {
+  color: #2563eb;
+  background: color-mix(in srgb, #2563eb 10%, transparent);
+  border-color: color-mix(in srgb, #2563eb 24%, var(--border-light));
+}
+
 .proxy-pool-node-state {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 6px;
 }
 
 .proxy-pool-state-text {
-  min-width: 34px;
-  font-size: 12px;
+  min-width: 30px;
+  font-size: 11px;
   font-weight: 700;
   text-align: right;
 }
@@ -980,9 +1187,33 @@
   color: var(--text-muted);
 }
 
+.proxy-pool-node-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.proxy-pool-delete-pick {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
+}
+
+.proxy-pool-delete-pick input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--danger, #ef4444);
+}
+
 .proxy-pool-icon-btn {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1006,6 +1237,13 @@
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
+.proxy-pool-latency-btn:hover:not(:disabled),
+.proxy-pool-health-btn:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border-light));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
 .proxy-pool-icon-btn:disabled {
   cursor: not-allowed;
   opacity: 0.45;
@@ -1022,6 +1260,24 @@
 }
 
 .proxy-pool-db-path span {
+  white-space: nowrap;
+}
+
+.settings-inline-code {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  background: color-mix(in srgb, var(--bg-tertiary) 76%, transparent);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1852,10 +2108,44 @@ input:checked + .slider:before {
     justify-content: center;
   }
 
+  .proxy-pool-service-head {
+    flex-direction: column;
+  }
+
+  .proxy-pool-service-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .proxy-pool-service-save {
+    width: 100%;
+  }
+
+  .proxy-pool-outlet-modes {
+    width: 100%;
+  }
+
+  .proxy-pool-outlet-modes .proxy-pool-segment {
+    flex: 1 1 0;
+  }
+
   .proxy-pool-form,
   .proxy-pool-import-options,
   .proxy-pool-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .proxy-pool-list {
+    max-height: min(672px, 68vh);
+  }
+
+  .proxy-pool-list-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .proxy-pool-list-toggle {
+    width: 100%;
+    justify-content: center;
   }
 
   .proxy-pool-import-actions {
@@ -1873,7 +2163,7 @@ input:checked + .slider:before {
   }
 
   .proxy-pool-node {
-    grid-template-columns: 24px minmax(0, 1fr) 34px;
+    grid-template-columns: 24px minmax(0, 1fr) auto;
     align-items: flex-start;
   }
 
@@ -1884,6 +2174,23 @@ input:checked + .slider:before {
   .proxy-pool-source-meta {
     align-items: flex-start;
     text-align: left;
+  }
+
+  .proxy-pool-source-actions {
+    justify-content: flex-start;
+  }
+
+  .proxy-pool-source-edit {
+    grid-template-columns: 1fr;
+  }
+
+  .proxy-pool-source-edit-actions {
+    justify-content: flex-start;
+  }
+
+  .proxy-pool-source-edit-actions .btn {
+    flex: 1 1 148px;
+    justify-content: center;
   }
 
   .proxy-pool-sources-head {
@@ -1899,6 +2206,13 @@ input:checked + .slider:before {
   .proxy-pool-node-state {
     grid-column: 2 / 3;
     justify-content: flex-start;
+  }
+
+  .proxy-pool-node-actions {
+    grid-column: 3 / 4;
+    grid-row: 1 / span 2;
+    align-self: flex-start;
+    flex-direction: column;
   }
 
   .proxy-pool-db-path {

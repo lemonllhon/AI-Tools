@@ -1,0 +1,801 @@
+use super::bridge;
+use super::store::{self, GatewayOutboundTarget};
+use base64::{engine::general_purpose, Engine as _};
+use serde_json::json;
+use std::net::IpAddr;
+use std::sync::OnceLock;
+use std::time::Duration;
+use tokio::io::{copy_bidirectional, AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::{watch, Mutex as TokioMutex};
+use tokio::time::timeout;
+use url::Url;
+
+const GATEWAY_BIND_HOST: &str = "127.0.0.1";
+const HTTP_HEAD_READ_TIMEOUT: Duration = Duration::from_secs(15);
+const CONNECT_UPSTREAM_TIMEOUT: Duration = Duration::from_secs(20);
+const GATEWAY_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
+const MAX_HTTP_HEAD_BYTES: usize = 64 * 1024;
+
+static GATEWAY_RUNTIME: OnceLock<TokioMutex<GatewayRuntime>> = OnceLock::new();
+
+#[derive(Default)]
+struct GatewayRuntime {
+    task: Option<tokio::task::JoinHandle<()>>,
+    shutdown_sender: Option<watch::Sender<bool>>,
+    running_port: Option<u16>,
+}
+
+#[derive(Debug)]
+struct HttpHead {
+    head: Vec<u8>,
+    leftover: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+struct HeaderLine {
+    name: String,
+    value: String,
+}
+
+#[derive(Debug, Clone)]
+struct ProxyRequest {
+    method: String,
+    target: String,
+    version: String,
+    headers: Vec<HeaderLine>,
+}
+
+#[derive(Debug)]
+struct HttpDestination {
+    host: String,
+    port: u16,
+    origin_target: String,
+    absolute_target: String,
+}
+
+fn gateway_runtime() -> &'static TokioMutex<GatewayRuntime> {
+    GATEWAY_RUNTIME.get_or_init(|| TokioMutex::new(GatewayRuntime::default()))
+}
+
+pub async fn restore_gateway_state() {
+    if let Err(error) = sync_gateway_state().await {
+        crate::modules::logger::log_warn(&format!(
+            "[ProxyGateway] 启动时恢复内置代理网关失败: {}",
+            error
+        ));
+    }
+}
+
+pub async fn sync_gateway_state() -> Result<(), String> {
+    let service_state = store::get_service_state()?;
+    if !service_state.enabled {
+        stop_gateway().await;
+        bridge::stop_bridge().await;
+        store::update_service_actual_port(None)?;
+        return Ok(());
+    }
+
+    let preferred_port = service_state.preferred_port;
+    let current_outbound = load_gateway_target().await?;
+    if !bridge::is_bridge_protocol(&current_outbound.protocol) {
+        bridge::stop_bridge().await;
+    }
+    let already_running = {
+        let runtime = gateway_runtime().lock().await;
+        runtime.running_port == Some(preferred_port) && runtime.task.is_some()
+    };
+    if already_running {
+        return Ok(());
+    }
+
+    stop_gateway().await;
+    store::update_service_actual_port(None)?;
+
+    let listener = TcpListener::bind((GATEWAY_BIND_HOST, preferred_port))
+        .await
+        .map_err(|error| format_gateway_bind_error(preferred_port, &error))?;
+    let (shutdown_sender, mut shutdown_receiver) = watch::channel(false);
+    let port = preferred_port;
+
+    let task = tokio::spawn(async move {
+        crate::modules::logger::log_info(&format!(
+            "[ProxyGateway] 内置代理网关已启动: http://{}:{}",
+            GATEWAY_BIND_HOST, port
+        ));
+
+        loop {
+            tokio::select! {
+                changed = shutdown_receiver.changed() => {
+                    if changed.is_ok() {
+                        break;
+                    }
+                }
+                accepted = listener.accept() => {
+                    match accepted {
+                        Ok((stream, addr)) => {
+                            tokio::spawn(async move {
+                                if let Err(error) = handle_client(stream).await {
+                                    crate::modules::logger::log_warn(&format!(
+                                        "[ProxyGateway] 请求处理失败 {}: {}",
+                                        addr, error
+                                    ));
+                                }
+                            });
+                        }
+                        Err(error) => {
+                            crate::modules::logger::log_warn(&format!(
+                                "[ProxyGateway] 接收连接失败: {}",
+                                error
+                            ));
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        let should_clear = {
+            let mut runtime = gateway_runtime().lock().await;
+            if runtime.running_port == Some(port) {
+                runtime.running_port = None;
+                runtime.shutdown_sender = None;
+                true
+            } else {
+                false
+            }
+        };
+        if should_clear {
+            let _ = store::update_service_actual_port(None);
+        }
+    });
+
+    {
+        let mut runtime = gateway_runtime().lock().await;
+        runtime.running_port = Some(port);
+        runtime.shutdown_sender = Some(shutdown_sender);
+        runtime.task = Some(task);
+    }
+    store::update_service_actual_port(Some(port))?;
+    Ok(())
+}
+
+async fn stop_gateway() {
+    let (shutdown_sender, task) = {
+        let mut runtime = gateway_runtime().lock().await;
+        runtime.running_port = None;
+        (runtime.shutdown_sender.take(), runtime.task.take())
+    };
+
+    if let Some(sender) = shutdown_sender {
+        let _ = sender.send(true);
+    }
+
+    if let Some(mut task) = task {
+        tokio::select! {
+            result = &mut task => {
+                let _ = result;
+            }
+            _ = tokio::time::sleep(GATEWAY_SHUTDOWN_TIMEOUT) => {
+                crate::modules::logger::log_warn("[ProxyGateway] 停止内置代理网关超时，已强制结束监听任务");
+                task.abort();
+                let _ = task.await;
+            }
+        }
+    }
+    bridge::stop_bridge().await;
+}
+
+async fn handle_client(mut client: TcpStream) -> Result<(), String> {
+    match proxy_client(&mut client).await {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            let _ = write_error_response(&mut client, "502 Bad Gateway", &error).await;
+            Err(error)
+        }
+    }
+}
+
+async fn proxy_client(client: &mut TcpStream) -> Result<(), String> {
+    let initial = read_http_head(client).await?;
+    let request = parse_proxy_request(&initial.head)?;
+    let outbound = load_gateway_target().await?;
+
+    if request.method.eq_ignore_ascii_case("CONNECT") {
+        return proxy_connect_request(client, &request, &outbound).await;
+    }
+
+    proxy_http_request(client, initial, &request, &outbound).await
+}
+
+async fn proxy_connect_request(
+    client: &mut TcpStream,
+    request: &ProxyRequest,
+    outbound: &GatewayOutboundTarget,
+) -> Result<(), String> {
+    let (host, port) = parse_authority(&request.target, 443)?;
+    let mut upstream = open_tunnel(outbound, &host, port).await?;
+    client
+        .write_all(b"HTTP/1.1 200 Connection Established\r\nProxy-Agent: AI-Lemon-Tools\r\n\r\n")
+        .await
+        .map_err(|error| format!("写入 CONNECT 响应失败: {}", error))?;
+    let _ = copy_bidirectional(client, &mut upstream)
+        .await
+        .map_err(|error| format!("CONNECT 隧道转发失败: {}", error))?;
+    Ok(())
+}
+
+async fn proxy_http_request(
+    client: &mut TcpStream,
+    initial: HttpHead,
+    request: &ProxyRequest,
+    outbound: &GatewayOutboundTarget,
+) -> Result<(), String> {
+    let destination = resolve_http_destination(request)?;
+    let use_upstream_http_proxy = outbound.protocol.eq_ignore_ascii_case("http");
+    let mut upstream = if use_upstream_http_proxy {
+        guard_not_self_proxy(outbound)?;
+        connect_tcp(&outbound.host, outbound.port).await?
+    } else {
+        open_tunnel(outbound, &destination.host, destination.port).await?
+    };
+    let request_target = if use_upstream_http_proxy {
+        destination.absolute_target.as_str()
+    } else {
+        destination.origin_target.as_str()
+    };
+    let rewritten = build_forward_http_head(
+        request,
+        request_target,
+        use_upstream_http_proxy.then_some(outbound),
+    );
+    upstream
+        .write_all(&rewritten)
+        .await
+        .map_err(|error| format!("写入上游请求头失败: {}", error))?;
+    if !initial.leftover.is_empty() {
+        upstream
+            .write_all(&initial.leftover)
+            .await
+            .map_err(|error| format!("写入上游请求体失败: {}", error))?;
+    }
+
+    let _ = copy_bidirectional(client, &mut upstream)
+        .await
+        .map_err(|error| format!("HTTP 转发失败: {}", error))?;
+    Ok(())
+}
+
+async fn open_tunnel(
+    outbound: &GatewayOutboundTarget,
+    destination_host: &str,
+    destination_port: u16,
+) -> Result<TcpStream, String> {
+    match outbound.protocol.to_ascii_lowercase().as_str() {
+        "direct" => {
+            bridge::stop_bridge().await;
+            connect_tcp(destination_host, destination_port).await
+        }
+        "http" => {
+            bridge::stop_bridge().await;
+            guard_not_self_proxy(outbound)?;
+            open_http_proxy_tunnel(outbound, destination_host, destination_port).await
+        }
+        "socks5" => {
+            bridge::stop_bridge().await;
+            guard_not_self_proxy(outbound)?;
+            open_socks5_tunnel(outbound, destination_host, destination_port).await
+        }
+        "https" => {
+            bridge::stop_bridge().await;
+            Err("HTTPS 上游代理需要 TLS 代理握手，当前网关阶段暂未启用；请先使用 HTTP 或 SOCKS5 节点".to_string())
+        }
+        "vmess" | "vless" | "trojan" | "ss" | "hysteria" | "hysteria2" | "tuic"
+        | "anytls" => {
+            let endpoint = bridge::ensure_bridge(outbound).await?;
+            let bridge_outbound = GatewayOutboundTarget {
+                id: format!("{}-bridge", outbound.id),
+                name: format!("{} 桥接出口", outbound.name),
+                protocol: "socks5".to_string(),
+                host: endpoint.host,
+                port: endpoint.port,
+                username: String::new(),
+                password: String::new(),
+                gateway_port: outbound.gateway_port,
+                standard_config: json!({}),
+            };
+            open_socks5_tunnel(&bridge_outbound, destination_host, destination_port).await
+        }
+        other => Err(format!("内置代理网关暂不支持 {} 协议出口", other)),
+    }
+}
+
+fn guard_not_self_proxy(outbound: &GatewayOutboundTarget) -> Result<(), String> {
+    if outbound.port == outbound.gateway_port && is_loopback_host(&outbound.host) {
+        return Err("出口节点指向了内置代理网关自身，请更换出口节点或端口".to_string());
+    }
+    Ok(())
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    let host = host.trim().trim_matches('[').trim_matches(']');
+    host.eq_ignore_ascii_case("localhost")
+        || host == "127.0.0.1"
+        || host == "::1"
+        || host.starts_with("127.")
+}
+
+async fn open_http_proxy_tunnel(
+    outbound: &GatewayOutboundTarget,
+    destination_host: &str,
+    destination_port: u16,
+) -> Result<TcpStream, String> {
+    let mut stream = connect_tcp(&outbound.host, outbound.port).await?;
+    let authority = format_authority(destination_host, destination_port);
+    let proxy_auth = proxy_authorization_header(outbound);
+    let request = format!(
+        "CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\nProxy-Connection: Keep-Alive\r\n{proxy_auth}\r\n"
+    );
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .map_err(|error| format!("写入上游 HTTP 代理 CONNECT 失败: {}", error))?;
+    let response = read_http_head(&mut stream).await?;
+    let status = parse_response_status(&response.head)?;
+    if !(200..300).contains(&status) {
+        return Err(format!(
+            "上游 HTTP 代理 CONNECT 失败: HTTP {} ({})",
+            status, outbound.name
+        ));
+    }
+    Ok(stream)
+}
+
+async fn open_socks5_tunnel(
+    outbound: &GatewayOutboundTarget,
+    destination_host: &str,
+    destination_port: u16,
+) -> Result<TcpStream, String> {
+    let mut stream = connect_tcp(&outbound.host, outbound.port).await?;
+    if outbound.username.is_empty() {
+        stream
+            .write_all(&[0x05, 0x01, 0x00])
+            .await
+            .map_err(|error| format!("写入 SOCKS5 握手失败: {}", error))?;
+    } else {
+        stream
+            .write_all(&[0x05, 0x02, 0x00, 0x02])
+            .await
+            .map_err(|error| format!("写入 SOCKS5 握手失败: {}", error))?;
+    }
+
+    let mut method_response = [0u8; 2];
+    stream
+        .read_exact(&mut method_response)
+        .await
+        .map_err(|error| format!("读取 SOCKS5 握手失败: {}", error))?;
+    if method_response[0] != 0x05 {
+        return Err("SOCKS5 代理返回了无效版本".to_string());
+    }
+    match method_response[1] {
+        0x00 => {}
+        0x02 => authenticate_socks5(outbound, &mut stream).await?,
+        0xff => return Err("SOCKS5 代理没有可用认证方式".to_string()),
+        method => return Err(format!("SOCKS5 代理选择了不支持的认证方式: {}", method)),
+    }
+
+    let mut request = Vec::with_capacity(8 + destination_host.len());
+    request.extend_from_slice(&[0x05, 0x01, 0x00]);
+    if let Ok(ip) = destination_host.parse::<IpAddr>() {
+        match ip {
+            IpAddr::V4(addr) => {
+                request.push(0x01);
+                request.extend_from_slice(&addr.octets());
+            }
+            IpAddr::V6(addr) => {
+                request.push(0x04);
+                request.extend_from_slice(&addr.octets());
+            }
+        }
+    } else {
+        let host_bytes = destination_host.as_bytes();
+        if host_bytes.len() > u8::MAX as usize {
+            return Err("SOCKS5 目标域名过长".to_string());
+        }
+        request.push(0x03);
+        request.push(host_bytes.len() as u8);
+        request.extend_from_slice(host_bytes);
+    }
+    request.extend_from_slice(&destination_port.to_be_bytes());
+    stream
+        .write_all(&request)
+        .await
+        .map_err(|error| format!("写入 SOCKS5 CONNECT 失败: {}", error))?;
+
+    let mut response_head = [0u8; 4];
+    stream
+        .read_exact(&mut response_head)
+        .await
+        .map_err(|error| format!("读取 SOCKS5 CONNECT 响应失败: {}", error))?;
+    if response_head[0] != 0x05 {
+        return Err("SOCKS5 CONNECT 返回了无效版本".to_string());
+    }
+    if response_head[1] != 0x00 {
+        return Err(format!(
+            "SOCKS5 CONNECT 失败: {}",
+            socks5_reply_message(response_head[1])
+        ));
+    }
+    read_socks5_bound_address(&mut stream, response_head[3]).await?;
+    Ok(stream)
+}
+
+async fn authenticate_socks5(
+    outbound: &GatewayOutboundTarget,
+    stream: &mut TcpStream,
+) -> Result<(), String> {
+    let username = outbound.username.as_bytes();
+    let password = outbound.password.as_bytes();
+    if username.len() > u8::MAX as usize || password.len() > u8::MAX as usize {
+        return Err("SOCKS5 用户名或密码过长".to_string());
+    }
+    let mut request = Vec::with_capacity(3 + username.len() + password.len());
+    request.push(0x01);
+    request.push(username.len() as u8);
+    request.extend_from_slice(username);
+    request.push(password.len() as u8);
+    request.extend_from_slice(password);
+    stream
+        .write_all(&request)
+        .await
+        .map_err(|error| format!("写入 SOCKS5 认证失败: {}", error))?;
+    let mut response = [0u8; 2];
+    stream
+        .read_exact(&mut response)
+        .await
+        .map_err(|error| format!("读取 SOCKS5 认证响应失败: {}", error))?;
+    if response != [0x01, 0x00] {
+        return Err("SOCKS5 用户名密码认证失败".to_string());
+    }
+    Ok(())
+}
+
+async fn read_socks5_bound_address(stream: &mut TcpStream, atyp: u8) -> Result<(), String> {
+    let address_len = match atyp {
+        0x01 => 4,
+        0x03 => {
+            let mut len = [0u8; 1];
+            stream
+                .read_exact(&mut len)
+                .await
+                .map_err(|error| format!("读取 SOCKS5 绑定地址失败: {}", error))?;
+            len[0] as usize
+        }
+        0x04 => 16,
+        other => return Err(format!("SOCKS5 返回了未知地址类型: {}", other)),
+    };
+    let mut discard = vec![0u8; address_len + 2];
+    stream
+        .read_exact(&mut discard)
+        .await
+        .map_err(|error| format!("读取 SOCKS5 绑定地址失败: {}", error))?;
+    Ok(())
+}
+
+async fn connect_tcp(host: &str, port: u16) -> Result<TcpStream, String> {
+    if host.trim().is_empty() || port == 0 {
+        return Err("代理网关目标地址或端口为空".to_string());
+    }
+    timeout(
+        CONNECT_UPSTREAM_TIMEOUT,
+        TcpStream::connect((host.trim(), port)),
+    )
+    .await
+    .map_err(|_| format!("连接 {} 超时", format_authority(host, port)))?
+    .map_err(|error| format!("连接 {} 失败: {}", format_authority(host, port), error))
+}
+
+async fn read_http_head(stream: &mut TcpStream) -> Result<HttpHead, String> {
+    let mut buffer = Vec::with_capacity(4096);
+    let mut chunk = [0u8; 2048];
+
+    loop {
+        let bytes_read = timeout(HTTP_HEAD_READ_TIMEOUT, stream.read(&mut chunk))
+            .await
+            .map_err(|_| "读取 HTTP 请求头超时".to_string())?
+            .map_err(|error| format!("读取 HTTP 请求头失败: {}", error))?;
+        if bytes_read == 0 {
+            break;
+        }
+        buffer.extend_from_slice(&chunk[..bytes_read]);
+        if let Some(end) = find_http_head_end(&buffer) {
+            let leftover = buffer[end..].to_vec();
+            buffer.truncate(end);
+            return Ok(HttpHead {
+                head: buffer,
+                leftover,
+            });
+        }
+        if buffer.len() > MAX_HTTP_HEAD_BYTES {
+            return Err("HTTP 请求头过大".to_string());
+        }
+    }
+
+    if buffer.is_empty() {
+        return Err("HTTP 请求为空".to_string());
+    }
+    Ok(HttpHead {
+        head: buffer,
+        leftover: Vec::new(),
+    })
+}
+
+fn find_http_head_end(buffer: &[u8]) -> Option<usize> {
+    buffer
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .map(|position| position + 4)
+}
+
+fn parse_proxy_request(head: &[u8]) -> Result<ProxyRequest, String> {
+    let text = String::from_utf8_lossy(head);
+    let mut lines = text.split("\r\n");
+    let request_line = lines.next().ok_or_else(|| "HTTP 请求行为空".to_string())?;
+    let mut parts = request_line.split_whitespace();
+    let method = parts
+        .next()
+        .ok_or_else(|| "HTTP 请求缺少 method".to_string())?
+        .to_string();
+    let target = parts
+        .next()
+        .ok_or_else(|| "HTTP 请求缺少 target".to_string())?
+        .to_string();
+    let version = parts.next().unwrap_or("HTTP/1.1").to_string();
+    let mut headers = Vec::new();
+
+    for line in lines {
+        if line.is_empty() {
+            break;
+        }
+        if let Some((name, value)) = line.split_once(':') {
+            headers.push(HeaderLine {
+                name: name.trim().to_string(),
+                value: value.trim().to_string(),
+            });
+        }
+    }
+
+    Ok(ProxyRequest {
+        method,
+        target,
+        version,
+        headers,
+    })
+}
+
+fn parse_response_status(head: &[u8]) -> Result<u16, String> {
+    let text = String::from_utf8_lossy(head);
+    let status_line = text
+        .split("\r\n")
+        .next()
+        .ok_or_else(|| "上游代理响应为空".to_string())?;
+    status_line
+        .split_whitespace()
+        .nth(1)
+        .ok_or_else(|| "上游代理响应缺少状态码".to_string())?
+        .parse::<u16>()
+        .map_err(|error| format!("上游代理状态码无效: {}", error))
+}
+
+fn resolve_http_destination(request: &ProxyRequest) -> Result<HttpDestination, String> {
+    if request.target.starts_with("http://") || request.target.starts_with("https://") {
+        let url = Url::parse(&request.target).map_err(|error| format!("代理目标 URL 无效: {}", error))?;
+        if url.scheme() == "https" {
+            return Err("HTTPS 请求需要使用 CONNECT 方法建立隧道".to_string());
+        }
+        let host = url
+            .host_str()
+            .ok_or_else(|| "代理目标缺少 Host".to_string())?
+            .to_string();
+        let port = url
+            .port_or_known_default()
+            .ok_or_else(|| "代理目标缺少端口".to_string())?;
+        let mut origin_target = url.path().to_string();
+        if origin_target.is_empty() {
+            origin_target.push('/');
+        }
+        if let Some(query) = url.query() {
+            origin_target.push('?');
+            origin_target.push_str(query);
+        }
+        return Ok(HttpDestination {
+            host,
+            port,
+            origin_target,
+            absolute_target: request.target.clone(),
+        });
+    }
+
+    let host_header = header_value(&request.headers, "host")
+        .ok_or_else(|| "HTTP 代理请求缺少 Host 头".to_string())?;
+    let (host, port) = parse_authority(&host_header, 80)?;
+    let origin_target = if request.target.is_empty() {
+        "/".to_string()
+    } else {
+        request.target.clone()
+    };
+    let absolute_target = format!(
+        "http://{}{}",
+        format_authority(&host, port),
+        if origin_target.starts_with('/') {
+            origin_target.clone()
+        } else {
+            format!("/{}", origin_target)
+        }
+    );
+    Ok(HttpDestination {
+        host,
+        port,
+        origin_target,
+        absolute_target,
+    })
+}
+
+fn build_forward_http_head(
+    request: &ProxyRequest,
+    forward_target: &str,
+    upstream_http_proxy: Option<&GatewayOutboundTarget>,
+) -> Vec<u8> {
+    let mut output = format!(
+        "{} {} {}\r\n",
+        request.method, forward_target, request.version
+    );
+    let mut has_host = false;
+    for header in &request.headers {
+        if header.name.eq_ignore_ascii_case("host") {
+            has_host = true;
+        }
+        if should_drop_proxy_header(&header.name) {
+            continue;
+        }
+        output.push_str(&header.name);
+        output.push_str(": ");
+        output.push_str(&header.value);
+        output.push_str("\r\n");
+    }
+    if !has_host {
+        if let Ok(destination) = resolve_http_destination(request) {
+            output.push_str("Host: ");
+            output.push_str(&format_authority(&destination.host, destination.port));
+            output.push_str("\r\n");
+        }
+    }
+    if let Some(outbound) = upstream_http_proxy {
+        output.push_str(&proxy_authorization_header(outbound));
+    }
+    output.push_str("\r\n");
+    output.into_bytes()
+}
+
+fn should_drop_proxy_header(name: &str) -> bool {
+    name.eq_ignore_ascii_case("proxy-connection")
+        || name.eq_ignore_ascii_case("proxy-authorization")
+}
+
+fn header_value(headers: &[HeaderLine], name: &str) -> Option<String> {
+    headers
+        .iter()
+        .find(|header| header.name.eq_ignore_ascii_case(name))
+        .map(|header| header.value.clone())
+}
+
+fn parse_authority(raw: &str, default_port: u16) -> Result<(String, u16), String> {
+    let authority = raw.trim();
+    if authority.is_empty() {
+        return Err("目标地址为空".to_string());
+    }
+    if let Some(rest) = authority.strip_prefix('[') {
+        let Some(end) = rest.find(']') else {
+            return Err("IPv6 目标地址格式错误".to_string());
+        };
+        let host = rest[..end].to_string();
+        let port = rest[end + 1..]
+            .strip_prefix(':')
+            .map(|value| parse_port(value, default_port))
+            .transpose()?
+            .unwrap_or(default_port);
+        return Ok((host, port));
+    }
+    if let Some((host, port)) = authority.rsplit_once(':') {
+        if !host.contains(':') {
+            return Ok((host.to_string(), parse_port(port, default_port)?));
+        }
+    }
+    Ok((authority.to_string(), default_port))
+}
+
+fn parse_port(raw: &str, default_port: u16) -> Result<u16, String> {
+    if raw.trim().is_empty() {
+        return Ok(default_port);
+    }
+    raw.trim()
+        .parse::<u16>()
+        .map_err(|_| format!("端口格式错误: {}", raw))
+        .and_then(|port| {
+            if port == 0 {
+                Err("端口必须在 1-65535 之间".to_string())
+            } else {
+                Ok(port)
+            }
+        })
+}
+
+fn format_authority(host: &str, port: u16) -> String {
+    let host = host.trim();
+    if host.contains(':') && !host.starts_with('[') {
+        format!("[{}]:{}", host, port)
+    } else {
+        format!("{}:{}", host, port)
+    }
+}
+
+fn proxy_authorization_header(outbound: &GatewayOutboundTarget) -> String {
+    if outbound.username.is_empty() {
+        return String::new();
+    }
+    let token = general_purpose::STANDARD.encode(format!(
+        "{}:{}",
+        outbound.username, outbound.password
+    ));
+    format!("Proxy-Authorization: Basic {token}\r\n")
+}
+
+async fn load_gateway_target() -> Result<GatewayOutboundTarget, String> {
+    tokio::task::spawn_blocking(store::load_current_gateway_outbound)
+        .await
+        .map_err(|error| format!("读取内置代理网关出口失败: {}", error))?
+}
+
+async fn write_error_response(
+    stream: &mut TcpStream,
+    status: &str,
+    body: &str,
+) -> Result<(), String> {
+    let body = body.as_bytes();
+    let header = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    stream
+        .write_all(header.as_bytes())
+        .await
+        .map_err(|error| format!("写入错误响应失败: {}", error))?;
+    stream
+        .write_all(body)
+        .await
+        .map_err(|error| format!("写入错误响应失败: {}", error))
+}
+
+fn format_gateway_bind_error(port: u16, error: &std::io::Error) -> String {
+    if error.kind() == std::io::ErrorKind::AddrInUse {
+        return format!(
+            "内置代理网关端口 {} 已被占用，请修改网关端口或关闭占用程序",
+            port
+        );
+    }
+    format!("启动内置代理网关失败: {}", error)
+}
+
+fn socks5_reply_message(code: u8) -> &'static str {
+    match code {
+        0x01 => "一般 SOCKS 服务器失败",
+        0x02 => "规则不允许连接",
+        0x03 => "网络不可达",
+        0x04 => "主机不可达",
+        0x05 => "连接被拒绝",
+        0x06 => "TTL 过期",
+        0x07 => "命令不支持",
+        0x08 => "地址类型不支持",
+        _ => "未知错误",
+    }
+}

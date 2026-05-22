@@ -950,7 +950,21 @@
       "proxyNoProxy": "NO_PROXY 白名单",
       "proxyNoProxyDesc": "逗号分隔；匹配项将绕过代理",
       "proxyNoProxyPlaceholder": "例如：127.0.0.1,localhost,::1",
-      "proxyUrlRequired": "启用全局代理时，代理地址不能为空。"
+      "proxyUrlRequired": "启用全局代理时，代理地址不能为空。",
+      "proxyGatewayTitle": "内置代理网关",
+      "proxyGatewayEnabled": "启用内置代理网关",
+      "proxyGatewayEnabledDesc": "开启后，受管进程和 Codex API 服务的“跟随全局代理”都会连接内置网关；出口节点在代理节点池中选择。",
+      "proxyGatewayAddress": "内置网关地址",
+      "proxyGatewayAddressDesc": "系统代理环境变量会写入这个稳定入口，实际出口由当前节点决定。",
+      "proxyGatewayPort": "内置网关端口",
+      "proxyGatewayPortDesc": "默认 7897。保存后全局代理会自动指向新的内置网关地址。",
+      "proxyGatewayPortInvalid": "内置代理网关端口必须在 1-65535 之间。",
+      "proxyCurrentOutlet": "当前出口节点",
+      "proxyCurrentOutletDesc": "节点池导入后不会自动成为出口；请在上方代理节点池选择要使用的节点。",
+      "proxyCurrentOutletEmpty": "未选择",
+      "proxyLocalPort": "外部本地代理端口",
+      "proxyLocalPortDesc": "对应内置“本地代理 127.0.0.1”节点。选择这个节点即可使用 Clash、其他代理软件或自定义本地端口。",
+      "proxyLocalPortInvalid": "本地代理端口必须在 1-65535 之间。"
     },
     "about": {
       "appName": "AI Lemon Tools",

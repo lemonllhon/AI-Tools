@@ -164,6 +164,10 @@ pub fn run() {
             });
 
             tauri::async_runtime::spawn(async {
+                modules::proxy_pool::gateway::restore_gateway_state().await;
+            });
+
+            tauri::async_runtime::spawn(async {
                 modules::codex_local_access::restore_local_access_gateway().await;
             });
 
@@ -439,6 +443,13 @@ pub fn run() {
             commands::proxy_pool::proxy_pool_apply_subscription,
             commands::proxy_pool::proxy_pool_refresh_subscription,
             commands::proxy_pool::proxy_pool_refresh_all_subscriptions,
+            commands::proxy_pool::proxy_pool_update_subscription_source,
+            commands::proxy_pool::proxy_pool_delete_subscription_source,
+            commands::proxy_pool::proxy_pool_test_node_latency,
+            commands::proxy_pool::proxy_pool_test_all_latency,
+            commands::proxy_pool::proxy_pool_check_node_ip_health,
+            commands::proxy_pool::proxy_pool_check_all_ip_health,
+            commands::proxy_pool::proxy_pool_update_service_state,
             // Logs Commands
             commands::logs::logs_get_snapshot,
             commands::logs::logs_open_log_directory,

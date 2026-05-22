@@ -950,7 +950,21 @@
       "proxyNoProxy": "NO_PROXY List",
       "proxyNoProxyDesc": "Comma-separated; matched hosts bypass proxy.",
       "proxyNoProxyPlaceholder": "127.0.0.1,localhost,::1",
-      "proxyUrlRequired": "Proxy URL cannot be empty when global proxy is enabled."
+      "proxyUrlRequired": "Proxy URL cannot be empty when global proxy is enabled.",
+      "proxyGatewayTitle": "Built-in Proxy Gateway",
+      "proxyGatewayEnabled": "Enable Built-in Proxy Gateway",
+      "proxyGatewayEnabledDesc": "When enabled, managed processes and Codex API follow-global-proxy mode connect to the built-in gateway; choose the outlet in the proxy node pool.",
+      "proxyGatewayAddress": "Built-in Gateway Address",
+      "proxyGatewayAddressDesc": "Proxy environment variables use this stable entry, while the selected node decides the actual outlet.",
+      "proxyGatewayPort": "Built-in Gateway Port",
+      "proxyGatewayPortDesc": "Default is 7897. After saving, global proxy points to the new built-in gateway address.",
+      "proxyGatewayPortInvalid": "Built-in proxy gateway port must be between 1 and 65535.",
+      "proxyCurrentOutlet": "Current Outlet Node",
+      "proxyCurrentOutletDesc": "Imported nodes do not automatically become the outlet; choose the node to use in the proxy node pool above.",
+      "proxyCurrentOutletEmpty": "Not selected",
+      "proxyLocalPort": "External Local Proxy Port",
+      "proxyLocalPortDesc": "Used by the built-in \"Local proxy 127.0.0.1\" node. Select it to use Clash, another proxy app, or a custom local port.",
+      "proxyLocalPortInvalid": "Local proxy port must be between 1 and 65535."
     },
     "about": {
       "appName": "AI Lemon Tools",

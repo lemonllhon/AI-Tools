@@ -119,6 +119,26 @@ pub fn get_runtime_status<R: TauriRuntime>(app: &AppHandle<R>) -> Result<ProxyRu
     get_runtime_status_from_dirs(&resource_dir, &data_dir, target)
 }
 
+pub fn ensure_runtime_binary<R: TauriRuntime>(
+    app: &AppHandle<R>,
+    runtime_name: &str,
+) -> Result<PathBuf, String> {
+    validate_runtime_name(runtime_name)?;
+    let state = ensure_runtimes_cached(app)?;
+    let cached = state
+        .runtimes
+        .into_iter()
+        .find(|item| item.runtime == runtime_name)
+        .ok_or_else(|| format!("代理内核缓存缺少 {}", runtime_name))?;
+    if !cached.executable {
+        return Err(format!(
+            "代理内核 {} 不可执行: {}",
+            runtime_name, cached.cache_path
+        ));
+    }
+    Ok(PathBuf::from(cached.cache_path))
+}
+
 pub fn get_runtime_status_from_dirs(
     resource_dir: &Path,
     data_dir: &Path,

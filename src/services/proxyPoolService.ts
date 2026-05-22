@@ -2,11 +2,15 @@ import { invoke } from '@tauri-apps/api/core';
 import type {
   ProxyImportApplyRequest,
   ProxyImportApplyResponse,
+  ProxyPoolIpHealthResponse,
+  ProxyPoolLatencyTestResponse,
   ProxyImportPreviewRequest,
   ProxyImportPreviewResponse,
   ProxyNodeSaveRequest,
   ProxyPoolListResponse,
   ProxyPoolNode,
+  ProxyPoolServiceUpdateRequest,
+  ProxySourceUpdateRequest,
   ProxySubscriptionApplyRequest,
   ProxySubscriptionApplyResponse,
   ProxySubscriptionPreviewRequest,
@@ -66,4 +70,36 @@ export async function refreshProxyPoolSubscription(
 
 export async function refreshAllProxyPoolSubscriptions(): Promise<ProxySubscriptionRefreshResponse> {
   return await invoke('proxy_pool_refresh_all_subscriptions');
+}
+
+export async function updateProxyPoolSubscriptionSource(
+  request: ProxySourceUpdateRequest,
+): Promise<ProxyPoolListResponse> {
+  return await invoke('proxy_pool_update_subscription_source', { request });
+}
+
+export async function deleteProxyPoolSubscriptionSource(sourceId: string): Promise<ProxyPoolListResponse> {
+  return await invoke('proxy_pool_delete_subscription_source', { sourceId });
+}
+
+export async function testProxyPoolNodeLatency(id: string): Promise<ProxyPoolLatencyTestResponse> {
+  return await invoke('proxy_pool_test_node_latency', { id });
+}
+
+export async function testAllProxyPoolLatency(): Promise<ProxyPoolLatencyTestResponse> {
+  return await invoke('proxy_pool_test_all_latency');
+}
+
+export async function checkProxyPoolNodeIpHealth(id: string): Promise<ProxyPoolIpHealthResponse> {
+  return await invoke('proxy_pool_check_node_ip_health', { id });
+}
+
+export async function checkAllProxyPoolIpHealth(): Promise<ProxyPoolIpHealthResponse> {
+  return await invoke('proxy_pool_check_all_ip_health');
+}
+
+export async function updateProxyPoolServiceState(
+  request: ProxyPoolServiceUpdateRequest,
+): Promise<ProxyPoolListResponse> {
+  return await invoke('proxy_pool_update_service_state', { request });
 }

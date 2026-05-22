@@ -1,7 +1,11 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 pub const DIRECT_NODE_ID: &str = "__direct__";
 pub const LOCAL_NODE_ID: &str = "__local__";
+pub const OUTLET_MODE_DIRECT: &str = "direct";
+pub const OUTLET_MODE_LOCAL: &str = "local";
+pub const OUTLET_MODE_NODE_POOL: &str = "node_pool";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -52,6 +56,7 @@ pub struct ProxyPoolListResponse {
     pub nodes: Vec<ProxyPoolNode>,
     pub groups: Vec<String>,
     pub sources: Vec<ProxySource>,
+    pub service_state: ProxyPoolServiceState,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -118,6 +123,101 @@ pub struct ProxySubscriptionApplyRequest {
 #[serde(rename_all = "camelCase")]
 pub struct ProxySubscriptionRefreshRequest {
     pub source_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxySourceUpdateRequest {
+    pub source_id: String,
+    pub url: String,
+    #[serde(default)]
+    pub group: Option<String>,
+    #[serde(default)]
+    pub name_prefix: Option<String>,
+    #[serde(default)]
+    pub dns: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyPoolServiceState {
+    pub enabled: bool,
+    pub preferred_port: u16,
+    pub actual_port: Option<u16>,
+    pub gateway_url: String,
+    pub outlet_mode: String,
+    pub selected_node_ids: Vec<String>,
+    pub current_node_id: String,
+    pub current_node_name: String,
+    pub current_node_protocol: String,
+    pub local_proxy_port: u16,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyPoolServiceUpdateRequest {
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub preferred_port: Option<u16>,
+    #[serde(default)]
+    pub outlet_mode: Option<String>,
+    #[serde(default)]
+    pub selected_node_ids: Option<Vec<String>>,
+    #[serde(default)]
+    pub current_node_id: Option<String>,
+    #[serde(default)]
+    pub local_proxy_port: Option<u16>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyPoolLatencyTestResult {
+    pub node_id: String,
+    pub ok: bool,
+    pub latency_ms: Option<i64>,
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyPoolLatencyTestResponse {
+    pub tested: usize,
+    pub failed: usize,
+    pub results: Vec<ProxyPoolLatencyTestResult>,
+    pub nodes: Vec<ProxyPoolNode>,
+    pub groups: Vec<String>,
+    pub sources: Vec<ProxySource>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyPoolIpHealthResult {
+    pub node_id: String,
+    pub ok: bool,
+    pub source: String,
+    pub error: String,
+    pub ip: String,
+    pub fraud_score: Option<i64>,
+    pub is_residential: Option<bool>,
+    pub is_broadcast: Option<bool>,
+    pub country: String,
+    pub region: String,
+    pub city: String,
+    pub as_organization: String,
+    pub raw_data: Value,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyPoolIpHealthResponse {
+    pub checked: usize,
+    pub failed: usize,
+    pub results: Vec<ProxyPoolIpHealthResult>,
+    pub nodes: Vec<ProxyPoolNode>,
+    pub groups: Vec<String>,
+    pub sources: Vec<ProxySource>,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -13,6 +13,7 @@ export type ProxyNodeProtocol =
   | 'anytls';
 
 export type ManualProxyNodeProtocol = 'http' | 'https' | 'socks5';
+export type ProxyPoolOutletMode = 'direct' | 'local' | 'node_pool';
 
 export interface ProxyPoolNode {
   id: string;
@@ -52,11 +53,25 @@ export interface ProxySource {
   updatedAt: string;
 }
 
+export interface ProxyPoolServiceState {
+  enabled: boolean;
+  preferredPort: number;
+  actualPort: number | null;
+  gatewayUrl: string;
+  outletMode: ProxyPoolOutletMode;
+  selectedNodeIds: string[];
+  currentNodeId: string;
+  currentNodeName: string;
+  currentNodeProtocol: ProxyNodeProtocol;
+  localProxyPort: number;
+}
+
 export interface ProxyPoolListResponse {
   dbPath: string;
   nodes: ProxyPoolNode[];
   groups: string[];
   sources: ProxySource[];
+  serviceState: ProxyPoolServiceState;
 }
 
 export interface ProxyNodeSaveRequest {
@@ -122,6 +137,65 @@ export interface ProxySubscriptionApplyResponse {
 
 export interface ProxySubscriptionRefreshRequest {
   sourceId: string;
+}
+
+export interface ProxySourceUpdateRequest {
+  sourceId: string;
+  url: string;
+  group?: string;
+  namePrefix?: string;
+  dns?: string;
+}
+
+export interface ProxyPoolServiceUpdateRequest {
+  enabled?: boolean;
+  preferredPort?: number;
+  outletMode?: ProxyPoolOutletMode;
+  selectedNodeIds?: string[];
+  currentNodeId?: string;
+  localProxyPort?: number;
+}
+
+export interface ProxyPoolLatencyTestResult {
+  nodeId: string;
+  ok: boolean;
+  latencyMs: number | null;
+  error: string;
+}
+
+export interface ProxyPoolLatencyTestResponse {
+  tested: number;
+  failed: number;
+  results: ProxyPoolLatencyTestResult[];
+  nodes: ProxyPoolNode[];
+  groups: string[];
+  sources: ProxySource[];
+}
+
+export interface ProxyPoolIpHealthResult {
+  nodeId: string;
+  ok: boolean;
+  source: string;
+  error: string;
+  ip: string;
+  fraudScore: number | null;
+  isResidential: boolean | null;
+  isBroadcast: boolean | null;
+  country: string;
+  region: string;
+  city: string;
+  asOrganization: string;
+  rawData: Record<string, unknown>;
+  updatedAt: string;
+}
+
+export interface ProxyPoolIpHealthResponse {
+  checked: number;
+  failed: number;
+  results: ProxyPoolIpHealthResult[];
+  nodes: ProxyPoolNode[];
+  groups: string[];
+  sources: ProxySource[];
 }
 
 export interface ProxySubscriptionRefreshItem {

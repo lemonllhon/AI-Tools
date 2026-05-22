@@ -96,7 +96,7 @@ Trace-Browser 的代理能力集中在这些模块：
 
 - `proxy_nodes`：节点 ID、名称、协议、原始配置、标准配置、分组、DNS、订阅来源、排序、启用状态、测速结果、IP 健康结果。
 - `proxy_sources`：订阅 ID、URL、名称前缀、分组、DNS、自动刷新开关、刷新间隔、最后刷新时间、上次错误。
-- `proxy_service_state`：内置代理服务开关、首选端口、实际端口、当前节点、全局代理接入模式。
+- `proxy_service_state`：内置代理服务开关、首选端口、实际端口、出口模式、当前活动节点、节点池已选节点列表、全局代理接入模式。
 
 内置节点：
 
@@ -350,16 +350,23 @@ interface ProxyRuntimeStatus {
 1. 节点桥接：xray/sing-box 为高级节点启动本地 SOCKS 入站。
 2. 应用代理网关：当前项目启动一个本地 HTTP CONNECT 代理，例如 `http://127.0.0.1:<port>`，作为全局代理可注入的稳定入口。
 
-全局代理新增来源模式：
+全局代理语义调整：
 
-- `manual`：继续使用现有 `global_proxy_url`。
-- `proxy_pool`：使用内置代理网关的实际地址。
+- 网络服务中的“全局代理”不再让用户手填任意代理地址，而是作为“启用内置代理网关”的开关。
+- `global_proxy_url` 继续作为兼容字段保存，但由系统自动写入内置代理网关地址，例如 `http://127.0.0.1:7897`。
+- 用户导入节点后，不会自动把全部节点作为出口；出口模式由 `proxy_service_state.outlet_mode` 管理，只允许 `direct`、`local`、`node_pool` 三选一。
+- `direct` 模式只启用内置直连节点；`local` 模式只启用内置本地代理节点；`node_pool` 模式停用直连和本地代理，只启用 `selected_node_ids_json` 中用户多选的普通节点。
+- `node_pool` 模式允许多个普通节点作为候选出口，`current_node_id` 表示当前活动节点，后续自动故障切换只能在已选节点池内切换。
+- 内置“本地代理 127.0.0.1:<port>”节点保留，默认端口 `7890`，用户可修改端口后选择该节点，以接入 Clash、其他代理软件或自定义本地代理。
+- Codex API 服务的“跟随全局代理”必须读取同一个 `global_proxy_url`，因此也跟随内置代理网关。
 
-当选择 `proxy_pool` 时：
+启用内置代理网关时：
 
 - `process.rs` 注入的 HTTP_PROXY/HTTPS_PROXY/ALL_PROXY 指向内置网关。
 - `codex_local_access.rs` 的“跟随全局代理”也必须解析到同一内置网关。
 - 网关根据当前选择节点自动决定直连、标准代理、xray 桥接或 sing-box 桥接。
+
+网关转发功能落地前，必须先完成这层配置与 UI 语义调整，保证之后实现 HTTP CONNECT 网关时不会再调整用户理解模型。
 
 ## 分阶段开发计划
 
@@ -423,23 +430,48 @@ interface ProxyRuntimeStatus {
 - 解析失败不破坏现有节点。
 - 支持导入预览和选择性导入。
 
+### 阶段 3.5：全局代理与内置网关配置语义
+
+交付物：
+
+- 网络服务“全局代理”改为“启用内置代理网关”。
+- 后端代理池服务状态：启用状态、网关端口、出口模式、节点池已选节点、当前活动节点、本地代理节点端口。
+- 本地 HTTP/CONNECT 代理网关监听 `127.0.0.1:<gateway_port>`。
+- 网关转发支持当前已可直接落地的出口：直连、HTTP 上游代理、SOCKS5 上游代理。
+- 保存网络服务配置时自动同步 `global_proxy_url = http://127.0.0.1:<gateway_port>`。
+- 代理节点池提供 `直连 / 本地代理 / 节点池` 三选一出口模式；节点池模式下普通节点可多选，导入节点不自动成为出口。
+- 内置“本地代理 127.0.0.1”节点默认端口 `7890`，并允许用户修改。
+- vmess/vless/trojan/ss/hysteria2/tuic/anytls 等高级节点先返回清晰错误，进入阶段 4 后通过 xray/sing-box 桥接为本地 SOCKS 出口。
+
+验收标准：
+
+- 开启全局代理后，受管进程和 Codex API 的“跟随全局代理”都拿到内置网关地址。
+- 修改网关端口后，`global_proxy_url` 自动同步。
+- 修改本地代理端口后，内置本地代理节点名称、端口和配置同步更新。
+- 切换 `direct` 或 `local` 时必须清空节点池选择，并停用另两个出口类型。
+- 切换 `node_pool` 时必须停用直连和本地代理，只启用用户多选的普通节点；`current_node_id` 必须属于已选节点池。
+- 节点池内可手动切换当前活动节点；后续自动故障切换只能在 `selected_node_ids_json` 中寻找备用节点。
+- 外部代理软件只需监听本机端口，并在代理池选择“本地代理”节点即可接入。
+- 使用直连、HTTP 或 SOCKS5 出口时，`curl -x http://127.0.0.1:<gateway_port> https://example.com` 可通过网关完成 CONNECT 转发。
+
 ### 阶段 4：自动桥接与内置代理网关
 
 交付物：
 
-- xray 桥接：vmess/vless/trojan/ss。
-- sing-box 桥接：hysteria2/tuic/anytls。
-- 本地 HTTP CONNECT 代理网关。
-- 网络服务设置中新增“全局代理来源：手动地址 / 内置代理池”。
-- 当前节点切换后，网关立即使用新出口。
+- xray 桥接：vmess/vless/trojan/ss 自动生成本地 SOCKS 入站并作为网关上游。
+- sing-box 桥接：hysteria/hysteria2/tuic/anytls 自动生成本地 SOCKS 入站并作为网关上游。
+- 本地 HTTP CONNECT 代理网关统一转发到直连、标准 HTTP/SOCKS5 或内核桥接 SOCKS 出口。
+- 当前活动节点切换后，网关下一次请求立即使用新出口；自动故障切换只允许在节点池已选节点内轮换。
+- 桥接配置写入 `<data_dir>/proxy-pool/bridge`，桥接内核使用运行时缓存中的 xray/sing-box。
 
 验收标准：
 
 - 选择标准 HTTP/SOCKS 节点时不启动 xray/sing-box。
 - 选择高级节点时自动启动对应内核。
 - 停用内置代理服务会清理子进程。
-- `global_proxy_enabled + proxy_pool` 能让受管进程拿到内置网关地址。
+- `global_proxy_enabled` 能让受管进程拿到内置网关地址。
 - Codex API 服务的“跟随全局代理”也走内置网关。
+- 对高级节点执行 `curl -x http://127.0.0.1:<gateway_port> https://example.com` 时，网关能通过桥接出口完成 CONNECT 转发。
 
 ### 阶段 5：测速与 IP 健康检查
 

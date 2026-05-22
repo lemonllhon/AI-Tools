@@ -1,16 +1,21 @@
 use super::models::{
     ProxyImportApplyRequest, ProxyImportApplyResponse, ProxyImportPreviewRequest,
     ProxyImportPreviewResponse, ProxyNodeSaveRequest, ProxyPoolListResponse, ProxyPoolNode,
-    ProxySource, ProxySubscriptionApplyRequest, ProxySubscriptionApplyResponse,
+    ProxyPoolIpHealthResponse, ProxyPoolIpHealthResult, ProxyPoolLatencyTestResponse,
+    ProxyPoolLatencyTestResult, ProxyPoolServiceState, ProxyPoolServiceUpdateRequest, ProxySource,
+    ProxySourceUpdateRequest, ProxySubscriptionApplyRequest, ProxySubscriptionApplyResponse,
     ProxySubscriptionPreviewRequest, ProxySubscriptionRefreshItem, ProxySubscriptionRefreshRequest,
-    ProxySubscriptionRefreshResponse, DIRECT_NODE_ID, LOCAL_NODE_ID,
+    ProxySubscriptionRefreshResponse, DIRECT_NODE_ID, LOCAL_NODE_ID, OUTLET_MODE_DIRECT,
+    OUTLET_MODE_LOCAL, OUTLET_MODE_NODE_POOL,
 };
+use super::health::{self, ProxyCheckTarget};
 use super::parser;
 use super::subscription;
 use crate::modules::data_dir;
 use chrono::{SecondsFormat, Utc};
+use futures::{stream, StreamExt};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
-use serde_json::json;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashSet};
 use std::fs;
@@ -24,6 +29,10 @@ const DB_FILE_NAME: &str = "proxy_pool.db";
 const BUILTIN_GROUP: &str = "内置";
 const DEFAULT_GROUP: &str = "默认";
 const SUPPORTED_MANUAL_PROTOCOLS: &[&str] = &["http", "https", "socks5"];
+const LATENCY_BATCH_CONCURRENCY: usize = 12;
+const IP_HEALTH_BATCH_CONCURRENCY: usize = 6;
+const DEFAULT_PROXY_GATEWAY_PORT: u16 = 7897;
+const DEFAULT_LOCAL_PROXY_PORT: u16 = 7890;
 
 pub fn list_nodes() -> Result<ProxyPoolListResponse, String> {
     let db_path = proxy_pool_db_path()?;
@@ -50,12 +59,14 @@ pub fn list_nodes() -> Result<ProxyPoolListResponse, String> {
 
     let groups = collect_groups(&nodes);
     let sources = list_sources_from_conn(&conn)?;
+    let service_state = service_state_from_conn(&conn)?;
 
     Ok(ProxyPoolListResponse {
         db_path: display_path(&db_path),
         nodes,
         groups,
         sources,
+        service_state,
     })
 }
 
@@ -146,6 +157,8 @@ pub fn save_node(request: ProxyNodeSaveRequest) -> Result<ProxyPoolNode, String>
     )
     .map_err(|err| format!("保存代理节点失败: {}", err))?;
 
+    normalize_service_state_in_conn(&conn, &now)?;
+
     get_node(&conn, &id)?.ok_or_else(|| "代理节点保存后读取失败".to_string())
 }
 
@@ -175,10 +188,29 @@ pub fn delete_nodes(ids: &[String]) -> Result<(), String> {
     let tx = conn
         .transaction()
         .map_err(|err| format!("删除代理节点失败: {}", err))?;
+    let current_node_id: Option<String> = tx
+        .query_row(
+            "SELECT current_node_id FROM proxy_service_state WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|err| format!("读取当前出口节点失败: {}", err))?;
+    if ids
+        .iter()
+        .any(|id| current_node_id.as_deref() == Some(id.as_str()))
+    {
+        tx.execute(
+            "UPDATE proxy_service_state SET current_node_id = ?1, updated_at = ?2 WHERE id = 1",
+            params![DIRECT_NODE_ID, now_iso()],
+        )
+        .map_err(|err| format!("切换当前出口节点失败: {}", err))?;
+    }
     for id in ids {
         tx.execute("DELETE FROM proxy_nodes WHERE id = ?1", params![id])
             .map_err(|err| format!("删除代理节点失败: {}", err))?;
     }
+    reset_current_node_if_missing_in_tx(&tx, &now_iso())?;
     tx.commit()
         .map_err(|err| format!("删除代理节点失败: {}", err))?;
 
@@ -194,15 +226,92 @@ pub fn set_node_enabled(id: &str, enabled: bool) -> Result<ProxyPoolNode, String
     let Some(meta) = load_existing_node_meta(&conn, id)? else {
         return Err("代理节点不存在".to_string());
     };
-    if id == DIRECT_NODE_ID && !enabled {
-        return Err("内置直连节点不能禁用".to_string());
-    }
+    let current_state = service_state_from_conn(&conn)?;
+    let current_outlet_mode = current_state.outlet_mode;
+    let current_node_id = current_state.current_node_id;
+    let mut selected_node_ids = current_state.selected_node_ids;
+    let request = if id == DIRECT_NODE_ID {
+        if !enabled {
+            return Err("直连出口不能单独停用，请切换到本地代理或节点池".to_string());
+        }
+        ProxyPoolServiceUpdateRequest {
+            enabled: None,
+            preferred_port: None,
+            outlet_mode: Some(OUTLET_MODE_DIRECT.to_string()),
+            selected_node_ids: Some(Vec::new()),
+            current_node_id: Some(DIRECT_NODE_ID.to_string()),
+            local_proxy_port: None,
+        }
+    } else if id == LOCAL_NODE_ID {
+        if !enabled {
+            return Err("本地代理出口不能单独停用，请切换到直连或节点池".to_string());
+        }
+        ProxyPoolServiceUpdateRequest {
+            enabled: None,
+            preferred_port: None,
+            outlet_mode: Some(OUTLET_MODE_LOCAL.to_string()),
+            selected_node_ids: Some(Vec::new()),
+            current_node_id: Some(LOCAL_NODE_ID.to_string()),
+            local_proxy_port: None,
+        }
+    } else {
+        if meta.builtin {
+            return Err("内置节点不能加入节点池".to_string());
+        }
+        if enabled {
+            if !selected_node_ids.iter().any(|node_id| node_id == id) {
+                selected_node_ids.push(id.to_string());
+            }
+            let current_node_id = if current_outlet_mode == OUTLET_MODE_NODE_POOL
+                && selected_node_ids
+                    .iter()
+                    .any(|node_id| node_id == &current_node_id)
+            {
+                current_node_id
+            } else {
+                id.to_string()
+            };
+            ProxyPoolServiceUpdateRequest {
+                enabled: None,
+                preferred_port: None,
+                outlet_mode: Some(OUTLET_MODE_NODE_POOL.to_string()),
+                selected_node_ids: Some(selected_node_ids),
+                current_node_id: Some(current_node_id),
+                local_proxy_port: None,
+            }
+        } else {
+            selected_node_ids.retain(|node_id| node_id != id);
+            if selected_node_ids.is_empty() {
+                ProxyPoolServiceUpdateRequest {
+                    enabled: None,
+                    preferred_port: None,
+                    outlet_mode: Some(OUTLET_MODE_DIRECT.to_string()),
+                    selected_node_ids: Some(Vec::new()),
+                    current_node_id: Some(DIRECT_NODE_ID.to_string()),
+                    local_proxy_port: None,
+                }
+            } else {
+                let current_node_id = if current_node_id == id {
+                    selected_node_ids[0].clone()
+                } else {
+                    current_node_id
+                };
+                ProxyPoolServiceUpdateRequest {
+                    enabled: None,
+                    preferred_port: None,
+                    outlet_mode: Some(OUTLET_MODE_NODE_POOL.to_string()),
+                    selected_node_ids: Some(selected_node_ids),
+                    current_node_id: Some(current_node_id),
+                    local_proxy_port: None,
+                }
+            }
+        }
+    };
 
-    conn.execute(
-        "UPDATE proxy_nodes SET enabled = ?1, updated_at = ?2 WHERE id = ?3",
-        params![if enabled { 1 } else { 0 }, now_iso(), id],
-    )
-    .map_err(|err| format!("更新代理节点状态失败: {}", err))?;
+    update_service_state_config(request)?;
+    let conn = open_connection_at(&db_path)?;
+    initialize_schema(&conn)?;
+    seed_builtin_nodes(&conn)?;
 
     get_node(&conn, id)?.ok_or_else(|| {
         format!(
@@ -352,6 +461,7 @@ pub async fn apply_subscription(
         sort_order += 1;
         imported += 1;
     }
+    reset_current_node_if_missing_in_tx(&tx, &now)?;
     tx.commit()
         .map_err(|err| format!("导入订阅节点失败: {}", err))?;
 
@@ -402,6 +512,129 @@ pub async fn refresh_all_subscriptions() -> Result<ProxySubscriptionRefreshRespo
     }
 
     build_subscription_refresh_response(results)
+}
+
+pub fn update_subscription_source(
+    request: ProxySourceUpdateRequest,
+) -> Result<ProxyPoolListResponse, String> {
+    let source_id = normalize_required_text(&request.source_id, "订阅来源", 120)?;
+    let url = subscription::normalize_subscription_url(&request.url)?;
+    let group = normalize_optional_text(request.group, 80)?;
+    let group = if group.is_empty() {
+        DEFAULT_GROUP.to_string()
+    } else {
+        group
+    };
+    let name_prefix = normalize_optional_text(request.name_prefix, 80)?;
+    let dns = normalize_optional_text(request.dns, 240)?;
+
+    let db_path = proxy_pool_db_path()?;
+    let mut conn = open_connection_at(&db_path)?;
+    initialize_schema(&conn)?;
+    seed_builtin_nodes(&conn)?;
+
+    let Some(existing) = load_subscription_source_record(&conn, &source_id)? else {
+        return Err("订阅来源不存在".to_string());
+    };
+
+    let now = now_iso();
+    let source_name = build_source_display_name(&url);
+    let tx = conn
+        .transaction()
+        .map_err(|err| format!("更新订阅来源失败: {}", err))?;
+    tx.execute(
+        "UPDATE proxy_sources
+         SET url = ?1, name_prefix = ?2, group_name = ?3, dns = ?4,
+             last_error = CASE WHEN url <> ?1 THEN '' ELSE last_error END,
+             updated_at = ?5
+         WHERE id = ?6",
+        params![&url, &name_prefix, &group, &dns, &now, &source_id],
+    )
+    .map_err(|err| format!("更新订阅来源失败: {}", err))?;
+    tx.execute(
+        "UPDATE proxy_nodes
+         SET group_name = ?1, source_name = ?2, updated_at = ?3
+         WHERE source_id = ?4 AND builtin = 0",
+        params![&group, &source_name, &now, &source_id],
+    )
+    .map_err(|err| format!("更新订阅来源节点失败: {}", err))?;
+    tx.commit()
+        .map_err(|err| format!("更新订阅来源失败: {}", err))?;
+
+    if existing.url != url {
+        tracing::info!(
+            "[ProxyPool] subscription source URL updated: source_id={}, old={}, new={}",
+            source_id,
+            existing.url,
+            url
+        );
+    }
+
+    list_nodes()
+}
+
+pub fn delete_subscription_source(source_id: &str) -> Result<ProxyPoolListResponse, String> {
+    let source_id = normalize_required_text(source_id, "订阅来源", 120)?;
+    let db_path = proxy_pool_db_path()?;
+    let mut conn = open_connection_at(&db_path)?;
+    initialize_schema(&conn)?;
+    seed_builtin_nodes(&conn)?;
+
+    if load_subscription_source_record(&conn, &source_id)?.is_none() {
+        return Err("订阅来源不存在".to_string());
+    }
+
+    let tx = conn
+        .transaction()
+        .map_err(|err| format!("删除订阅来源失败: {}", err))?;
+    tx.execute(
+        "DELETE FROM proxy_nodes WHERE source_id = ?1 AND builtin = 0",
+        params![&source_id],
+    )
+    .map_err(|err| format!("删除订阅来源节点失败: {}", err))?;
+    tx.execute("DELETE FROM proxy_sources WHERE id = ?1", params![&source_id])
+        .map_err(|err| format!("删除订阅来源失败: {}", err))?;
+    reset_current_node_if_missing_in_tx(&tx, &now_iso())?;
+    tx.commit()
+        .map_err(|err| format!("删除订阅来源失败: {}", err))?;
+
+    list_nodes()
+}
+
+pub async fn test_node_latency(node_id: &str) -> Result<ProxyPoolLatencyTestResponse, String> {
+    let target = load_check_target_by_id(node_id)?;
+    let results = vec![health::test_latency(target).await];
+    persist_latency_results(&results)?;
+    build_latency_response(results)
+}
+
+pub async fn test_all_latency() -> Result<ProxyPoolLatencyTestResponse, String> {
+    let targets = load_enabled_check_targets()?;
+    let results = stream::iter(targets)
+        .map(health::test_latency)
+        .buffer_unordered(LATENCY_BATCH_CONCURRENCY)
+        .collect::<Vec<_>>()
+        .await;
+    persist_latency_results(&results)?;
+    build_latency_response(results)
+}
+
+pub async fn check_node_ip_health(node_id: &str) -> Result<ProxyPoolIpHealthResponse, String> {
+    let target = load_check_target_by_id(node_id)?;
+    let results = vec![health::check_ip_health(target).await];
+    persist_ip_health_results(&results)?;
+    build_ip_health_response(results)
+}
+
+pub async fn check_all_ip_health() -> Result<ProxyPoolIpHealthResponse, String> {
+    let targets = load_enabled_check_targets()?;
+    let results = stream::iter(targets)
+        .map(health::check_ip_health)
+        .buffer_unordered(IP_HEALTH_BATCH_CONCURRENCY)
+        .collect::<Vec<_>>()
+        .await;
+    persist_ip_health_results(&results)?;
+    build_ip_health_response(results)
 }
 
 pub fn proxy_pool_db_path() -> Result<PathBuf, String> {
@@ -481,12 +714,16 @@ fn initialize_schema(conn: &Connection) -> Result<(), String> {
             preferred_port INTEGER NOT NULL DEFAULT 7897,
             actual_port INTEGER,
             current_node_id TEXT NOT NULL DEFAULT '__direct__',
+            outlet_mode TEXT NOT NULL DEFAULT 'direct',
+            selected_node_ids_json TEXT NOT NULL DEFAULT '[]',
             global_proxy_mode TEXT NOT NULL DEFAULT 'manual',
             updated_at TEXT NOT NULL
         );
         ",
     )
     .map_err(|err| format!("初始化代理池数据库失败: {}", err))?;
+
+    ensure_proxy_service_state_columns(conn)?;
 
     conn.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, ?1)",
@@ -495,6 +732,45 @@ fn initialize_schema(conn: &Connection) -> Result<(), String> {
     .map_err(|err| format!("写入代理池数据库迁移记录失败: {}", err))?;
 
     Ok(())
+}
+
+fn ensure_proxy_service_state_columns(conn: &Connection) -> Result<(), String> {
+    if !table_has_column(conn, "proxy_service_state", "outlet_mode")? {
+        conn.execute(
+            "ALTER TABLE proxy_service_state ADD COLUMN outlet_mode TEXT NOT NULL DEFAULT 'direct'",
+            [],
+        )
+        .map_err(|err| format!("迁移代理池出口模式失败: {}", err))?;
+    }
+    if !table_has_column(conn, "proxy_service_state", "selected_node_ids_json")? {
+        conn.execute(
+            "ALTER TABLE proxy_service_state ADD COLUMN selected_node_ids_json TEXT NOT NULL DEFAULT '[]'",
+            [],
+        )
+        .map_err(|err| format!("迁移代理池节点池选择失败: {}", err))?;
+    }
+    Ok(())
+}
+
+fn table_has_column(conn: &Connection, table: &str, column: &str) -> Result<bool, String> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(|err| format!("读取代理池数据库结构失败: {}", err))?;
+    let mut rows = stmt
+        .query([])
+        .map_err(|err| format!("读取代理池数据库结构失败: {}", err))?;
+    while let Some(row) = rows
+        .next()
+        .map_err(|err| format!("读取代理池数据库结构失败: {}", err))?
+    {
+        let name: String = row
+            .get(1)
+            .map_err(|err| format!("读取代理池数据库结构失败: {}", err))?;
+        if name == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn seed_builtin_nodes(conn: &Connection) -> Result<(), String> {
@@ -519,7 +795,7 @@ fn seed_builtin_nodes(conn: &Connection) -> Result<(), String> {
             name: "本地代理 127.0.0.1:7890",
             protocol: "http",
             host: "127.0.0.1",
-            port: 7890,
+            port: DEFAULT_LOCAL_PROXY_PORT,
             enabled: false,
             sort_order: 1,
             now: &now,
@@ -528,11 +804,14 @@ fn seed_builtin_nodes(conn: &Connection) -> Result<(), String> {
 
     conn.execute(
         "INSERT OR IGNORE INTO proxy_service_state (
-            id, enabled, preferred_port, actual_port, current_node_id, global_proxy_mode, updated_at
-         ) VALUES (1, 0, 7897, NULL, ?1, 'manual', ?2)",
-        params![DIRECT_NODE_ID, now],
+            id, enabled, preferred_port, actual_port, current_node_id, outlet_mode,
+            selected_node_ids_json, global_proxy_mode, updated_at
+         ) VALUES (1, 0, ?1, NULL, ?2, 'direct', '[]', 'manual', ?3)",
+        params![DEFAULT_PROXY_GATEWAY_PORT, DIRECT_NODE_ID, now],
     )
     .map_err(|err| format!("初始化代理池服务状态失败: {}", err))?;
+
+    normalize_service_state_in_conn(conn, &now)?;
 
     Ok(())
 }
@@ -591,6 +870,567 @@ fn get_node(conn: &Connection, id: &str) -> Result<Option<ProxyPoolNode>, String
     )
     .optional()
     .map_err(|err| format!("读取代理节点失败: {}", err))
+}
+
+pub fn get_service_state() -> Result<ProxyPoolServiceState, String> {
+    let db_path = proxy_pool_db_path()?;
+    let conn = open_connection_at(&db_path)?;
+    initialize_schema(&conn)?;
+    seed_builtin_nodes(&conn)?;
+    service_state_from_conn(&conn)
+}
+
+pub fn update_service_state(
+    request: ProxyPoolServiceUpdateRequest,
+) -> Result<ProxyPoolListResponse, String> {
+    update_service_state_config(request)?;
+    list_nodes()
+}
+
+pub fn update_service_state_config(
+    request: ProxyPoolServiceUpdateRequest,
+) -> Result<ProxyPoolServiceState, String> {
+    let db_path = proxy_pool_db_path()?;
+    let mut conn = open_connection_at(&db_path)?;
+    initialize_schema(&conn)?;
+    seed_builtin_nodes(&conn)?;
+    let current_state = service_state_from_conn(&conn)?;
+    let next_preferred_port = request
+        .preferred_port
+        .unwrap_or(current_state.preferred_port);
+    let next_local_proxy_port = request
+        .local_proxy_port
+        .unwrap_or(current_state.local_proxy_port);
+    if next_preferred_port == next_local_proxy_port {
+        return Err("内置代理网关端口不能和外部本地代理端口相同".to_string());
+    }
+
+    let tx = conn
+        .transaction()
+        .map_err(|err| format!("更新内置代理网关配置失败: {}", err))?;
+    let now = now_iso();
+
+    if let Some(enabled) = request.enabled {
+        tx.execute(
+            "UPDATE proxy_service_state SET enabled = ?1, global_proxy_mode = 'proxy_pool', updated_at = ?2 WHERE id = 1",
+            params![if enabled { 1 } else { 0 }, &now],
+        )
+        .map_err(|err| format!("更新内置代理网关开关失败: {}", err))?;
+    }
+
+    if let Some(port) = request.preferred_port {
+        validate_port(port, "内置代理网关端口")?;
+        tx.execute(
+            "UPDATE proxy_service_state SET preferred_port = ?1, updated_at = ?2 WHERE id = 1",
+            params![port, &now],
+        )
+        .map_err(|err| format!("更新内置代理网关端口失败: {}", err))?;
+    }
+
+    if let Some(port) = request.local_proxy_port {
+        validate_port(port, "本地代理端口")?;
+        update_local_proxy_node_in_tx(&tx, port, &now)?;
+    }
+
+    let has_selection_update = request.outlet_mode.is_some()
+        || request.selected_node_ids.is_some()
+        || request.current_node_id.is_some();
+    if has_selection_update {
+        let requested_selected_ids = request.selected_node_ids.is_some();
+        let mut next_mode = request
+            .outlet_mode
+            .as_deref()
+            .map(normalize_outlet_mode)
+            .transpose()?
+            .unwrap_or_else(|| current_state.outlet_mode.clone());
+        let mut next_selected = match request.selected_node_ids {
+            Some(ids) => normalize_requested_selected_node_ids(&*tx, ids)?,
+            None => current_state.selected_node_ids.clone(),
+        };
+        let mut next_current = current_state.current_node_id.clone();
+
+        if let Some(raw_node_id) = request.current_node_id {
+            let node_id = normalize_required_text(&raw_node_id, "出口节点", 120)?;
+            ensure_node_exists_for_service_state(&tx, &node_id)?;
+            if request.outlet_mode.is_none() {
+                next_mode = infer_outlet_mode_from_node_id(&node_id);
+            }
+            if next_mode == OUTLET_MODE_NODE_POOL
+                && !matches!(load_node_builtin(&*tx, &node_id)?, Some(false))
+            {
+                return Err("节点池模式只能把普通代理节点设为当前出口".to_string());
+            }
+            if next_mode == OUTLET_MODE_NODE_POOL && !next_selected.iter().any(|id| id == &node_id)
+            {
+                next_selected.push(node_id.clone());
+            }
+            next_current = node_id;
+        } else if request.outlet_mode.is_none()
+            && requested_selected_ids
+            && !next_selected.is_empty()
+        {
+            next_mode = OUTLET_MODE_NODE_POOL.to_string();
+        }
+
+        if next_mode == OUTLET_MODE_NODE_POOL && next_selected.is_empty() {
+            return Err("节点池模式至少需要选择一个代理节点".to_string());
+        }
+
+        let selection = resolve_service_selection(&*tx, next_mode, next_current, next_selected)?;
+        persist_service_selection(&*tx, &selection, &now)?;
+    } else {
+        normalize_service_state_in_conn(&*tx, &now)?;
+    }
+
+    tx.commit()
+        .map_err(|err| format!("更新内置代理网关配置失败: {}", err))?;
+
+    let conn = open_connection_at(&db_path)?;
+    initialize_schema(&conn)?;
+    seed_builtin_nodes(&conn)?;
+    service_state_from_conn(&conn)
+}
+
+fn service_state_from_conn(conn: &Connection) -> Result<ProxyPoolServiceState, String> {
+    let (enabled_raw, preferred_port_raw, actual_port_raw): (
+        i64,
+        i64,
+        Option<i64>,
+    ) = conn
+        .query_row(
+            "SELECT enabled, preferred_port, actual_port FROM proxy_service_state WHERE id = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|err| format!("读取内置代理网关状态失败: {}", err))?;
+
+    let preferred_port = u16::try_from(preferred_port_raw).unwrap_or(DEFAULT_PROXY_GATEWAY_PORT);
+    let actual_port = actual_port_raw.and_then(|port| u16::try_from(port).ok());
+    let selection = load_service_selection_from_conn(conn)?;
+    let current_node = get_node(conn, &selection.current_node_id)?
+        .or_else(|| get_node(conn, DIRECT_NODE_ID).ok().flatten())
+        .ok_or_else(|| "读取当前出口节点失败".to_string())?;
+    let local_proxy_port = get_node(conn, LOCAL_NODE_ID)?
+        .map(|node| node.port)
+        .unwrap_or(DEFAULT_LOCAL_PROXY_PORT);
+
+    Ok(ProxyPoolServiceState {
+        enabled: enabled_raw != 0,
+        preferred_port,
+        actual_port,
+        gateway_url: proxy_gateway_url(preferred_port),
+        outlet_mode: selection.outlet_mode,
+        selected_node_ids: selection.selected_node_ids,
+        current_node_id: current_node.id,
+        current_node_name: current_node.name,
+        current_node_protocol: current_node.protocol,
+        local_proxy_port,
+    })
+}
+
+fn ensure_node_exists_for_service_state(tx: &Transaction<'_>, node_id: &str) -> Result<(), String> {
+    let exists: Option<i64> = tx
+        .query_row(
+            "SELECT 1 FROM proxy_nodes WHERE id = ?1",
+            params![node_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|err| format!("读取内置代理出口节点失败: {}", err))?;
+    if exists.is_none() {
+        return Err("出口节点不存在".to_string());
+    }
+    Ok(())
+}
+
+fn update_local_proxy_node_in_tx(
+    tx: &Transaction<'_>,
+    port: u16,
+    now: &str,
+) -> Result<(), String> {
+    let name = format!("本地代理 127.0.0.1:{port}");
+    let standard_config = build_standard_config_json("http", "127.0.0.1", port, "", "")?;
+    tx.execute(
+        "UPDATE proxy_nodes
+         SET name = ?1, host = '127.0.0.1', port = ?2, raw_config = ?3, standard_config = ?3, updated_at = ?4
+         WHERE id = ?5",
+        params![name, port, standard_config, now, LOCAL_NODE_ID],
+    )
+    .map_err(|err| format!("更新本地代理端口失败: {}", err))?;
+    Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct ServiceOutletSelection {
+    outlet_mode: String,
+    current_node_id: String,
+    selected_node_ids: Vec<String>,
+}
+
+fn normalize_outlet_mode(value: &str) -> Result<String, String> {
+    match value.trim() {
+        OUTLET_MODE_DIRECT => Ok(OUTLET_MODE_DIRECT.to_string()),
+        OUTLET_MODE_LOCAL => Ok(OUTLET_MODE_LOCAL.to_string()),
+        OUTLET_MODE_NODE_POOL => Ok(OUTLET_MODE_NODE_POOL.to_string()),
+        _ => Err("出口模式必须是 direct、local 或 node_pool".to_string()),
+    }
+}
+
+fn normalize_outlet_mode_or_direct(value: &str) -> String {
+    normalize_outlet_mode(value).unwrap_or_else(|_| OUTLET_MODE_DIRECT.to_string())
+}
+
+fn infer_outlet_mode_from_node_id(node_id: &str) -> String {
+    match node_id {
+        DIRECT_NODE_ID => OUTLET_MODE_DIRECT.to_string(),
+        LOCAL_NODE_ID => OUTLET_MODE_LOCAL.to_string(),
+        _ => OUTLET_MODE_NODE_POOL.to_string(),
+    }
+}
+
+fn parse_selected_node_ids(value: &str) -> Vec<String> {
+    serde_json::from_str::<Vec<String>>(value).unwrap_or_default()
+}
+
+fn selected_node_ids_json(ids: &[String]) -> Result<String, String> {
+    serde_json::to_string(ids).map_err(|err| format!("保存节点池选择失败: {}", err))
+}
+
+fn load_node_builtin(conn: &Connection, node_id: &str) -> Result<Option<bool>, String> {
+    conn.query_row(
+        "SELECT builtin FROM proxy_nodes WHERE id = ?1",
+        params![node_id],
+        |row| Ok(row.get::<_, i64>(0)? != 0),
+    )
+    .optional()
+    .map_err(|err| format!("读取代理节点状态失败: {}", err))
+}
+
+fn filter_existing_normal_node_ids(
+    conn: &Connection,
+    ids: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let mut seen = HashSet::new();
+    let mut filtered = Vec::new();
+    for id in ids {
+        let trimmed = id.trim();
+        if trimmed.is_empty() || !seen.insert(trimmed.to_string()) {
+            continue;
+        }
+        if matches!(load_node_builtin(conn, trimmed)?, Some(false)) {
+            filtered.push(trimmed.to_string());
+        }
+    }
+    Ok(filtered)
+}
+
+fn normalize_requested_selected_node_ids(
+    conn: &Connection,
+    ids: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::new();
+    for raw_id in ids {
+        let id = normalize_required_text(&raw_id, "节点池出口节点", 120)?;
+        if !seen.insert(id.clone()) {
+            continue;
+        }
+        match load_node_builtin(conn, &id)? {
+            Some(false) => normalized.push(id),
+            Some(true) => return Err("节点池模式只能选择普通代理节点".to_string()),
+            None => return Err("节点池出口节点不存在".to_string()),
+        }
+    }
+    Ok(normalized)
+}
+
+fn resolve_service_selection(
+    conn: &Connection,
+    outlet_mode: String,
+    current_node_id: String,
+    selected_node_ids: Vec<String>,
+) -> Result<ServiceOutletSelection, String> {
+    let mut mode = normalize_outlet_mode_or_direct(&outlet_mode);
+    let mut selected = filter_existing_normal_node_ids(conn, selected_node_ids)?;
+    let current_id = current_node_id.trim().to_string();
+
+    if mode == OUTLET_MODE_DIRECT && current_id != DIRECT_NODE_ID {
+        mode = infer_outlet_mode_from_node_id(&current_id);
+    }
+
+    if mode == OUTLET_MODE_NODE_POOL {
+        if selected.is_empty() && matches!(load_node_builtin(conn, &current_id)?, Some(false)) {
+            selected.push(current_id.clone());
+        }
+        if selected.is_empty() {
+            mode = OUTLET_MODE_DIRECT.to_string();
+        }
+    }
+
+    if mode == OUTLET_MODE_DIRECT {
+        return Ok(ServiceOutletSelection {
+            outlet_mode: OUTLET_MODE_DIRECT.to_string(),
+            current_node_id: DIRECT_NODE_ID.to_string(),
+            selected_node_ids: Vec::new(),
+        });
+    }
+
+    if mode == OUTLET_MODE_LOCAL {
+        return Ok(ServiceOutletSelection {
+            outlet_mode: OUTLET_MODE_LOCAL.to_string(),
+            current_node_id: LOCAL_NODE_ID.to_string(),
+            selected_node_ids: Vec::new(),
+        });
+    }
+
+    let current_node_id = if selected.iter().any(|id| id == &current_id) {
+        current_id
+    } else {
+        selected
+            .first()
+            .cloned()
+            .ok_or_else(|| "节点池模式至少需要选择一个代理节点".to_string())?
+    };
+
+    Ok(ServiceOutletSelection {
+        outlet_mode: OUTLET_MODE_NODE_POOL.to_string(),
+        current_node_id,
+        selected_node_ids: selected,
+    })
+}
+
+fn load_service_selection_from_conn(conn: &Connection) -> Result<ServiceOutletSelection, String> {
+    let (outlet_mode, current_node_id, selected_node_ids_json): (String, String, String) = conn
+        .query_row(
+            "SELECT outlet_mode, current_node_id, selected_node_ids_json FROM proxy_service_state WHERE id = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|err| format!("读取内置代理出口模式失败: {}", err))?;
+
+    resolve_service_selection(
+        conn,
+        outlet_mode,
+        current_node_id,
+        parse_selected_node_ids(&selected_node_ids_json),
+    )
+}
+
+fn apply_node_enabled_flags(
+    conn: &Connection,
+    selection: &ServiceOutletSelection,
+    now: &str,
+) -> Result<(), String> {
+    if selection.outlet_mode == OUTLET_MODE_NODE_POOL {
+        conn.execute(
+            "UPDATE proxy_nodes SET enabled = 0, updated_at = ?1 WHERE enabled != 0",
+            params![now],
+        )
+        .map_err(|err| format!("停用非节点池出口失败: {}", err))?;
+        for node_id in &selection.selected_node_ids {
+            conn.execute(
+                "UPDATE proxy_nodes SET enabled = 1, updated_at = ?1 WHERE id = ?2 AND enabled != 1",
+                params![now, node_id],
+            )
+            .map_err(|err| format!("启用节点池出口失败: {}", err))?;
+        }
+        return Ok(());
+    }
+
+    let active_id = if selection.outlet_mode == OUTLET_MODE_LOCAL {
+        LOCAL_NODE_ID
+    } else {
+        DIRECT_NODE_ID
+    };
+    conn.execute(
+        "UPDATE proxy_nodes
+         SET enabled = CASE WHEN id = ?1 THEN 1 ELSE 0 END, updated_at = ?2
+         WHERE enabled != CASE WHEN id = ?1 THEN 1 ELSE 0 END",
+        params![active_id, now],
+    )
+    .map_err(|err| format!("同步出口节点启用状态失败: {}", err))?;
+    Ok(())
+}
+
+fn persist_service_selection(
+    conn: &Connection,
+    selection: &ServiceOutletSelection,
+    now: &str,
+) -> Result<(), String> {
+    let selected_json = selected_node_ids_json(&selection.selected_node_ids)?;
+    conn.execute(
+        "UPDATE proxy_service_state
+         SET outlet_mode = ?1, current_node_id = ?2, selected_node_ids_json = ?3, updated_at = ?4
+         WHERE id = 1",
+        params![
+            &selection.outlet_mode,
+            &selection.current_node_id,
+            selected_json,
+            now,
+        ],
+    )
+    .map_err(|err| format!("保存内置代理出口模式失败: {}", err))?;
+    apply_node_enabled_flags(conn, selection, now)
+}
+
+fn normalize_service_state_in_conn(conn: &Connection, now: &str) -> Result<(), String> {
+    let selection = load_service_selection_from_conn(conn)?;
+    persist_service_selection(conn, &selection, now)
+}
+
+#[derive(Debug, Clone)]
+pub struct GatewayOutboundTarget {
+    pub id: String,
+    pub name: String,
+    pub protocol: String,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub password: String,
+    pub gateway_port: u16,
+    pub standard_config: Value,
+}
+
+pub fn load_current_gateway_outbound() -> Result<GatewayOutboundTarget, String> {
+    let db_path = proxy_pool_db_path()?;
+    let conn = open_connection_at(&db_path)?;
+    initialize_schema(&conn)?;
+    seed_builtin_nodes(&conn)?;
+    let service_state = service_state_from_conn(&conn)?;
+    let mut target =
+        load_gateway_outbound_by_id(&conn, &service_state.current_node_id)?
+            .or_else(|| load_gateway_outbound_by_id(&conn, DIRECT_NODE_ID).ok().flatten())
+            .ok_or_else(|| "读取内置代理网关出口节点失败".to_string())?;
+    target.gateway_port = service_state.preferred_port;
+    if target.id != DIRECT_NODE_ID {
+        let enabled: Option<i64> = conn
+            .query_row(
+                "SELECT enabled FROM proxy_nodes WHERE id = ?1",
+                params![&target.id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|err| format!("读取内置代理网关出口节点状态失败: {}", err))?;
+        if enabled.unwrap_or(0) == 0 {
+            target = load_gateway_outbound_by_id(&conn, DIRECT_NODE_ID)?
+                .ok_or_else(|| "读取内置直连节点失败".to_string())?;
+            target.gateway_port = service_state.preferred_port;
+        }
+    }
+    Ok(target)
+}
+
+fn load_gateway_outbound_by_id(
+    conn: &Connection,
+    id: &str,
+) -> Result<Option<GatewayOutboundTarget>, String> {
+    conn.query_row(
+        "SELECT id, name, protocol, host, port, username, password, standard_config
+         FROM proxy_nodes
+         WHERE id = ?1",
+        params![id],
+        |row| {
+            let port_raw: i64 = row.get(4)?;
+            let standard_config_text: String = row.get(7)?;
+            let standard_config =
+                serde_json::from_str(&standard_config_text).unwrap_or_else(|_| json!({}));
+            Ok(GatewayOutboundTarget {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                protocol: row.get(2)?,
+                host: row.get(3)?,
+                port: u16::try_from(port_raw).unwrap_or(0),
+                username: row.get(5)?,
+                password: row.get(6)?,
+                gateway_port: DEFAULT_PROXY_GATEWAY_PORT,
+                standard_config,
+            })
+        },
+    )
+    .optional()
+    .map_err(|err| format!("读取内置代理网关出口节点失败: {}", err))
+}
+
+pub fn update_service_actual_port(actual_port: Option<u16>) -> Result<(), String> {
+    let db_path = proxy_pool_db_path()?;
+    let conn = open_connection_at(&db_path)?;
+    initialize_schema(&conn)?;
+    seed_builtin_nodes(&conn)?;
+    conn.execute(
+        "UPDATE proxy_service_state SET actual_port = ?1, updated_at = ?2 WHERE id = 1",
+        params![actual_port.map(i64::from), now_iso()],
+    )
+    .map_err(|err| format!("更新内置代理网关实际端口失败: {}", err))?;
+    Ok(())
+}
+
+fn reset_current_node_if_missing_in_tx(tx: &Transaction<'_>, now: &str) -> Result<(), String> {
+    normalize_service_state_in_conn(&*tx, now).map_err(|err| format!("恢复当前出口节点失败: {}", err))
+}
+
+pub fn proxy_gateway_url(port: u16) -> String {
+    format!("http://127.0.0.1:{port}")
+}
+
+fn validate_port(port: u16, label: &str) -> Result<(), String> {
+    if port == 0 {
+        return Err(format!("{}必须在 1-65535 之间", label));
+    }
+    Ok(())
+}
+
+fn load_check_target_by_id(node_id: &str) -> Result<ProxyCheckTarget, String> {
+    let node_id = normalize_required_text(node_id, "代理节点", 120)?;
+    let db_path = proxy_pool_db_path()?;
+    let conn = open_connection_at(&db_path)?;
+    initialize_schema(&conn)?;
+    seed_builtin_nodes(&conn)?;
+
+    conn.query_row(
+        "SELECT id, protocol, host, port, username, password
+         FROM proxy_nodes
+         WHERE id = ?1",
+        params![node_id],
+        map_check_target_row,
+    )
+    .optional()
+    .map_err(|err| format!("读取代理节点检测配置失败: {}", err))?
+    .ok_or_else(|| "代理节点不存在".to_string())
+}
+
+fn load_enabled_check_targets() -> Result<Vec<ProxyCheckTarget>, String> {
+    let db_path = proxy_pool_db_path()?;
+    let conn = open_connection_at(&db_path)?;
+    initialize_schema(&conn)?;
+    seed_builtin_nodes(&conn)?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, protocol, host, port, username, password
+             FROM proxy_nodes
+             WHERE enabled = 1
+             ORDER BY builtin DESC, sort_order ASC, created_at ASC",
+        )
+        .map_err(|err| format!("读取代理节点检测配置失败: {}", err))?;
+    let targets = stmt
+        .query_map([], map_check_target_row)
+        .map_err(|err| format!("读取代理节点检测配置失败: {}", err))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|err| format!("读取代理节点检测配置失败: {}", err))?;
+
+    Ok(targets)
+}
+
+fn map_check_target_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProxyCheckTarget> {
+    let port_raw: i64 = row.get(3)?;
+    Ok(ProxyCheckTarget {
+        id: row.get(0)?,
+        protocol: row.get(1)?,
+        host: row.get(2)?,
+        port: u16::try_from(port_raw).unwrap_or(0),
+        username: row.get(4)?,
+        password: row.get(5)?,
+    })
 }
 
 fn list_sources_from_conn(conn: &Connection) -> Result<Vec<ProxySource>, String> {
@@ -826,6 +1666,7 @@ fn replace_subscription_source_nodes(
         sort_order += 1;
         imported += 1;
     }
+    reset_current_node_if_missing_in_tx(&tx, &now)?;
 
     tx.commit()
         .map_err(|err| format!("刷新订阅节点失败: {}", err))?;
@@ -861,6 +1702,104 @@ fn build_subscription_refresh_response(
         sources: list.sources,
         results,
     })
+}
+
+fn build_latency_response(
+    results: Vec<ProxyPoolLatencyTestResult>,
+) -> Result<ProxyPoolLatencyTestResponse, String> {
+    let failed = results.iter().filter(|item| !item.ok).count();
+    let list = list_nodes()?;
+
+    Ok(ProxyPoolLatencyTestResponse {
+        tested: results.len(),
+        failed,
+        results,
+        nodes: list.nodes,
+        groups: list.groups,
+        sources: list.sources,
+    })
+}
+
+fn build_ip_health_response(
+    results: Vec<ProxyPoolIpHealthResult>,
+) -> Result<ProxyPoolIpHealthResponse, String> {
+    let failed = results.iter().filter(|item| !item.ok).count();
+    let list = list_nodes()?;
+
+    Ok(ProxyPoolIpHealthResponse {
+        checked: results.len(),
+        failed,
+        results,
+        nodes: list.nodes,
+        groups: list.groups,
+        sources: list.sources,
+    })
+}
+
+fn persist_latency_results(results: &[ProxyPoolLatencyTestResult]) -> Result<(), String> {
+    if results.is_empty() {
+        return Ok(());
+    }
+
+    let db_path = proxy_pool_db_path()?;
+    let mut conn = open_connection_at(&db_path)?;
+    initialize_schema(&conn)?;
+    seed_builtin_nodes(&conn)?;
+
+    let now = now_iso();
+    let tx = conn
+        .transaction()
+        .map_err(|err| format!("保存代理测速结果失败: {}", err))?;
+    for result in results {
+        let status = if result.ok {
+            "ok".to_string()
+        } else {
+            truncate_refresh_error(&result.error)
+        };
+        tx.execute(
+            "UPDATE proxy_nodes
+             SET latency_ms = ?1, latency_status = ?2, updated_at = ?3
+             WHERE id = ?4",
+            params![result.latency_ms, status, &now, &result.node_id],
+        )
+        .map_err(|err| format!("保存代理测速结果失败: {}", err))?;
+    }
+    tx.commit()
+        .map_err(|err| format!("保存代理测速结果失败: {}", err))?;
+
+    Ok(())
+}
+
+fn persist_ip_health_results(results: &[ProxyPoolIpHealthResult]) -> Result<(), String> {
+    if results.is_empty() {
+        return Ok(());
+    }
+
+    let db_path = proxy_pool_db_path()?;
+    let mut conn = open_connection_at(&db_path)?;
+    initialize_schema(&conn)?;
+    seed_builtin_nodes(&conn)?;
+
+    let now = now_iso();
+    let tx = conn
+        .transaction()
+        .map_err(|err| format!("保存 IP 健康检测结果失败: {}", err))?;
+    for result in results {
+        let raw_json = serde_json::to_string(&result.raw_data)
+            .map_err(|err| format!("序列化 IP 健康检测结果失败: {}", err))?;
+        let summary = health::summarize_ip_health(result);
+        tx.execute(
+            "UPDATE proxy_nodes
+             SET ip_health_json = ?1, ip_health_summary = ?2, updated_at = ?3
+             WHERE id = ?4",
+            params![raw_json, summary, &now, &result.node_id],
+        )
+        .map_err(|err| format!("保存 IP 健康检测结果失败: {}", err))?;
+    }
+    tx.commit()
+        .map_err(|err| format!("保存 IP 健康检测结果失败: {}", err))?;
+
+    Ok(())
 }
 
 fn truncate_refresh_error(error: &str) -> String {
@@ -901,7 +1840,7 @@ fn insert_imported_node(
             latency_ms, latency_status, ip_health_json, ip_health_summary, created_at, updated_at
          ) VALUES (
             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
-            ?10, '', ?11, ?12, ?13, 1, 0,
+            ?10, '', ?11, ?12, ?13, 0, 0,
             NULL, '', '', '', ?14, ?14
          )",
         params![
@@ -1046,7 +1985,7 @@ impl NormalizedNodeInput {
             username,
             password,
             group,
-            enabled: request.enabled.unwrap_or(true),
+            enabled: request.enabled.unwrap_or(false),
         })
     }
 }
