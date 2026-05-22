@@ -1,8 +1,8 @@
 cask "cockpit-tools" do
-  version "0.24.0"
-  sha256 "a4d8ca5613178e036b25ce66bdc1d321ced293dc6c7de1e3c33a6fc9bd850379"
+  version "0.0.11"
+  sha256 "d630f68d3f5ecdc6335822a2582618dfa4eec87131cd3a7709891fa9be7a1024"
 
-  url "https://github.com/lemon-casino/ai-lemon-tools-release/releases/download/v#{version}/AI.Lemon.Tools_#{version}_universal.dmg",
+  url "https://github.com/lemon-casino/ai-lemon-tools-release/releases/download/#{version}/AI.Lemon.Tools_#{version}_universal.dmg",
       verified: "https://github.com/lemon-casino/ai-lemon-tools-release/"
   name "AI Lemon Tools"
   desc "Codex-focused account manager"
