@@ -22,6 +22,7 @@ pub mod kiro_instance;
 pub mod logs;
 pub mod oauth;
 pub mod provider_current;
+pub mod proxy_pool;
 pub mod qoder;
 pub mod qoder_instance;
 pub mod system;

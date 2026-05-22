@@ -6,6 +6,13 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.7] - 2026-05-22
+### Added
+- Added built-in proxy runtime status commands for xray and sing-box, including cache preparation, version detection, and cache directory opening from the desktop app.
+- Added a Network Services settings status panel that shows the current proxy runtime target, resource directory, cache directory, runtime availability, detected version, and clear error messages.
+
+### Changed
+- Extended proxy runtime verification so the app can confirm cached runtime executables with `version` commands before later proxy node and bridge features are enabled.
 
 ## [0.0.6] - 2026-05-22
 ### Added

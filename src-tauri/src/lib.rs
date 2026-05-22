@@ -424,6 +424,10 @@ pub fn run() {
             commands::system::external_import_fetch_import_url,
             commands::system::open_folder,
             commands::system::delete_corrupted_file,
+            // Proxy Runtime Commands
+            commands::proxy_pool::proxy_runtime_get_status,
+            commands::proxy_pool::proxy_runtime_verify,
+            commands::proxy_pool::proxy_runtime_open_cache_dir,
             // Logs Commands
             commands::logs::logs_get_snapshot,
             commands::logs::logs_open_log_directory,

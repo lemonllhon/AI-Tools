@@ -5,8 +5,14 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
+use std::process::Command;
 use tauri::{AppHandle, Manager, Runtime as TauriRuntime};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const RESOURCE_RUNTIME_DIR_NAME: &str = "proxy-runtime";
 const DEV_RUNTIME_BUNDLE_DIR_NAME: &str = "proxy-runtime-bundle";
 const RUNTIME_MANIFEST_FILE_NAME: &str = "runtime-manifest.json";
@@ -35,6 +41,32 @@ pub struct ProxyRuntimeCachedBinary {
     pub cache_path: String,
     pub cache_refreshed: bool,
     pub executable: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyRuntimeStatus {
+    pub target: String,
+    pub resource_dir: String,
+    pub cache_root: String,
+    pub runtimes: Vec<ProxyRuntimeStatusItem>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyRuntimeStatusItem {
+    pub runtime: String,
+    pub expected_version: String,
+    pub manifest_sha256: String,
+    pub source_kind: Option<ProxyRuntimeSourceKind>,
+    pub source_path: String,
+    pub cache_path: String,
+    pub available: bool,
+    pub executable: bool,
+    pub cache_refreshed: bool,
+    pub detected_version: String,
+    pub version_output: String,
+    pub error: String,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -80,6 +112,43 @@ pub fn ensure_runtimes_cached<R: TauriRuntime>(
     ensure_runtimes_cached_from_dirs(&resource_dir, &data_dir, target)
 }
 
+pub fn get_runtime_status<R: TauriRuntime>(app: &AppHandle<R>) -> Result<ProxyRuntimeStatus, String> {
+    let target = current_target()?;
+    let resource_dir = resolve_resource_runtime_dir(app)?;
+    let data_dir = data_dir::get_data_dir()?;
+    get_runtime_status_from_dirs(&resource_dir, &data_dir, target)
+}
+
+pub fn get_runtime_status_from_dirs(
+    resource_dir: &Path,
+    data_dir: &Path,
+    target: &str,
+) -> Result<ProxyRuntimeStatus, String> {
+    validate_target(target)?;
+    let manifest = read_manifest(resource_dir)?;
+    let entries = select_target_entries(&manifest, target)?;
+    let cache_root = cache_root_for_data_dir(data_dir, target);
+    fs::create_dir_all(&cache_root).map_err(|err| {
+        format!(
+            "创建代理内核运行缓存目录失败 {}: {}",
+            cache_root.display(),
+            err
+        )
+    })?;
+
+    let mut runtimes = Vec::with_capacity(entries.len());
+    for entry in entries {
+        runtimes.push(build_runtime_status_item(resource_dir, &cache_root, &entry));
+    }
+
+    Ok(ProxyRuntimeStatus {
+        target: target.to_string(),
+        resource_dir: display_path(resource_dir),
+        cache_root: display_path(&cache_root),
+        runtimes,
+    })
+}
+
 pub fn ensure_runtimes_cached_from_dirs(
     resource_dir: &Path,
     data_dir: &Path,
@@ -88,10 +157,7 @@ pub fn ensure_runtimes_cached_from_dirs(
     validate_target(target)?;
     let manifest = read_manifest(resource_dir)?;
     let entries = select_target_entries(&manifest, target)?;
-    let cache_root = data_dir
-        .join(CACHE_ROOT_DIR_NAME)
-        .join(CACHE_DIR_NAME)
-        .join(target);
+    let cache_root = cache_root_for_data_dir(data_dir, target);
     fs::create_dir_all(&cache_root).map_err(|err| {
         format!(
             "创建代理内核运行缓存目录失败 {}: {}",
@@ -111,6 +177,12 @@ pub fn ensure_runtimes_cached_from_dirs(
         cache_root: display_path(&cache_root),
         runtimes,
     })
+}
+
+pub fn cache_root_for_current_target() -> Result<PathBuf, String> {
+    let target = current_target()?;
+    let data_dir = data_dir::get_data_dir()?;
+    Ok(cache_root_for_data_dir(&data_dir, target))
 }
 
 pub fn resolve_resource_runtime_dir<R: TauriRuntime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
@@ -291,6 +363,69 @@ fn ensure_runtime_cached(
     })
 }
 
+fn build_runtime_status_item(
+    resource_dir: &Path,
+    cache_root: &Path,
+    entry: &RuntimeManifestEntry,
+) -> ProxyRuntimeStatusItem {
+    match ensure_runtime_cached(resource_dir, cache_root, entry) {
+        Ok(cached) => {
+            let cache_path = PathBuf::from(cached.cache_path.clone());
+            let (detected_version, version_output, version_error) =
+                detect_runtime_version(&cache_path);
+            let executable = cached.executable;
+            let available = executable && version_error.is_none();
+            ProxyRuntimeStatusItem {
+                runtime: cached.runtime,
+                expected_version: cached.expected_version,
+                manifest_sha256: cached.manifest_sha256,
+                source_kind: Some(cached.source_kind),
+                source_path: cached.source_path,
+                cache_path: cached.cache_path,
+                available,
+                executable,
+                cache_refreshed: cached.cache_refreshed,
+                detected_version,
+                version_output,
+                error: version_error.unwrap_or_default(),
+            }
+        }
+        Err(error) => ProxyRuntimeStatusItem {
+            runtime: entry.runtime.clone(),
+            expected_version: entry.version.clone(),
+            manifest_sha256: entry.sha256.clone(),
+            source_kind: None,
+            source_path: manifest_path(resource_dir, &entry.path)
+                .map(|path| display_path(&path))
+                .unwrap_or_default(),
+            cache_path: cache_path_for_entry(resource_dir, cache_root, entry)
+                .map(|path| display_path(&path))
+                .unwrap_or_default(),
+            available: false,
+            executable: false,
+            cache_refreshed: false,
+            detected_version: String::new(),
+            version_output: String::new(),
+            error,
+        },
+    }
+}
+
+fn cache_path_for_entry(
+    resource_dir: &Path,
+    cache_root: &Path,
+    entry: &RuntimeManifestEntry,
+) -> Result<PathBuf, String> {
+    let binary_name = manifest_path(resource_dir, &entry.path)?
+        .file_name()
+        .ok_or_else(|| format!("代理内核清单路径缺少文件名: {}", entry.path))?
+        .to_os_string();
+    Ok(cache_root
+        .join(&entry.runtime)
+        .join(&entry.sha256)
+        .join(binary_name))
+}
+
 fn resolve_source_path(
     resource_dir: &Path,
     entry: &RuntimeManifestEntry,
@@ -386,6 +521,91 @@ fn validate_target(target: &str) -> Result<(), String> {
         | "linux-aarch64" => Ok(()),
         _ => Err(format!("未知代理内核平台: {}", target)),
     }
+}
+
+fn cache_root_for_data_dir(data_dir: &Path, target: &str) -> PathBuf {
+    data_dir
+        .join(CACHE_ROOT_DIR_NAME)
+        .join(CACHE_DIR_NAME)
+        .join(target)
+}
+
+fn detect_runtime_version(path: &Path) -> (String, String, Option<String>) {
+    if !path.is_file() {
+        return (
+            String::new(),
+            String::new(),
+            Some(format!("代理内核缓存文件不存在: {}", path.display())),
+        );
+    }
+
+    let mut command = Command::new(path);
+    command.arg("version");
+    #[cfg(target_os = "windows")]
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    match command.output() {
+        Ok(output) => {
+            let version_output = normalize_command_output(&output.stdout, &output.stderr);
+            let detected_version = first_non_empty_line(&version_output);
+            if output.status.success() {
+                return (detected_version, version_output, None);
+            }
+            let code = output
+                .status
+                .code()
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "terminated".to_string());
+            (
+                detected_version,
+                version_output.clone(),
+                Some(format!(
+                    "代理内核版本命令失败，退出码 {}: {}",
+                    code,
+                    truncate_for_status(&version_output)
+                )),
+            )
+        }
+        Err(err) => (
+            String::new(),
+            String::new(),
+            Some(format!(
+                "执行代理内核版本命令失败 {}: {}",
+                path.display(),
+                err
+            )),
+        ),
+    }
+}
+
+fn normalize_command_output(stdout: &[u8], stderr: &[u8]) -> String {
+    let stdout_text = String::from_utf8_lossy(stdout).trim().to_string();
+    let stderr_text = String::from_utf8_lossy(stderr).trim().to_string();
+    match (stdout_text.is_empty(), stderr_text.is_empty()) {
+        (true, true) => String::new(),
+        (false, true) => stdout_text,
+        (true, false) => stderr_text,
+        (false, false) => format!("{}\n{}", stdout_text, stderr_text),
+    }
+}
+
+fn first_non_empty_line(text: &str) -> String {
+    text.lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn truncate_for_status(text: &str) -> String {
+    const LIMIT: usize = 500;
+    let trimmed = text.trim();
+    if trimmed.chars().count() <= LIMIT {
+        return trimmed.to_string();
+    }
+    let mut truncated: String = trimmed.chars().take(LIMIT).collect();
+    truncated.push_str("...");
+    truncated
 }
 
 fn validate_sha256(value: &str) -> Result<(), String> {
