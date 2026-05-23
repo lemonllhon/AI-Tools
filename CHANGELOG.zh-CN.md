@@ -6,6 +6,12 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.0.23] - 2026-05-23
+
+### 修复
+- 修复 `proxy_pool::gateway` 在 Release 构建中因返回网关故障切换成功出口引用但缺少显式生命周期而编译失败的问题。
+- 修复 HTTPS 上游代理 TLS 配置对 `rustls-native-certs` 0.8 新证书结果结构不兼容的问题；系统根证书部分加载失败现在记录为警告，不再阻断可用证书继续使用。
+
 ## [0.0.22] - 2026-05-23
 
 ### 新增

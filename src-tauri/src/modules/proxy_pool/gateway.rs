@@ -325,11 +325,11 @@ async fn proxy_http_request(
     Ok(())
 }
 
-async fn open_tunnel_with_fallback(
-    outbounds: &[GatewayOutboundTarget],
+async fn open_tunnel_with_fallback<'a>(
+    outbounds: &'a [GatewayOutboundTarget],
     destination_host: &str,
     destination_port: u16,
-) -> Result<(GatewayStream, &GatewayOutboundTarget), String> {
+) -> Result<(GatewayStream, &'a GatewayOutboundTarget), String> {
     let mut errors = Vec::new();
     for outbound in outbounds {
         match open_tunnel(outbound, destination_host, destination_port).await {
@@ -668,8 +668,14 @@ fn https_proxy_tls_config() -> Result<Arc<ClientConfig>, String> {
 }
 
 fn build_https_proxy_tls_config() -> Result<Arc<ClientConfig>, String> {
-    let certs = rustls_native_certs::load_native_certs()
-        .map_err(|error| format!("加载系统根证书失败: {}", error))?;
+    let cert_result = rustls_native_certs::load_native_certs();
+    for error in &cert_result.errors {
+        crate::modules::logger::log_warn(&format!(
+            "[ProxyGateway] 加载部分系统根证书失败: {}",
+            error
+        ));
+    }
+    let certs = cert_result.certs;
     if certs.is_empty() {
         return Err("系统根证书为空，无法验证 HTTPS 上游代理证书".to_string());
     }

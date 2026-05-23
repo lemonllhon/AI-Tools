@@ -6,6 +6,11 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.23] - 2026-05-23
+### Fixed
+- Fixed release builds failing in `proxy_pool::gateway` by adding the explicit outbound lifetime required when returning the successful gateway fallback target.
+- Fixed HTTPS upstream proxy TLS configuration for `rustls-native-certs` 0.8 by reading the new certificate result shape and treating partial native certificate load errors as warnings.
+
 ## [0.0.22] - 2026-05-23
 ### Added
 - Added HTTPS upstream proxy support in the built-in proxy gateway, including TLS connection setup to the upstream proxy, system root certificate validation, CONNECT tunneling, absolute-form HTTP forwarding, and upstream proxy authentication reuse.
