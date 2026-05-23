@@ -757,7 +757,17 @@
       "codexAppSpeedFast": "Nhanh",
       "codexAppSpeedLaunch": "Khởi động lại Codex",
       "codexAppSpeedSaveFailed": "Không thể lưu tốc độ Codex: {{error}}",
-      "codexAppSpeedLaunchFailed": "Không thể khởi động lại Codex: {{error}}"
+      "codexAppSpeedLaunchFailed": "Không thể khởi động lại Codex: {{error}}",
+      "themeCream": "Kem",
+      "themeStarry": "Bầu trời sao",
+      "themeOcean": "Đại dương",
+      "dataDirSelect": "Chọn",
+      "dataDirReset": "Khôi phục mặc định",
+      "dataDirLoadFailed": "Không tải được thư mục dữ liệu: {{error}}",
+      "dataDirChanged": "Thư mục dữ liệu đã được cập nhật. Nếu thư mục mới đang trống, dữ liệu hiện tại đã được tự động sao chép. Hãy khởi động lại ứng dụng để tất cả dịch vụ đang chạy dùng vị trí mới.",
+      "dataDirChangeFailed": "Không cập nhật được thư mục dữ liệu: {{error}}",
+      "dataDirResetDone": "Đã khôi phục thư mục dữ liệu mặc định. Hãy khởi động lại ứng dụng để tất cả dịch vụ đang chạy dùng vị trí mặc định.",
+      "dataDirResetFailed": "Không khôi phục được thư mục dữ liệu mặc định: {{error}}"
     },
     "network": {
       "apiTitle": "AI Lemon Tools API",
@@ -796,7 +806,21 @@
       "proxyNoProxy": "Danh sách NO_PROXY",
       "proxyNoProxyDesc": "Phân tách bằng dấu phẩy; host khớp sẽ bỏ qua proxy.",
       "proxyNoProxyPlaceholder": "ví dụ: 127.0.0.1,localhost,::1",
-      "proxyUrlRequired": "Không được để trống URL proxy khi bật proxy toàn cục."
+      "proxyUrlRequired": "Không được để trống URL proxy khi bật proxy toàn cục.",
+      "proxyGatewayTitle": "Cổng proxy tích hợp",
+      "proxyGatewayEnabled": "Bật cổng proxy tích hợp",
+      "proxyGatewayEnabledDesc": "Khi bật, các tiến trình được quản lý và chế độ Codex API theo proxy toàn cục sẽ kết nối tới cổng tích hợp; chọn đầu ra trong nhóm nút proxy.",
+      "proxyGatewayAddress": "Địa chỉ cổng tích hợp",
+      "proxyGatewayAddressDesc": "Biến môi trường proxy dùng điểm vào ổn định này, còn nút được chọn quyết định đầu ra thực tế.",
+      "proxyGatewayPort": "Cổng của gateway tích hợp",
+      "proxyGatewayPortDesc": "Mặc định là 7897. Sau khi lưu, proxy toàn cục sẽ trỏ tới địa chỉ gateway tích hợp mới.",
+      "proxyGatewayPortInvalid": "Cổng của gateway proxy tích hợp phải nằm trong khoảng 1 đến 65535.",
+      "proxyCurrentOutlet": "Nút đầu ra hiện tại",
+      "proxyCurrentOutletDesc": "Các nút đã nhập không tự động trở thành đầu ra; hãy chọn nút cần dùng trong nhóm nút proxy phía trên.",
+      "proxyCurrentOutletEmpty": "Chưa chọn",
+      "proxyLocalPort": "Cổng proxy cục bộ bên ngoài",
+      "proxyLocalPortDesc": "Được dùng bởi nút tích hợp \"Proxy cục bộ 127.0.0.1\". Chọn nút này để dùng Clash, ứng dụng proxy khác hoặc cổng cục bộ tùy chỉnh.",
+      "proxyLocalPortInvalid": "Cổng proxy cục bộ phải nằm trong khoảng 1 đến 65535."
     },
     "about": {
       "appName": "AI Lemon Tools",
@@ -826,7 +850,8 @@
       "releaseHistorySectionChanged": "Đã thay đổi",
       "releaseHistorySectionFixed": "Đã sửa",
       "releaseHistorySectionRemoved": "LOẠI BỎ",
-      "downloadThisVersion": "Tải xuống"
+      "downloadThisVersion": "Tải xuống",
+      "lemonLabel": "Lemon"
     },
     "saveSettings": "Lưu cài đặt",
     "transfer": {
@@ -1614,7 +1639,9 @@
     "stoppingApiService": "Đang dừng dịch vụ API...",
     "stopApiServiceFailed": "Không thể dừng dịch vụ API. Hãy tắt dịch vụ trước rồi thử lại.",
     "skipThisVersion": "Bỏ qua phiên bản này",
-    "skipFailed": "Không thể bỏ qua bản cập nhật này: {{error}}"
+    "skipFailed": "Không thể bỏ qua bản cập nhật này: {{error}}",
+    "stoppingNetworkServices": "Đang dừng dịch vụ mạng...",
+    "stopNetworkServicesFailed": "Không thể dừng dịch vụ mạng. Hãy tắt chúng trước rồi thử lại."
   },
   "closeDialog": {
     "title": "Đóng cửa sổ",
@@ -1927,7 +1954,12 @@
       "upstreamProxyMode": {
         "followGlobalProxy": "Proxy chung",
         "direct": "Trực tiếp"
-      }
+      },
+      "webSocketUrl": "WebSocket",
+      "webSocketStatusReady": "Sẵn sàng",
+      "webSocketStatusStopped": "Đang chờ dịch vụ",
+      "webSocketStatusDisabled": "Tắt cùng dịch vụ",
+      "webSocketManagedDesc": "Codex Responses WebSocket dùng chung công tắc, cổng, khóa và phạm vi truy cập của dịch vụ API."
     },
     "local": {
       "desc": "Nhập tài khoản hiện tại từ ~/.codex/auth.json",

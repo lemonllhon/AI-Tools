@@ -757,7 +757,17 @@
       "codexAppSpeedFast": "Rápida",
       "codexAppSpeedLaunch": "Reiniciar Codex",
       "codexAppSpeedSaveFailed": "No se pudo guardar la velocidad de Codex: {{error}}",
-      "codexAppSpeedLaunchFailed": "No se pudo reiniciar Codex: {{error}}"
+      "codexAppSpeedLaunchFailed": "No se pudo reiniciar Codex: {{error}}",
+      "themeCream": "Crema",
+      "themeStarry": "Estrellado",
+      "themeOcean": "Océano",
+      "dataDirSelect": "Seleccionar",
+      "dataDirReset": "Restaurar predeterminado",
+      "dataDirLoadFailed": "No se pudo cargar el directorio de datos: {{error}}",
+      "dataDirChanged": "Directorio de datos actualizado. Si la nueva carpeta estaba vacía, los datos actuales se copiaron automáticamente. Reinicia la app para que todos los servicios en ejecución usen la nueva ubicación.",
+      "dataDirChangeFailed": "No se pudo actualizar el directorio de datos: {{error}}",
+      "dataDirResetDone": "Directorio de datos predeterminado restaurado. Reinicia la app para que todos los servicios en ejecución usen la ubicación predeterminada.",
+      "dataDirResetFailed": "No se pudo restaurar el directorio de datos predeterminado: {{error}}"
     },
     "network": {
       "apiTitle": "AI Lemon Tools API",
@@ -796,7 +806,21 @@
       "proxyNoProxy": "Lista NO_PROXY",
       "proxyNoProxyDesc": "Separado por comas; los hosts coincidentes omiten el proxy.",
       "proxyNoProxyPlaceholder": "p. ej. 127.0.0.1,localhost,::1",
-      "proxyUrlRequired": "La URL del proxy no puede estar vacía cuando el proxy global está habilitado."
+      "proxyUrlRequired": "La URL del proxy no puede estar vacía cuando el proxy global está habilitado.",
+      "proxyGatewayTitle": "Puerta de enlace proxy integrada",
+      "proxyGatewayEnabled": "Activar puerta de enlace proxy integrada",
+      "proxyGatewayEnabledDesc": "Cuando está activada, los procesos gestionados y el modo de Codex API que sigue el proxy global se conectan a la puerta de enlace integrada; elige la salida en el grupo de nodos proxy.",
+      "proxyGatewayAddress": "Dirección de la puerta de enlace integrada",
+      "proxyGatewayAddressDesc": "Las variables de entorno del proxy usan esta entrada estable, mientras que el nodo seleccionado decide la salida real.",
+      "proxyGatewayPort": "Puerto de la puerta de enlace integrada",
+      "proxyGatewayPortDesc": "El valor predeterminado es 7897. Tras guardar, el proxy global apuntará a la nueva dirección de la puerta de enlace integrada.",
+      "proxyGatewayPortInvalid": "El puerto de la puerta de enlace proxy integrada debe estar entre 1 y 65535.",
+      "proxyCurrentOutlet": "Nodo de salida actual",
+      "proxyCurrentOutletDesc": "Los nodos importados no se convierten automáticamente en salida; elige arriba el nodo que quieras usar en el grupo de nodos proxy.",
+      "proxyCurrentOutletEmpty": "Sin seleccionar",
+      "proxyLocalPort": "Puerto de proxy local externo",
+      "proxyLocalPortDesc": "Lo usa el nodo integrado \"Proxy local 127.0.0.1\". Selecciónalo para usar Clash, otra app de proxy o un puerto local personalizado.",
+      "proxyLocalPortInvalid": "El puerto de proxy local debe estar entre 1 y 65535."
     },
     "about": {
       "appName": "AI Lemon Tools",
@@ -826,7 +850,8 @@
       "releaseHistorySectionChanged": "Cambió",
       "releaseHistorySectionFixed": "Fijado",
       "releaseHistorySectionRemoved": "Remoto",
-      "downloadThisVersion": "Descargar"
+      "downloadThisVersion": "Descargar",
+      "lemonLabel": "Lemon"
     },
     "saveSettings": "Guardar Ajustes",
     "transfer": {
@@ -1614,7 +1639,9 @@
     "stoppingApiService": "Deteniendo servicio API...",
     "stopApiServiceFailed": "No se pudo detener el servicio API. Desactívalo primero e inténtalo de nuevo.",
     "skipThisVersion": "Omitir esta versión",
-    "skipFailed": "No se pudo omitir esta actualización: {{error}}"
+    "skipFailed": "No se pudo omitir esta actualización: {{error}}",
+    "stoppingNetworkServices": "Deteniendo servicios de red...",
+    "stopNetworkServicesFailed": "No se pudieron detener los servicios de red. Desactívalos primero e inténtalo de nuevo."
   },
   "closeDialog": {
     "title": "Cerrar ventana",
@@ -1927,7 +1954,12 @@
       "upstreamProxyMode": {
         "followGlobalProxy": "Proxy global",
         "direct": "Directo"
-      }
+      },
+      "webSocketUrl": "WebSocket",
+      "webSocketStatusReady": "Listo",
+      "webSocketStatusStopped": "Esperando el servicio",
+      "webSocketStatusDisabled": "Desactivado con el servicio",
+      "webSocketManagedDesc": "Codex Responses WebSocket sigue el interruptor, puerto, clave y alcance de acceso del servicio API."
     },
     "local": {
       "desc": "Importa la cuenta actual desde ~/.codex/auth.json",

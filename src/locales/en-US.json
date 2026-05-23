@@ -1685,7 +1685,9 @@
     "installFailed": "System installation failed. Try again later or download manually.",
     "restartRequiredAfterInstall": "The update is installed. Restart the app manually to finish switching.",
     "stoppingApiService": "Stopping API service...",
-    "stopApiServiceFailed": "Couldn't stop the API service. Disable it first and try again."
+    "stopApiServiceFailed": "Couldn't stop the API service. Disable it first and try again.",
+    "stoppingNetworkServices": "Stopping network services...",
+    "stopNetworkServicesFailed": "Couldn't stop the network services. Disable them first and try again."
   },
   "closeDialog": {
     "title": "Close Window",
@@ -2023,7 +2025,12 @@
       "upstreamProxyMode": {
         "followGlobalProxy": "Global Proxy",
         "direct": "Direct"
-      }
+      },
+      "webSocketUrl": "WebSocket",
+      "webSocketStatusReady": "Ready",
+      "webSocketStatusStopped": "Waiting for service",
+      "webSocketStatusDisabled": "Disabled with service",
+      "webSocketManagedDesc": "Codex Responses WebSocket follows the API service switch, port, key, and access scope."
     },
     "api": {
       "baseUrl": "Base URL",

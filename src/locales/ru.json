@@ -757,7 +757,17 @@
       "codexAppSpeedFast": "Быстро",
       "codexAppSpeedLaunch": "Перезапустить Codex",
       "codexAppSpeedSaveFailed": "Не удалось сохранить скорость Codex: {{error}}",
-      "codexAppSpeedLaunchFailed": "Не удалось перезапустить Codex: {{error}}"
+      "codexAppSpeedLaunchFailed": "Не удалось перезапустить Codex: {{error}}",
+      "themeCream": "Кремовая",
+      "themeStarry": "Звёздная",
+      "themeOcean": "Океан",
+      "dataDirSelect": "Выбрать",
+      "dataDirReset": "Восстановить по умолчанию",
+      "dataDirLoadFailed": "Не удалось загрузить каталог данных: {{error}}",
+      "dataDirChanged": "Каталог данных обновлён. Если новая папка была пустой, текущие данные скопированы автоматически. Перезапустите приложение, чтобы все запущенные службы использовали новое расположение.",
+      "dataDirChangeFailed": "Не удалось обновить каталог данных: {{error}}",
+      "dataDirResetDone": "Каталог данных по умолчанию восстановлен. Перезапустите приложение, чтобы все запущенные службы использовали расположение по умолчанию.",
+      "dataDirResetFailed": "Не удалось восстановить каталог данных по умолчанию: {{error}}"
     },
     "network": {
       "apiTitle": "AI Lemon Tools API",
@@ -796,7 +806,21 @@
       "proxyNoProxy": "Список NO_PROXY",
       "proxyNoProxyDesc": "Через запятую; совпавшие хосты обходят прокси.",
       "proxyNoProxyPlaceholder": "например, 127.0.0.1,localhost,::1",
-      "proxyUrlRequired": "URL прокси не может быть пустым, когда глобальный прокси включён."
+      "proxyUrlRequired": "URL прокси не может быть пустым, когда глобальный прокси включён.",
+      "proxyGatewayTitle": "Встроенный прокси-шлюз",
+      "proxyGatewayEnabled": "Включить встроенный прокси-шлюз",
+      "proxyGatewayEnabledDesc": "Когда включено, управляемые процессы и режим Codex API с глобальным прокси подключаются к встроенному шлюзу; выберите выход в пуле прокси-узлов.",
+      "proxyGatewayAddress": "Адрес встроенного шлюза",
+      "proxyGatewayAddressDesc": "Переменные окружения прокси используют этот стабильный вход, а выбранный узел определяет фактический выход.",
+      "proxyGatewayPort": "Порт встроенного шлюза",
+      "proxyGatewayPortDesc": "По умолчанию 7897. После сохранения глобальный прокси будет указывать на новый адрес встроенного шлюза.",
+      "proxyGatewayPortInvalid": "Порт встроенного прокси-шлюза должен быть от 1 до 65535.",
+      "proxyCurrentOutlet": "Текущий выходной узел",
+      "proxyCurrentOutletDesc": "Импортированные узлы не становятся выходом автоматически; выберите нужный узел в пуле прокси-узлов выше.",
+      "proxyCurrentOutletEmpty": "Не выбрано",
+      "proxyLocalPort": "Внешний локальный порт прокси",
+      "proxyLocalPortDesc": "Используется встроенным узлом «Локальный прокси 127.0.0.1». Выберите его, чтобы использовать Clash, другое приложение прокси или пользовательский локальный порт.",
+      "proxyLocalPortInvalid": "Локальный порт прокси должен быть от 1 до 65535."
     },
     "about": {
       "appName": "AI Lemon Tools",
@@ -826,7 +850,8 @@
       "releaseHistorySectionChanged": "Измененный",
       "releaseHistorySectionFixed": "Зафиксированный",
       "releaseHistorySectionRemoved": "Удаленный",
-      "downloadThisVersion": "Скачать"
+      "downloadThisVersion": "Скачать",
+      "lemonLabel": "Lemon"
     },
     "saveSettings": "Сохранить настройки",
     "transfer": {
@@ -1614,7 +1639,9 @@
     "stoppingApiService": "Остановка API-сервиса...",
     "stopApiServiceFailed": "Не удалось остановить службу API. Сначала отключите её и повторите попытку.",
     "skipThisVersion": "Пропустить эту версию",
-    "skipFailed": "Не удалось пропустить это обновление: {{error}}"
+    "skipFailed": "Не удалось пропустить это обновление: {{error}}",
+    "stoppingNetworkServices": "Остановка сетевых служб...",
+    "stopNetworkServicesFailed": "Не удалось остановить сетевые службы. Сначала отключите их и повторите попытку."
   },
   "closeDialog": {
     "title": "Закрыть окно",
@@ -1927,7 +1954,12 @@
       "upstreamProxyMode": {
         "followGlobalProxy": "Глобальный прокси",
         "direct": "Напрямую"
-      }
+      },
+      "webSocketUrl": "WebSocket",
+      "webSocketStatusReady": "Готово",
+      "webSocketStatusStopped": "Ожидание службы",
+      "webSocketStatusDisabled": "Отключено вместе со службой",
+      "webSocketManagedDesc": "Codex Responses WebSocket следует переключателю службы API, порту, ключу и области доступа."
     },
     "local": {
       "desc": "Импортировать текущий аккаунт из ~/.codex/auth.json",

@@ -757,7 +757,17 @@
       "codexAppSpeedFast": "Hızlı",
       "codexAppSpeedLaunch": "Codex'i yeniden başlat",
       "codexAppSpeedSaveFailed": "Codex hızı kaydedilemedi: {{error}}",
-      "codexAppSpeedLaunchFailed": "Codex yeniden başlatılamadı: {{error}}"
+      "codexAppSpeedLaunchFailed": "Codex yeniden başlatılamadı: {{error}}",
+      "themeCream": "Krem",
+      "themeStarry": "Yıldızlı",
+      "themeOcean": "Okyanus",
+      "dataDirSelect": "Seç",
+      "dataDirReset": "Varsayılana döndür",
+      "dataDirLoadFailed": "Veri dizini yüklenemedi: {{error}}",
+      "dataDirChanged": "Veri dizini güncellendi. Yeni klasör boşsa mevcut veriler otomatik olarak kopyalandı. Çalışan tüm servislerin yeni konumu kullanması için uygulamayı yeniden başlatın.",
+      "dataDirChangeFailed": "Veri dizini güncellenemedi: {{error}}",
+      "dataDirResetDone": "Varsayılan veri dizini geri yüklendi. Çalışan tüm servislerin varsayılan konumu kullanması için uygulamayı yeniden başlatın.",
+      "dataDirResetFailed": "Varsayılan veri dizini geri yüklenemedi: {{error}}"
     },
     "network": {
       "apiTitle": "AI Lemon Tools API",
@@ -796,7 +806,21 @@
       "proxyNoProxy": "NO_PROXY Listesi",
       "proxyNoProxyDesc": "Virgülle ayrılır; eşleşen ana bilgisayarlar proxyyi atlar.",
       "proxyNoProxyPlaceholder": "örn. 127.0.0.1,localhost,::1",
-      "proxyUrlRequired": "Genel proxy etkin olduğunda proxy URL boş olamaz."
+      "proxyUrlRequired": "Genel proxy etkin olduğunda proxy URL boş olamaz.",
+      "proxyGatewayTitle": "Yerleşik Proxy Ağ Geçidi",
+      "proxyGatewayEnabled": "Yerleşik Proxy Ağ Geçidini Etkinleştir",
+      "proxyGatewayEnabledDesc": "Etkin olduğunda, yönetilen süreçler ve genel proxyyi izleyen Codex API modu yerleşik ağ geçidine bağlanır; çıkışı proxy düğüm havuzunda seçin.",
+      "proxyGatewayAddress": "Yerleşik Ağ Geçidi Adresi",
+      "proxyGatewayAddressDesc": "Proxy ortam değişkenleri bu sabit girişi kullanır; gerçek çıkışı seçili düğüm belirler.",
+      "proxyGatewayPort": "Yerleşik Ağ Geçidi Portu",
+      "proxyGatewayPortDesc": "Varsayılan 7897’dir. Kaydettikten sonra genel proxy yeni yerleşik ağ geçidi adresine yönelir.",
+      "proxyGatewayPortInvalid": "Yerleşik proxy ağ geçidi portu 1 ile 65535 arasında olmalıdır.",
+      "proxyCurrentOutlet": "Mevcut Çıkış Düğümü",
+      "proxyCurrentOutletDesc": "İçe aktarılan düğümler otomatik olarak çıkış olmaz; yukarıdaki proxy düğüm havuzunda kullanılacak düğümü seçin.",
+      "proxyCurrentOutletEmpty": "Seçilmedi",
+      "proxyLocalPort": "Harici Yerel Proxy Portu",
+      "proxyLocalPortDesc": "Yerleşik \"Yerel proxy 127.0.0.1\" düğümü tarafından kullanılır. Clash, başka bir proxy uygulaması veya özel yerel port kullanmak için bunu seçin.",
+      "proxyLocalPortInvalid": "Yerel proxy portu 1 ile 65535 arasında olmalıdır."
     },
     "about": {
       "appName": "AI Lemon Tools",
@@ -826,7 +850,8 @@
       "releaseHistorySectionChanged": "Değiştirildi",
       "releaseHistorySectionFixed": "Sabit",
       "releaseHistorySectionRemoved": "Kaldırıldı",
-      "downloadThisVersion": "İndirmek"
+      "downloadThisVersion": "İndirmek",
+      "lemonLabel": "Lemon"
     },
     "saveSettings": "Ayarları Kaydet",
     "transfer": {
@@ -1614,7 +1639,9 @@
     "stoppingApiService": "API hizmeti durduruluyor...",
     "stopApiServiceFailed": "API hizmeti durdurulamadı. Önce devre dışı bırakıp tekrar deneyin.",
     "skipThisVersion": "Bu sürümü atla",
-    "skipFailed": "Bu güncelleme atlanamadı: {{error}}"
+    "skipFailed": "Bu güncelleme atlanamadı: {{error}}",
+    "stoppingNetworkServices": "Ağ servisleri durduruluyor...",
+    "stopNetworkServicesFailed": "Ağ servisleri durdurulamadı. Önce devre dışı bırakıp tekrar deneyin."
   },
   "closeDialog": {
     "title": "Pencereyi kapat",
@@ -1927,7 +1954,12 @@
       "upstreamProxyMode": {
         "followGlobalProxy": "Genel proxy",
         "direct": "Doğrudan"
-      }
+      },
+      "webSocketUrl": "WebSocket",
+      "webSocketStatusReady": "Hazır",
+      "webSocketStatusStopped": "Servis bekleniyor",
+      "webSocketStatusDisabled": "Servisle birlikte devre dışı",
+      "webSocketManagedDesc": "Codex Responses WebSocket, API servis anahtarı, portu, erişim anahtarı ve erişim kapsamını izler."
     },
     "local": {
       "desc": "~/.codex/auth.json'dan mevcut hesabı içe aktar",

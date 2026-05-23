@@ -803,7 +803,17 @@
       "codexAppSpeedFast": "Cepat",
       "codexAppSpeedLaunch": "Mulai ulang Codex",
       "codexAppSpeedSaveFailed": "Gagal menyimpan kecepatan Codex: {{error}}",
-      "codexAppSpeedLaunchFailed": "Gagal memulai ulang Codex: {{error}}"
+      "codexAppSpeedLaunchFailed": "Gagal memulai ulang Codex: {{error}}",
+      "themeCream": "Krem",
+      "themeStarry": "Berbintang",
+      "themeOcean": "Laut",
+      "dataDirSelect": "Pilih",
+      "dataDirReset": "Pulihkan bawaan",
+      "dataDirLoadFailed": "Gagal memuat direktori data: {{error}}",
+      "dataDirChanged": "Direktori data diperbarui. Jika folder baru kosong, data saat ini disalin otomatis. Mulai ulang aplikasi agar semua layanan yang berjalan memakai lokasi baru.",
+      "dataDirChangeFailed": "Gagal memperbarui direktori data: {{error}}",
+      "dataDirResetDone": "Direktori data bawaan dipulihkan. Mulai ulang aplikasi agar semua layanan yang berjalan memakai lokasi bawaan.",
+      "dataDirResetFailed": "Gagal memulihkan direktori data bawaan: {{error}}"
     },
     "network": {
       "apiTitle": "AI Lemon Tools API",
@@ -842,7 +852,21 @@
       "proxyNoProxy": "Daftar NO_PROXY",
       "proxyNoProxyDesc": "Dipisahkan koma; host yang cocok akan melewati proxy.",
       "proxyNoProxyPlaceholder": "127.0.0.1,localhost,::1",
-      "proxyUrlRequired": "URL Proxy tidak boleh kosong saat proxy global diaktifkan."
+      "proxyUrlRequired": "URL Proxy tidak boleh kosong saat proxy global diaktifkan.",
+      "proxyGatewayTitle": "Gateway Proxy Bawaan",
+      "proxyGatewayEnabled": "Aktifkan Gateway Proxy Bawaan",
+      "proxyGatewayEnabledDesc": "Saat aktif, proses terkelola dan mode Codex API yang mengikuti proxy global terhubung ke gateway bawaan; pilih outlet di pool node proxy.",
+      "proxyGatewayAddress": "Alamat Gateway Bawaan",
+      "proxyGatewayAddressDesc": "Variabel lingkungan proxy memakai entri stabil ini, sedangkan node yang dipilih menentukan outlet sebenarnya.",
+      "proxyGatewayPort": "Port Gateway Bawaan",
+      "proxyGatewayPortDesc": "Bawaan adalah 7897. Setelah disimpan, proxy global mengarah ke alamat gateway bawaan yang baru.",
+      "proxyGatewayPortInvalid": "Port gateway proxy bawaan harus antara 1 dan 65535.",
+      "proxyCurrentOutlet": "Node Outlet Saat Ini",
+      "proxyCurrentOutletDesc": "Node yang diimpor tidak otomatis menjadi outlet; pilih node yang akan digunakan di pool node proxy di atas.",
+      "proxyCurrentOutletEmpty": "Belum dipilih",
+      "proxyLocalPort": "Port Proxy Lokal Eksternal",
+      "proxyLocalPortDesc": "Digunakan oleh node bawaan \"Proxy lokal 127.0.0.1\". Pilih ini untuk memakai Clash, aplikasi proxy lain, atau port lokal khusus.",
+      "proxyLocalPortInvalid": "Port proxy lokal harus antara 1 dan 65535."
     },
     "about": {
       "appName": "AI Lemon Tools",
@@ -872,7 +896,8 @@
       "releaseHistorySectionChanged": "Berubah",
       "releaseHistorySectionFixed": "Tetap",
       "releaseHistorySectionRemoved": "DIHAPUS",
-      "downloadThisVersion": "Unduh"
+      "downloadThisVersion": "Unduh",
+      "lemonLabel": "Lemon"
     },
     "saveSettings": "Simpan Pengaturan",
     "transfer": {
@@ -1660,7 +1685,9 @@
     "installFailed": "Instalasi sistem gagal. Coba lagi nanti atau unduh secara manual.",
     "restartRequiredAfterInstall": "Pembaruan terpasang. Mulai ulang aplikasi secara manual untuk menyelesaikan peralihan.",
     "stoppingApiService": "Menghentikan layanan API...",
-    "stopApiServiceFailed": "Layanan API tidak dapat dihentikan. Nonaktifkan dulu, lalu coba lagi."
+    "stopApiServiceFailed": "Layanan API tidak dapat dihentikan. Nonaktifkan dulu, lalu coba lagi.",
+    "stoppingNetworkServices": "Menghentikan layanan jaringan...",
+    "stopNetworkServicesFailed": "Tidak dapat menghentikan layanan jaringan. Nonaktifkan terlebih dahulu lalu coba lagi."
   },
   "closeDialog": {
     "title": "Tutup Jendela",
@@ -1976,7 +2003,12 @@
       "upstreamProxyMode": {
         "followGlobalProxy": "Proxy global",
         "direct": "Langsung"
-      }
+      },
+      "webSocketUrl": "WebSocket",
+      "webSocketStatusReady": "Siap",
+      "webSocketStatusStopped": "Menunggu layanan",
+      "webSocketStatusDisabled": "Dinonaktifkan bersama layanan",
+      "webSocketManagedDesc": "Codex Responses WebSocket mengikuti sakelar layanan API, port, kunci, dan cakupan akses."
     },
     "api": {
       "baseUrl": "URL Dasar",

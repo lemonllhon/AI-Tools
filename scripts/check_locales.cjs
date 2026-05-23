@@ -163,6 +163,8 @@ function isAllowedEnglishReuse(key, value) {
     'OAuth',
     'Token / JSON',
     // 品牌名 / 产品名允许跨语言保持英文原文
+    'AI Lemon Tools',
+    'AI Lemon Tools API',
     'Cockpit Tools',
     'Cockpit Api',
     'Antigravity',
@@ -170,6 +172,8 @@ function isAllowedEnglishReuse(key, value) {
     'Codex',
     'GitHub Copilot',
     'Kiro',
+    'Lemon',
+    'WebSocket',
     'Alipay',
     'WeChat',
     'WeChat Pay',

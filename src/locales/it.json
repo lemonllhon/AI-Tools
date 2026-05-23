@@ -757,7 +757,17 @@
       "codexAppSpeedFast": "Rapida",
       "codexAppSpeedLaunch": "Riavvia Codex",
       "codexAppSpeedSaveFailed": "Impossibile salvare la velocità di Codex: {{error}}",
-      "codexAppSpeedLaunchFailed": "Impossibile riavviare Codex: {{error}}"
+      "codexAppSpeedLaunchFailed": "Impossibile riavviare Codex: {{error}}",
+      "themeCream": "Crema",
+      "themeStarry": "Stellato",
+      "themeOcean": "Oceano",
+      "dataDirSelect": "Seleziona",
+      "dataDirReset": "Ripristina predefinito",
+      "dataDirLoadFailed": "Impossibile caricare la cartella dati: {{error}}",
+      "dataDirChanged": "Cartella dati aggiornata. Se la nuova cartella era vuota, i dati correnti sono stati copiati automaticamente. Riavvia l’app affinché tutti i servizi in esecuzione usino la nuova posizione.",
+      "dataDirChangeFailed": "Impossibile aggiornare la cartella dati: {{error}}",
+      "dataDirResetDone": "Cartella dati predefinita ripristinata. Riavvia l’app affinché tutti i servizi in esecuzione usino la posizione predefinita.",
+      "dataDirResetFailed": "Impossibile ripristinare la cartella dati predefinita: {{error}}"
     },
     "network": {
       "apiTitle": "AI Lemon Tools API",
@@ -796,7 +806,21 @@
       "proxyNoProxy": "Elenco NO_PROXY",
       "proxyNoProxyDesc": "Separati da virgole; gli host corrispondenti bypassano il proxy.",
       "proxyNoProxyPlaceholder": "es. 127.0.0.1,localhost,::1",
-      "proxyUrlRequired": "L'URL del proxy non può essere vuoto quando il proxy globale è abilitato."
+      "proxyUrlRequired": "L'URL del proxy non può essere vuoto quando il proxy globale è abilitato.",
+      "proxyGatewayTitle": "Gateway proxy integrato",
+      "proxyGatewayEnabled": "Abilita gateway proxy integrato",
+      "proxyGatewayEnabledDesc": "Quando è abilitato, i processi gestiti e la modalità Codex API che segue il proxy globale si connettono al gateway integrato; scegli l’uscita nel pool di nodi proxy.",
+      "proxyGatewayAddress": "Indirizzo gateway integrato",
+      "proxyGatewayAddressDesc": "Le variabili d’ambiente proxy usano questo ingresso stabile, mentre il nodo selezionato decide l’uscita effettiva.",
+      "proxyGatewayPort": "Porta gateway integrato",
+      "proxyGatewayPortDesc": "Il valore predefinito è 7897. Dopo il salvataggio, il proxy globale punta al nuovo indirizzo del gateway integrato.",
+      "proxyGatewayPortInvalid": "La porta del gateway proxy integrato deve essere compresa tra 1 e 65535.",
+      "proxyCurrentOutlet": "Nodo di uscita corrente",
+      "proxyCurrentOutletDesc": "I nodi importati non diventano automaticamente l’uscita; scegli sopra il nodo da usare nel pool di nodi proxy.",
+      "proxyCurrentOutletEmpty": "Non selezionato",
+      "proxyLocalPort": "Porta proxy locale esterna",
+      "proxyLocalPortDesc": "Usata dal nodo integrato \"Proxy locale 127.0.0.1\". Selezionalo per usare Clash, un’altra app proxy o una porta locale personalizzata.",
+      "proxyLocalPortInvalid": "La porta proxy locale deve essere compresa tra 1 e 65535."
     },
     "about": {
       "appName": "AI Lemon Tools",
@@ -826,7 +850,8 @@
       "releaseHistorySectionChanged": "Cambiato",
       "releaseHistorySectionFixed": "Fisso",
       "releaseHistorySectionRemoved": "RIMOSSO",
-      "downloadThisVersion": "Scaricamento"
+      "downloadThisVersion": "Scaricamento",
+      "lemonLabel": "Lemon"
     },
     "saveSettings": "Salva Impostazioni",
     "transfer": {
@@ -1614,7 +1639,9 @@
     "stoppingApiService": "Arresto del servizio API...",
     "stopApiServiceFailed": "Impossibile arrestare il servizio API. Disattivalo prima e riprova.",
     "skipThisVersion": "Salta questa versione",
-    "skipFailed": "Impossibile saltare questo aggiornamento: {{error}}"
+    "skipFailed": "Impossibile saltare questo aggiornamento: {{error}}",
+    "stoppingNetworkServices": "Arresto dei servizi di rete...",
+    "stopNetworkServicesFailed": "Impossibile arrestare i servizi di rete. Disabilitali prima e riprova."
   },
   "closeDialog": {
     "title": "Chiudi finestra",
@@ -1927,7 +1954,12 @@
       "upstreamProxyMode": {
         "followGlobalProxy": "Proxy globale",
         "direct": "Diretto"
-      }
+      },
+      "webSocketUrl": "WebSocket",
+      "webSocketStatusReady": "Pronto",
+      "webSocketStatusStopped": "In attesa del servizio",
+      "webSocketStatusDisabled": "Disabilitato con il servizio",
+      "webSocketManagedDesc": "Codex Responses WebSocket segue l’interruttore del servizio API, la porta, la chiave e l’ambito di accesso."
     },
     "local": {
       "desc": "Importa l'account attuale da ~/.codex/auth.json",

@@ -803,7 +803,17 @@
       "codexAppSpeedFast": "سريع",
       "codexAppSpeedLaunch": "إعادة تشغيل Codex",
       "codexAppSpeedSaveFailed": "فشل حفظ سرعة Codex: {{error}}",
-      "codexAppSpeedLaunchFailed": "فشلت إعادة تشغيل Codex: {{error}}"
+      "codexAppSpeedLaunchFailed": "فشلت إعادة تشغيل Codex: {{error}}",
+      "themeCream": "كريمي",
+      "themeStarry": "نجمي",
+      "themeOcean": "بحري",
+      "dataDirSelect": "اختيار",
+      "dataDirReset": "استعادة الافتراضي",
+      "dataDirLoadFailed": "فشل تحميل مجلد البيانات: {{error}}",
+      "dataDirChanged": "تم تحديث مجلد البيانات. إذا كان المجلد الجديد فارغًا، فتم نسخ البيانات الحالية تلقائيًا. أعد تشغيل التطبيق حتى تستخدم كل الخدمات الجارية الموقع الجديد.",
+      "dataDirChangeFailed": "فشل تحديث مجلد البيانات: {{error}}",
+      "dataDirResetDone": "تمت استعادة مجلد البيانات الافتراضي. أعد تشغيل التطبيق حتى تستخدم كل الخدمات الجارية الموقع الافتراضي.",
+      "dataDirResetFailed": "فشلت استعادة مجلد البيانات الافتراضي: {{error}}"
     },
     "network": {
       "apiTitle": "AI Lemon Tools API",
@@ -842,7 +852,21 @@
       "proxyNoProxy": "قائمة NO_PROXY",
       "proxyNoProxyDesc": "مفصولة بفواصل؛ المضيفون المطابقون يتجاوزون الوكيل.",
       "proxyNoProxyPlaceholder": "مثال: 127.0.0.1,localhost,::1",
-      "proxyUrlRequired": "لا يمكن أن يكون عنوان الوكيل فارغًا عند تفعيل الوكيل العام."
+      "proxyUrlRequired": "لا يمكن أن يكون عنوان الوكيل فارغًا عند تفعيل الوكيل العام.",
+      "proxyGatewayTitle": "بوابة الوكيل المدمجة",
+      "proxyGatewayEnabled": "تفعيل بوابة الوكيل المدمجة",
+      "proxyGatewayEnabledDesc": "عند التفعيل، ستتصل العمليات المُدارة ووضع Codex API المتبع للوكيل العام بالبوابة المدمجة؛ اختر المخرج من مجموعة عقد الوكيل.",
+      "proxyGatewayAddress": "عنوان البوابة المدمجة",
+      "proxyGatewayAddressDesc": "تستخدم متغيرات بيئة الوكيل هذا المدخل الثابت، بينما تحدد العقدة المحددة المخرج الفعلي.",
+      "proxyGatewayPort": "منفذ البوابة المدمجة",
+      "proxyGatewayPortDesc": "الافتراضي هو 7897. بعد الحفظ، يشير الوكيل العام إلى عنوان البوابة المدمجة الجديد.",
+      "proxyGatewayPortInvalid": "يجب أن يكون منفذ بوابة الوكيل المدمجة بين 1 و 65535.",
+      "proxyCurrentOutlet": "عقدة المخرج الحالية",
+      "proxyCurrentOutletDesc": "العقد المستوردة لا تصبح مخرجًا تلقائيًا؛ اختر العقدة المستخدمة من مجموعة عقد الوكيل أعلاه.",
+      "proxyCurrentOutletEmpty": "غير محدد",
+      "proxyLocalPort": "منفذ الوكيل المحلي الخارجي",
+      "proxyLocalPortDesc": "يُستخدم بواسطة عقدة \"الوكيل المحلي 127.0.0.1\" المدمجة. اخترها لاستخدام Clash أو تطبيق وكيل آخر أو منفذ محلي مخصص.",
+      "proxyLocalPortInvalid": "يجب أن يكون منفذ الوكيل المحلي بين 1 و 65535."
     },
     "about": {
       "appName": "AI Lemon Tools",
@@ -872,7 +896,8 @@
       "releaseHistorySectionChanged": "تغيرت",
       "releaseHistorySectionFixed": "مُثَبَّت",
       "releaseHistorySectionRemoved": "تمت الإزالة",
-      "downloadThisVersion": "تحميل"
+      "downloadThisVersion": "تحميل",
+      "lemonLabel": "Lemon"
     },
     "saveSettings": "حفظ الإعدادات",
     "transfer": {
@@ -1660,7 +1685,9 @@
     "stoppingApiService": "جارٍ إيقاف خدمة API...",
     "stopApiServiceFailed": "تعذّر إيقاف خدمة API. عطّلها أولًا ثم أعد المحاولة.",
     "skipThisVersion": "تخطي هذا الإصدار",
-    "skipFailed": "تعذر تخطي هذا التحديث: {{error}}"
+    "skipFailed": "تعذر تخطي هذا التحديث: {{error}}",
+    "stoppingNetworkServices": "جارٍ إيقاف خدمات الشبكة...",
+    "stopNetworkServicesFailed": "تعذر إيقاف خدمات الشبكة. عطّلها أولًا ثم حاول مرة أخرى."
   },
   "closeDialog": {
     "title": "إغلاق النافذة",
@@ -1973,7 +2000,12 @@
       "upstreamProxyMode": {
         "followGlobalProxy": "الوكيل العام",
         "direct": "اتصال مباشر"
-      }
+      },
+      "webSocketUrl": "WebSocket",
+      "webSocketStatusReady": "جاهز",
+      "webSocketStatusStopped": "بانتظار الخدمة",
+      "webSocketStatusDisabled": "معطل مع الخدمة",
+      "webSocketManagedDesc": "يتبع Codex Responses WebSocket مفتاح خدمة API ومنفذها ومفتاحها ونطاق الوصول الخاص بها."
     },
     "local": {
       "desc": "استيراد الحساب الحالي من ~/.codex/auth.json",

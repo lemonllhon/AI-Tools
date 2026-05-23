@@ -757,7 +757,17 @@
       "codexAppSpeedFast": "高速",
       "codexAppSpeedLaunch": "Codex を再起動",
       "codexAppSpeedSaveFailed": "Codex 速度の保存に失敗しました: {{error}}",
-      "codexAppSpeedLaunchFailed": "Codex の再起動に失敗しました: {{error}}"
+      "codexAppSpeedLaunchFailed": "Codex の再起動に失敗しました: {{error}}",
+      "themeCream": "クリーム",
+      "themeStarry": "星空",
+      "themeOcean": "オーシャン",
+      "dataDirSelect": "選択",
+      "dataDirReset": "既定に戻す",
+      "dataDirLoadFailed": "データディレクトリの読み込みに失敗しました: {{error}}",
+      "dataDirChanged": "データディレクトリを更新しました。新しいフォルダが空の場合、現在のデータは自動的にコピーされました。実行中のすべてのサービスが新しい場所を使うよう、アプリを再起動してください。",
+      "dataDirChangeFailed": "データディレクトリの更新に失敗しました: {{error}}",
+      "dataDirResetDone": "既定のデータディレクトリを復元しました。実行中のすべてのサービスが既定の場所を使うよう、アプリを再起動してください。",
+      "dataDirResetFailed": "既定のデータディレクトリの復元に失敗しました: {{error}}"
     },
     "network": {
       "apiTitle": "AI Lemon Tools API",
@@ -796,7 +806,21 @@
       "proxyNoProxy": "NO_PROXY リスト",
       "proxyNoProxyDesc": "カンマ区切り。一致したホストはプロキシをバイパスします。",
       "proxyNoProxyPlaceholder": "例: 127.0.0.1,localhost,::1",
-      "proxyUrlRequired": "グローバルプロキシを有効にする場合、プロキシ URL は必須です。"
+      "proxyUrlRequired": "グローバルプロキシを有効にする場合、プロキシ URL は必須です。",
+      "proxyGatewayTitle": "組み込みプロキシゲートウェイ",
+      "proxyGatewayEnabled": "組み込みプロキシゲートウェイを有効化",
+      "proxyGatewayEnabledDesc": "有効にすると、管理対象プロセスと Codex API のグローバルプロキシ追従モードは組み込みゲートウェイに接続します。出口はプロキシノードプールで選択します。",
+      "proxyGatewayAddress": "組み込みゲートウェイアドレス",
+      "proxyGatewayAddressDesc": "プロキシ環境変数はこの安定した入口を使用し、実際の出口は選択したノードで決まります。",
+      "proxyGatewayPort": "組み込みゲートウェイポート",
+      "proxyGatewayPortDesc": "既定値は 7897 です。保存後、グローバルプロキシは新しい組み込みゲートウェイアドレスを指します。",
+      "proxyGatewayPortInvalid": "組み込みプロキシゲートウェイのポートは 1 から 65535 の間である必要があります。",
+      "proxyCurrentOutlet": "現在の出口ノード",
+      "proxyCurrentOutletDesc": "インポートされたノードは自動的に出口にはなりません。上のプロキシノードプールで使用するノードを選択してください。",
+      "proxyCurrentOutletEmpty": "未選択",
+      "proxyLocalPort": "外部ローカルプロキシポート",
+      "proxyLocalPortDesc": "組み込みの「ローカルプロキシ 127.0.0.1」ノードで使用します。Clash、別のプロキシアプリ、またはカスタムローカルポートを使う場合に選択します。",
+      "proxyLocalPortInvalid": "ローカルプロキシポートは 1 から 65535 の間である必要があります。"
     },
     "about": {
       "appName": "AI Lemon Tools",
@@ -826,7 +850,8 @@
       "releaseHistorySectionChanged": "変更されました",
       "releaseHistorySectionFixed": "修理済み",
       "releaseHistorySectionRemoved": "削除されました",
-      "downloadThisVersion": "ダウンロード"
+      "downloadThisVersion": "ダウンロード",
+      "lemonLabel": "Lemon"
     },
     "saveSettings": "設定を保存",
     "transfer": {
@@ -1614,7 +1639,9 @@
     "stoppingApiService": "API サービスを停止中...",
     "stopApiServiceFailed": "API サービスを停止できませんでした。先に無効化してから再試行してください。",
     "skipThisVersion": "このバージョンをスキップ",
-    "skipFailed": "この更新をスキップできませんでした: {{error}}"
+    "skipFailed": "この更新をスキップできませんでした: {{error}}",
+    "stoppingNetworkServices": "ネットワークサービスを停止しています...",
+    "stopNetworkServicesFailed": "ネットワークサービスを停止できませんでした。先に無効化してからもう一度お試しください。"
   },
   "closeDialog": {
     "title": "ウィンドウを閉じる",
@@ -1927,7 +1954,12 @@
       "upstreamProxyMode": {
         "followGlobalProxy": "グローバルプロキシ",
         "direct": "直接接続"
-      }
+      },
+      "webSocketUrl": "WebSocket",
+      "webSocketStatusReady": "準備完了",
+      "webSocketStatusStopped": "サービス待機中",
+      "webSocketStatusDisabled": "サービスと一緒に無効",
+      "webSocketManagedDesc": "Codex Responses WebSocket は API サービスのスイッチ、ポート、キー、アクセス範囲に従います。"
     },
     "local": {
       "desc": "~/.codex/auth.json から現在ログイン中のアカウントをインポート",

@@ -757,7 +757,17 @@
       "codexAppSpeedFast": "Rychlá",
       "codexAppSpeedLaunch": "Restartovat Codex",
       "codexAppSpeedSaveFailed": "Nepodařilo se uložit rychlost Codexu: {{error}}",
-      "codexAppSpeedLaunchFailed": "Nepodařilo se restartovat Codex: {{error}}"
+      "codexAppSpeedLaunchFailed": "Nepodařilo se restartovat Codex: {{error}}",
+      "themeCream": "Krémový",
+      "themeStarry": "Hvězdný",
+      "themeOcean": "Oceán",
+      "dataDirSelect": "Vybrat",
+      "dataDirReset": "Obnovit výchozí",
+      "dataDirLoadFailed": "Nepodařilo se načíst datový adresář: {{error}}",
+      "dataDirChanged": "Datový adresář byl aktualizován. Pokud byla nová složka prázdná, aktuální data byla automaticky zkopírována. Restartujte aplikaci, aby všechny běžící služby používaly nové umístění.",
+      "dataDirChangeFailed": "Nepodařilo se aktualizovat datový adresář: {{error}}",
+      "dataDirResetDone": "Výchozí datový adresář byl obnoven. Restartujte aplikaci, aby všechny běžící služby používaly výchozí umístění.",
+      "dataDirResetFailed": "Nepodařilo se obnovit výchozí datový adresář: {{error}}"
     },
     "network": {
       "apiTitle": "AI Lemon Tools API",
@@ -796,7 +806,21 @@
       "proxyNoProxy": "Seznam NO_PROXY",
       "proxyNoProxyDesc": "Oddělené čárkou; odpovídající hosté obejdou proxy.",
       "proxyNoProxyPlaceholder": "např. 127.0.0.1,localhost,::1",
-      "proxyUrlRequired": "Když je globální proxy zapnutá, URL proxy nesmí být prázdná."
+      "proxyUrlRequired": "Když je globální proxy zapnutá, URL proxy nesmí být prázdná.",
+      "proxyGatewayTitle": "Vestavěná proxy brána",
+      "proxyGatewayEnabled": "Povolit vestavěnou proxy bránu",
+      "proxyGatewayEnabledDesc": "Po povolení se spravované procesy a režim Codex API sledující globální proxy připojí k vestavěné bráně; výstup vyberte ve fondu proxy uzlů.",
+      "proxyGatewayAddress": "Adresa vestavěné brány",
+      "proxyGatewayAddressDesc": "Proměnné prostředí proxy používají tento stabilní vstup, zatímco vybraný uzel určuje skutečný výstup.",
+      "proxyGatewayPort": "Port vestavěné brány",
+      "proxyGatewayPortDesc": "Výchozí je 7897. Po uložení bude globální proxy ukazovat na novou adresu vestavěné brány.",
+      "proxyGatewayPortInvalid": "Port vestavěné proxy brány musí být mezi 1 a 65535.",
+      "proxyCurrentOutlet": "Aktuální výstupní uzel",
+      "proxyCurrentOutletDesc": "Importované uzly se automaticky nestanou výstupem; vyberte uzel k použití ve fondu proxy uzlů výše.",
+      "proxyCurrentOutletEmpty": "Nevybráno",
+      "proxyLocalPort": "Externí místní proxy port",
+      "proxyLocalPortDesc": "Používá vestavěný uzel „Místní proxy 127.0.0.1“. Vyberte jej pro použití Clash, jiné proxy aplikace nebo vlastního místního portu.",
+      "proxyLocalPortInvalid": "Místní proxy port musí být mezi 1 a 65535."
     },
     "about": {
       "appName": "AI Lemon Tools",
@@ -826,7 +850,8 @@
       "releaseHistorySectionChanged": "Změněno",
       "releaseHistorySectionFixed": "Opraveno",
       "releaseHistorySectionRemoved": "Odebráno",
-      "downloadThisVersion": "Stáhnout"
+      "downloadThisVersion": "Stáhnout",
+      "lemonLabel": "Lemon"
     },
     "saveSettings": "Uložit nastavení",
     "transfer": {
@@ -1614,7 +1639,9 @@
     "stoppingApiService": "Zastavuji službu API...",
     "stopApiServiceFailed": "Službu API se nepodařilo zastavit. Nejprve ji zakažte a zkuste to znovu.",
     "skipThisVersion": "Přeskočit tuto verzi",
-    "skipFailed": "Tuto aktualizaci se nepodařilo přeskočit: {{error}}"
+    "skipFailed": "Tuto aktualizaci se nepodařilo přeskočit: {{error}}",
+    "stoppingNetworkServices": "Zastavují se síťové služby...",
+    "stopNetworkServicesFailed": "Síťové služby se nepodařilo zastavit. Nejprve je zakažte a zkuste to znovu."
   },
   "closeDialog": {
     "title": "Zavřít okno",
@@ -1927,7 +1954,12 @@
       "upstreamProxyMode": {
         "followGlobalProxy": "Globální proxy",
         "direct": "Přímo"
-      }
+      },
+      "webSocketUrl": "WebSocket",
+      "webSocketStatusReady": "Připraveno",
+      "webSocketStatusStopped": "Čeká na službu",
+      "webSocketStatusDisabled": "Zakázáno se službou",
+      "webSocketManagedDesc": "Codex Responses WebSocket sdílí přepínač služby API, port, klíč a rozsah přístupu."
     },
     "local": {
       "desc": "Importovat aktuální účet z ~/.codex/auth.json",

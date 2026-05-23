@@ -757,7 +757,17 @@
       "codexAppSpeedFast": "快速",
       "codexAppSpeedLaunch": "重新啟動 Codex",
       "codexAppSpeedSaveFailed": "儲存 Codex 速度失敗：{{error}}",
-      "codexAppSpeedLaunchFailed": "重新啟動 Codex 失敗：{{error}}"
+      "codexAppSpeedLaunchFailed": "重新啟動 Codex 失敗：{{error}}",
+      "themeCream": "奶油色",
+      "themeStarry": "星空色",
+      "themeOcean": "海洋色",
+      "dataDirSelect": "選擇",
+      "dataDirReset": "恢復預設",
+      "dataDirLoadFailed": "讀取資料目錄失敗：{{error}}",
+      "dataDirChanged": "資料目錄已更新；如果新目錄為空，已自動複製目前資料。建議重新啟動應用程式，讓所有執行中的服務完整使用新位置。",
+      "dataDirChangeFailed": "更新資料目錄失敗：{{error}}",
+      "dataDirResetDone": "已恢復預設資料目錄，建議重新啟動應用程式，讓所有執行中的服務完整使用預設位置。",
+      "dataDirResetFailed": "恢復預設資料目錄失敗：{{error}}"
     },
     "network": {
       "apiTitle": "AI Lemon Tools API",
@@ -796,7 +806,21 @@
       "proxyNoProxy": "NO_PROXY 白名單",
       "proxyNoProxyDesc": "以逗號分隔；匹配項將繞過代理",
       "proxyNoProxyPlaceholder": "例如：127.0.0.1,localhost,::1",
-      "proxyUrlRequired": "啟用全域代理時，代理位址不可為空。"
+      "proxyUrlRequired": "啟用全域代理時，代理位址不可為空。",
+      "proxyGatewayTitle": "內建代理閘道",
+      "proxyGatewayEnabled": "啟用內建代理閘道",
+      "proxyGatewayEnabledDesc": "開啟後，受管程序和 Codex API 服務的「跟隨全域代理」都會連線到內建閘道；出口節點請在代理節點池中選擇。",
+      "proxyGatewayAddress": "內建閘道地址",
+      "proxyGatewayAddressDesc": "系統代理環境變數會寫入這個穩定入口，實際出口由目前節點決定。",
+      "proxyGatewayPort": "內建閘道連接埠",
+      "proxyGatewayPortDesc": "預設 7897。儲存後全域代理會自動指向新的內建閘道地址。",
+      "proxyGatewayPortInvalid": "內建代理閘道連接埠必須介於 1-65535。",
+      "proxyCurrentOutlet": "目前出口節點",
+      "proxyCurrentOutletDesc": "節點池匯入後不會自動成為出口；請在上方代理節點池選擇要使用的節點。",
+      "proxyCurrentOutletEmpty": "未選擇",
+      "proxyLocalPort": "外部本機代理連接埠",
+      "proxyLocalPortDesc": "對應內建「本機代理 127.0.0.1」節點。選擇這個節點即可使用 Clash、其他代理軟體或自訂本機連接埠。",
+      "proxyLocalPortInvalid": "本機代理連接埠必須介於 1-65535。"
     },
     "about": {
       "appName": "AI Lemon Tools",
@@ -826,7 +850,8 @@
       "releaseHistorySectionChanged": "變更",
       "releaseHistorySectionFixed": "修復",
       "releaseHistorySectionRemoved": "移除",
-      "downloadThisVersion": "下載此版本"
+      "downloadThisVersion": "下載此版本",
+      "lemonLabel": "Lemon"
     },
     "saveSettings": "儲存設定",
     "transfer": {
@@ -1614,7 +1639,9 @@
     "stoppingApiService": "正在關閉 API 服務...",
     "stopApiServiceFailed": "無法關閉 API 服務，請先停用後重試。",
     "skipThisVersion": "跳過此版本",
-    "skipFailed": "跳過此更新失敗：{{error}}"
+    "skipFailed": "跳過此更新失敗：{{error}}",
+    "stoppingNetworkServices": "正在關閉網路服務...",
+    "stopNetworkServicesFailed": "無法關閉網路服務，請先停用後再試。"
   },
   "closeDialog": {
     "title": "關閉視窗",
@@ -1927,7 +1954,12 @@
       "upstreamProxyMode": {
         "followGlobalProxy": "跟隨全域代理",
         "direct": "直連上游"
-      }
+      },
+      "webSocketUrl": "WebSocket",
+      "webSocketStatusReady": "可用",
+      "webSocketStatusStopped": "等待服務執行",
+      "webSocketStatusDisabled": "隨服務停用",
+      "webSocketManagedDesc": "Codex Responses WebSocket 跟隨 API 服務開關、連接埠、金鑰和存取範圍統一管理。"
     },
     "api": {
       "baseUrl": "基礎網址",
