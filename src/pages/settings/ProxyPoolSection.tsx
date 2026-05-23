@@ -1,4 +1,5 @@
 import { FormEvent, WheelEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Activity,
   AlertCircle,
@@ -120,7 +121,6 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
   const [nodeSourceFilter, setNodeSourceFilter] = useState('all');
   const [showSelectedNodesOnly, setShowSelectedNodesOnly] = useState(false);
   const [nodesCollapsed, setNodesCollapsed] = useState(false);
-  const [deleteSelectedIds, setDeleteSelectedIds] = useState<Set<string>>(() => new Set());
   const [ipHealthDetailNodeId, setIpHealthDetailNodeId] = useState<string | null>(null);
   const [nodeListMaxHeight, setNodeListMaxHeight] = useState<string | undefined>(undefined);
   const nodeListRef = useRef<HTMLDivElement | null>(null);
@@ -242,7 +242,7 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
           subscriptionUrl: '订阅 URL',
           subscriptionUrlPlaceholder: 'https://example.com/sub',
           namePrefix: '名称前缀',
-          previewImport: '预览导入',
+          previewImport: '预览',
           previewing: '解析中...',
           applyImport: '导入所选',
           importing: '导入中...',
@@ -387,7 +387,7 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
           subscriptionUrl: 'Subscription URL',
           subscriptionUrlPlaceholder: 'https://example.com/sub',
           namePrefix: 'Name prefix',
-          previewImport: 'Preview import',
+          previewImport: 'Preview',
           previewing: 'Parsing...',
           applyImport: 'Import selected',
           importing: 'Importing...',
@@ -425,10 +425,6 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
   const applyProxyPoolListResponse = (response: ProxyPoolListResponse) => {
     setData(response);
     onServiceStateChange?.(response.serviceState);
-    setDeleteSelectedIds((current) => {
-      const validIds = new Set(response.nodes.filter((node) => !node.builtin).map((node) => node.id));
-      return new Set(Array.from(current).filter((id) => validIds.has(id)));
-    });
   };
 
   const applyProxyPoolSnapshot = (snapshot: Pick<ProxyPoolListResponse, 'nodes' | 'groups' | 'sources'>) => {
@@ -438,10 +434,6 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
       groups: snapshot.groups,
       sources: snapshot.sources,
     } : current);
-    setDeleteSelectedIds((current) => {
-      const validIds = new Set(snapshot.nodes.filter((node) => !node.builtin).map((node) => node.id));
-      return new Set(Array.from(current).filter((id) => validIds.has(id)));
-    });
   };
 
   const loadNodes = async () => {
@@ -584,8 +576,8 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
   }, [filteredNodes, nodesCollapsed]);
 
   const selectedDeletableIds = useMemo(
-    () => nodes.filter((node) => deleteSelectedIds.has(node.id) && !node.builtin).map((node) => node.id),
-    [nodes, deleteSelectedIds],
+    () => nodes.filter((node) => selectedPoolIdSet.has(node.id) && !node.builtin).map((node) => node.id),
+    [nodes, selectedPoolIdSet],
   );
   const enabledNodeIds = useMemo(() => nodes.filter((node) => node.enabled).map((node) => node.id), [nodes]);
 
@@ -738,7 +730,7 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
               namePrefix: importNamePrefix || undefined,
             });
       setImportPreview(preview);
-      setSelectedPreviewIds(new Set(preview.items.map((item) => item.previewId)));
+      setSelectedPreviewIds(new Set());
     } catch (err) {
       setError(`${text.previewFailed}: ${String(err)}`);
     } finally {
@@ -856,7 +848,6 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
     setNotice(null);
     try {
       await deleteProxyPoolNodes(selectedDeletableIds);
-      setDeleteSelectedIds(new Set());
       await loadNodes();
     } catch (err) {
       setError(`${text.deleteFailed}: ${String(err)}`);
@@ -1124,19 +1115,6 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
     } finally {
       setRefreshingAllSources(false);
     }
-  };
-
-  const toggleDeleteSelected = (node: ProxyPoolNode, selected: boolean) => {
-    if (node.builtin) return;
-    setDeleteSelectedIds((current) => {
-      const next = new Set(current);
-      if (selected) {
-        next.add(node.id);
-      } else {
-        next.delete(node.id);
-      }
-      return next;
-    });
   };
 
   const formatLatency = (node: ProxyPoolNode) => {
@@ -1905,14 +1883,6 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
                     >
                       <ShieldCheck size={16} />
                     </button>
-                    <label className="proxy-pool-delete-pick" title={text.deletePick}>
-                      <input
-                        type="checkbox"
-                        checked={deleteSelectedIds.has(node.id)}
-                        disabled={node.builtin}
-                        onChange={(event) => toggleDeleteSelected(node, event.target.checked)}
-                      />
-                    </label>
                     <button
                       className="proxy-pool-icon-btn"
                       type="button"
@@ -1937,7 +1907,7 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
         )}
       </div>
 
-      {ipHealthDetailNode && (
+      {ipHealthDetailNode && createPortal((
         <div
           className="proxy-pool-modal-backdrop"
           role="presentation"
@@ -2002,7 +1972,7 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
             )}
           </div>
         </div>
-      )}
+      ), document.body)}
     </>
   );
 }

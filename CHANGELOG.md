@@ -6,6 +6,18 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.20] - 2026-05-23
+### Changed
+- Changed the proxy node import preview action label from "Preview import" to "Preview", keeping "Import selected" as the only action that actually writes nodes.
+- Changed proxy resource import previews to start with no nodes selected, so users explicitly choose which nodes to import.
+- Changed proxy resource, URL subscription, subscription edit, and manual node forms to use left-aligned labels and inputs for a more consistent settings layout.
+
+### Fixed
+- Fixed the proxy node list showing duplicate row checkboxes by removing the separate batch-delete checkbox and reusing the leading node selection checkbox for selected-node batch actions.
+- Fixed imported proxy nodes being implicitly selected during the preview flow before the user had chosen them.
+- Fixed the IP health detail dialog opening relative to the page instead of the current viewport by rendering the dialog at the document body level.
+- Fixed add-resource paste content, group, name prefix, URL subscription, and manual node fields appearing visually misaligned.
+
 ## [0.0.19] - 2026-05-23
 ### Changed
 - Changed proxy latency tests to try multiple `generate_204` endpoints in order, reducing false failures when a single probe host is blocked or returns a transient gateway error.
