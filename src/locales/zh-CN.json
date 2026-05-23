@@ -1685,7 +1685,9 @@
     "installFailed": "系统安装失败，请稍后重试或手动下载安装。",
     "restartRequiredAfterInstall": "更新已安装，请手动重启应用完成切换。",
     "stoppingApiService": "正在关闭 API 服务...",
-    "stopApiServiceFailed": "无法关闭 API 服务，请先停用后重试。"
+    "stopApiServiceFailed": "无法关闭 API 服务，请先停用后重试。",
+    "stoppingNetworkServices": "正在关闭网络服务...",
+    "stopNetworkServicesFailed": "无法关闭网络服务，请先停用后重试。"
   },
   "closeDialog": {
     "title": "关闭窗口",

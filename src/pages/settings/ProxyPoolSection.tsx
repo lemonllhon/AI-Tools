@@ -9,6 +9,7 @@ import {
   ChevronUp,
   Eye,
   FileText,
+  ListFilter,
   Link,
   Pencil,
   Plus,
@@ -147,7 +148,7 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
   const [search, setSearch] = useState('');
   const [groupFilter, setGroupFilter] = useState('all');
   const [protocolFilter, setProtocolFilter] = useState('all');
-  const [nodeSourceFilter, setNodeSourceFilter] = useState('all');
+  const [nodeSourceFilterIds, setNodeSourceFilterIds] = useState<Set<string>>(() => new Set());
   const [showSelectedNodesOnly, setShowSelectedNodesOnly] = useState(false);
   const [nodesCollapsed, setNodesCollapsed] = useState(false);
   const [ipHealthDetailNodeId, setIpHealthDetailNodeId] = useState<string | null>(null);
@@ -194,6 +195,9 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
           nodeListCount: '显示 {{visible}} / {{total}} 个节点',
           nodeListScope: '显示范围',
           allNodes: '显示全部',
+          sourceFilter: '订阅来源',
+          sourceFilterAll: '全部来源',
+          selectedSourcesCount: '{{count}} 个来源',
           selectedNodes: '已选择',
           selectedNodesCount: '已选择 {{count}}',
           selectFilteredNodes: '全选当前筛选节点',
@@ -344,6 +348,9 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
           nodeListCount: 'Showing {{visible}} / {{total}} nodes',
           nodeListScope: 'Display scope',
           allNodes: 'Show all',
+          sourceFilter: 'Sources',
+          sourceFilterAll: 'All sources',
+          selectedSourcesCount: '{{count}} sources',
           selectedNodes: 'Selected',
           selectedNodesCount: 'Selected {{count}}',
           selectFilteredNodes: 'Select current filtered nodes',
@@ -547,7 +554,6 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
   const nodes = data?.nodes ?? [];
   const groups = data?.groups ?? [];
   const sources = data?.sources ?? [];
-  const hasMultipleSources = sources.length > 1;
   const serviceState = data?.serviceState ?? null;
   const outletMode = serviceState?.outletMode ?? 'direct';
   const selectedPoolIds = serviceState?.selectedNodeIds ?? [];
@@ -559,13 +565,16 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
   );
 
   useEffect(() => {
-    if (
-      nodeSourceFilter !== 'all' &&
-      (!hasMultipleSources || !sources.some((source) => source.id === nodeSourceFilter))
-    ) {
-      setNodeSourceFilter('all');
-    }
-  }, [hasMultipleSources, nodeSourceFilter, sources]);
+    if (nodeSourceFilterIds.size === 0) return;
+
+    const validSourceIds = new Set(sources.map((source) => source.id));
+    setNodeSourceFilterIds((current) => {
+      const next = new Set(Array.from(current).filter((sourceId) => validSourceIds.has(sourceId)));
+      if (next.size === current.size) return current;
+      if (next.size === 0 || next.size >= validSourceIds.size) return new Set();
+      return next;
+    });
+  }, [nodeSourceFilterIds.size, sources]);
 
   useEffect(() => {
     if (showSelectedNodesOnly && selectedNodeCount === 0) {
@@ -585,15 +594,25 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
     });
   }, [nodes]);
 
+  const sourceFilterAll = nodeSourceFilterIds.size === 0;
+  const activeSourceFilterIds = useMemo(() => {
+    if (sourceFilterAll) return new Set<string>();
+    const validSourceIds = new Set(sources.map((source) => source.id));
+    return new Set(Array.from(nodeSourceFilterIds).filter((sourceId) => validSourceIds.has(sourceId)));
+  }, [nodeSourceFilterIds, sourceFilterAll, sources]);
+  const sourceFilterLabel = sourceFilterAll
+    ? text.sourceFilterAll
+    : text.selectedSourcesCount.replace('{{count}}', String(activeSourceFilterIds.size));
+
   const scopedNodes = useMemo(() => {
     if (showSelectedNodesOnly) {
       return nodes.filter((node) => selectedPoolIdSet.has(node.id));
     }
-    if (nodeSourceFilter !== 'all') {
-      return nodes.filter((node) => node.sourceId === nodeSourceFilter);
+    if (!sourceFilterAll) {
+      return nodes.filter((node) => Boolean(node.sourceId) && activeSourceFilterIds.has(node.sourceId ?? ''));
     }
     return nodes;
-  }, [nodeSourceFilter, nodes, selectedPoolIdSet, showSelectedNodesOnly]);
+  }, [activeSourceFilterIds, nodes, selectedPoolIdSet, showSelectedNodesOnly, sourceFilterAll]);
 
   const filteredNodes = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -745,7 +764,7 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
   };
 
   const resetNodeScopeFilters = () => {
-    setNodeSourceFilter('all');
+    setNodeSourceFilterIds(new Set());
     setShowSelectedNodesOnly(false);
   };
 
@@ -764,15 +783,31 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
     resetNodeScopeFilters();
   };
 
-  const handleSourceFilterChange = (value: string) => {
-    setNodeSourceFilter(value);
+  const handleSourceFilterChange = (sourceId: string, selected: boolean) => {
+    const availableSourceIds = sources.map((source) => source.id);
+    setNodeSourceFilterIds((current) => {
+      const next = sourceFilterAll ? new Set(availableSourceIds) : new Set(current);
+      if (selected) {
+        next.add(sourceId);
+      } else {
+        next.delete(sourceId);
+      }
+      if (next.size === 0 || next.size >= availableSourceIds.length) return new Set();
+      return next;
+    });
+    setShowSelectedNodesOnly(false);
+    resetNodeSearchFilters();
+  };
+
+  const handleSelectAllSources = () => {
+    setNodeSourceFilterIds(new Set());
     setShowSelectedNodesOnly(false);
     resetNodeSearchFilters();
   };
 
   const handleShowSelectedNodes = () => {
     setShowSelectedNodesOnly((current) => !current);
-    setNodeSourceFilter('all');
+    setNodeSourceFilterIds(new Set());
     resetNodeSearchFilters();
   };
 
@@ -2026,27 +2061,6 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
           </div>
         )}
 
-        {hasMultipleSources && (
-          <div className="proxy-pool-list-scope">
-            <label className="proxy-pool-scope-select">
-              <span>{text.nodeListScope}</span>
-              <select
-                className="settings-select"
-                value={nodeSourceFilter}
-                onChange={(event) => handleSourceFilterChange(event.target.value)}
-                disabled={showSelectedNodesOnly}
-              >
-                <option value="all">{text.allNodes}</option>
-                {sources.map((source) => (
-                  <option key={source.id} value={source.id}>
-                    {source.displayName} ({source.nodeCount})
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        )}
-
         <div className="proxy-pool-list-head">
           <div className="proxy-pool-list-title">
             <label
@@ -2069,6 +2083,38 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
                   .replace('{{total}}', String(scopedNodes.length))}
               </span>
             </div>
+            {sources.length > 0 && (
+              <details className="proxy-pool-source-filter">
+                <summary className="proxy-pool-source-filter-trigger" title={text.sourceFilter}>
+                  <ListFilter size={16} />
+                  <span>{sourceFilterLabel}</span>
+                </summary>
+                <div className="proxy-pool-source-filter-menu">
+                  <label className="proxy-pool-source-filter-option">
+                    <input
+                      type="checkbox"
+                      checked={sourceFilterAll}
+                      onChange={handleSelectAllSources}
+                      disabled={showSelectedNodesOnly}
+                    />
+                    <span>{text.sourceFilterAll}</span>
+                  </label>
+                  {sources.map((source) => (
+                    <label className="proxy-pool-source-filter-option" key={source.id}>
+                      <input
+                        type="checkbox"
+                        checked={sourceFilterAll || activeSourceFilterIds.has(source.id)}
+                        onChange={(event) => handleSourceFilterChange(source.id, event.target.checked)}
+                        disabled={showSelectedNodesOnly}
+                      />
+                      <span title={source.displayName}>
+                        {source.displayName} ({source.nodeCount})
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </details>
+            )}
             <button
               className={`btn btn-secondary proxy-pool-selected-scope ${showSelectedNodesOnly ? 'is-active' : ''}`}
               type="button"

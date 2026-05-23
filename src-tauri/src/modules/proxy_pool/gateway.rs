@@ -1,5 +1,6 @@
 use super::bridge;
 use super::store::{self, GatewayOutboundTarget};
+use crate::modules::process;
 use base64::{engine::general_purpose, Engine as _};
 use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, RootCertStore};
@@ -21,6 +22,8 @@ const CONNECT_UPSTREAM_TIMEOUT: Duration = Duration::from_secs(20);
 const GATEWAY_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const GATEWAY_BIND_RETRY_TIMEOUT: Duration = Duration::from_secs(5);
 const GATEWAY_BIND_RETRY_INTERVAL: Duration = Duration::from_millis(100);
+const GATEWAY_PORT_RELEASE_TIMEOUT: Duration = Duration::from_secs(5);
+const GATEWAY_PORT_RELEASE_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const FAILOVER_PROMOTION_COOLDOWN: Duration = Duration::from_secs(2);
 const MAX_HTTP_HEAD_BYTES: usize = 64 * 1024;
 const PROXY_POOL_GATEWAY_FAILOVER_EVENT: &str = "proxy_pool://gateway_failover";
@@ -45,6 +48,12 @@ struct GatewayRuntime {
 #[derive(Default)]
 struct FailoverPromotionState {
     last_attempt_at: Option<Instant>,
+}
+
+#[derive(Debug, Clone)]
+struct GatewayBindEndpoint {
+    host: String,
+    port: u16,
 }
 
 #[derive(Debug)]
@@ -95,7 +104,7 @@ pub async fn restore_gateway_state() {
 pub async fn sync_gateway_state() -> Result<(), String> {
     let service_state = store::get_service_state()?;
     if !service_state.enabled {
-        stop_gateway().await;
+        let _ = stop_gateway().await;
         bridge::stop_bridge().await;
         store::update_service_actual_port(None)?;
         return Ok(());
@@ -136,7 +145,7 @@ pub async fn sync_gateway_state() -> Result<(), String> {
         return Ok(());
     }
 
-    stop_gateway().await;
+    let _ = stop_gateway().await;
     store::update_service_actual_port(None)?;
 
     let listener = bind_gateway_listener(preferred_port)
@@ -207,11 +216,56 @@ pub async fn sync_gateway_state() -> Result<(), String> {
     Ok(())
 }
 
-async fn stop_gateway() {
-    let (shutdown_sender, task) = {
+pub async fn prepare_gateway_for_restart() -> Result<(), String> {
+    let service_state = store::get_service_state()?;
+    let endpoint = stop_gateway().await.or_else(|| {
+        service_state.actual_port.map(|port| GatewayBindEndpoint {
+            host: GATEWAY_BIND_HOST.to_string(),
+            port,
+        })
+    });
+    store::update_service_actual_port(None)?;
+    bridge::cleanup_registered_bridge_processes("proxy-gateway-prepare-restart");
+
+    let mut warnings = Vec::new();
+    if let Some(endpoint) = endpoint {
+        if let Err(err) = wait_for_gateway_port_release(&endpoint.host, endpoint.port).await {
+            warnings.push(err);
+            match process::kill_port_processes(endpoint.port) {
+                Ok(killed) if killed > 0 => {
+                    crate::modules::logger::log_warn(&format!(
+                        "[ProxyGateway] 重启前清理内置代理网关端口 {}，已结束 {} 个残留进程",
+                        endpoint.port, killed
+                    ));
+                    wait_for_gateway_port_release(&endpoint.host, endpoint.port).await?;
+                }
+                Ok(_) => {}
+                Err(kill_error) => warnings.push(kill_error),
+            }
+        }
+    }
+
+    if warnings.is_empty() {
+        Ok(())
+    } else {
+        let message = warnings.join("; ");
+        crate::modules::logger::log_warn(&format!(
+            "[ProxyGateway] 重启前关闭内置代理网关存在警告: {}",
+            message
+        ));
+        Ok(())
+    }
+}
+
+async fn stop_gateway() -> Option<GatewayBindEndpoint> {
+    let (shutdown_sender, task, endpoint) = {
         let mut runtime = gateway_runtime().lock().await;
+        let endpoint = runtime.running_port.map(|port| GatewayBindEndpoint {
+            host: GATEWAY_BIND_HOST.to_string(),
+            port,
+        });
         runtime.running_port = None;
-        (runtime.shutdown_sender.take(), runtime.task.take())
+        (runtime.shutdown_sender.take(), runtime.task.take(), endpoint)
     };
 
     if let Some(sender) = shutdown_sender {
@@ -231,6 +285,42 @@ async fn stop_gateway() {
         }
     }
     bridge::stop_bridge().await;
+    endpoint
+}
+
+async fn wait_for_gateway_port_release(host: &str, port: u16) -> Result<(), String> {
+    let deadline = Instant::now() + GATEWAY_PORT_RELEASE_TIMEOUT;
+    loop {
+        match TcpListener::bind((host, port)).await {
+            Ok(listener) => {
+                drop(listener);
+                return Ok(());
+            }
+            Err(error)
+                if error.kind() == std::io::ErrorKind::AddrInUse && Instant::now() < deadline =>
+            {
+                tokio::time::sleep(GATEWAY_PORT_RELEASE_POLL_INTERVAL).await;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
+                let pids = process::find_pids_by_port(port).unwrap_or_default();
+                let owner = if pids.is_empty() {
+                    "未发现外部监听进程".to_string()
+                } else {
+                    format!("监听进程: {}", process::summarize_pid_list_for_log(&pids))
+                };
+                return Err(format!(
+                    "内置代理网关端口 {} 停止后仍未释放: {}",
+                    port, owner
+                ));
+            }
+            Err(error) => {
+                return Err(format!(
+                    "检查内置代理网关端口 {} 是否释放失败: {}",
+                    port, error
+                ));
+            }
+        }
+    }
 }
 
 async fn bind_gateway_listener(port: u16) -> Result<TcpListener, std::io::Error> {

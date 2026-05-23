@@ -1,14 +1,16 @@
 use super::runtime;
 use super::store::GatewayOutboundTarget;
 use crate::modules::data_dir;
+use crate::modules::process;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::io::Read;
 use std::net::{SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::OnceLock;
+use std::sync::{Mutex as StdMutex, OnceLock};
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::sync::Mutex as TokioMutex;
@@ -29,8 +31,11 @@ const MIHOMO_GROUP_NAME: &str = "proxy";
 const BRIDGE_READY_TIMEOUT: Duration = Duration::from_secs(8);
 const BRIDGE_READY_INTERVAL: Duration = Duration::from_millis(120);
 const MIHOMO_PROVIDER_READY_GRACE: Duration = Duration::from_millis(1800);
+const BRIDGE_PROCESS_EXIT_TIMEOUT: Duration = Duration::from_secs(3);
+const BRIDGE_PROCESS_EXIT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 static BRIDGE_RUNTIME: OnceLock<TokioMutex<BridgeRuntime>> = OnceLock::new();
+static BRIDGE_CHILD_PIDS: OnceLock<StdMutex<HashSet<u32>>> = OnceLock::new();
 
 #[derive(Debug, Clone)]
 pub struct BridgeEndpoint {
@@ -58,17 +63,7 @@ impl TemporaryBridge {
 impl Drop for TemporaryBridge {
     fn drop(&mut self) {
         if let Some(mut child) = self.child.take() {
-            match child.try_wait() {
-                Ok(Some(_)) => {}
-                Ok(None) => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                }
-                Err(_) => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                }
-            }
+            terminate_bridge_child(&mut child, "temporary-bridge-drop");
         }
         if let Some(path) = self.config_path.take() {
             remove_bridge_file_and_empty_parent(path);
@@ -96,6 +91,10 @@ enum BridgeRuntimeKind {
 
 fn bridge_runtime() -> &'static TokioMutex<BridgeRuntime> {
     BRIDGE_RUNTIME.get_or_init(|| TokioMutex::new(BridgeRuntime::default()))
+}
+
+fn bridge_child_pids() -> &'static StdMutex<HashSet<u32>> {
+    BRIDGE_CHILD_PIDS.get_or_init(|| StdMutex::new(HashSet::new()))
 }
 
 pub fn is_bridge_protocol(protocol: &str) -> bool {
@@ -226,6 +225,117 @@ pub async fn stop_bridge() {
     stop_bridge_locked(&mut runtime_state);
 }
 
+pub fn cleanup_stale_bridge_processes(reason: &str) {
+    cleanup_registered_bridge_processes(reason);
+
+    let bridge_dir = match data_dir::get_data_dir() {
+        Ok(path) => path.join("proxy-pool").join(BRIDGE_DIR_NAME),
+        Err(err) => {
+            crate::modules::logger::log_warn(&format!(
+                "[ProxyBridge] 清理残留桥接进程时读取数据目录失败: {}",
+                err
+            ));
+            return;
+        }
+    };
+
+    let Ok(entries) = fs::read_dir(&bridge_dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        for port in read_bridge_config_listen_ports(&path.join("config.json")) {
+            match process::kill_port_processes(port) {
+                Ok(killed) if killed > 0 => {
+                    crate::modules::logger::log_warn(&format!(
+                        "[ProxyBridge] 清理残留桥接监听端口 {}，已结束 {} 个进程",
+                        port, killed
+                    ));
+                }
+                Ok(_) => {}
+                Err(err) => {
+                    crate::modules::logger::log_warn(&format!(
+                        "[ProxyBridge] 清理残留桥接监听端口 {} 失败: {}",
+                        port, err
+                    ));
+                }
+            }
+        }
+
+        let pid_path = path.join("config.pid");
+        if let Ok(raw_pid) = fs::read_to_string(&pid_path) {
+            if let Ok(pid) = raw_pid.trim().parse::<u32>() {
+                let _ = terminate_bridge_pid(pid, reason);
+            }
+        }
+
+        if let Err(err) = fs::remove_dir_all(&path) {
+            crate::modules::logger::log_warn(&format!(
+                "[ProxyBridge] 清理残留桥接工作目录失败 {}: {}",
+                path.display(),
+                err
+            ));
+        }
+    }
+}
+
+fn read_bridge_config_listen_ports(config_path: &PathBuf) -> Vec<u16> {
+    let Ok(content) = fs::read_to_string(config_path) else {
+        return Vec::new();
+    };
+    let Ok(config) = serde_json::from_str::<Value>(&content) else {
+        return Vec::new();
+    };
+
+    let mut ports = HashSet::new();
+    for key in ["mixed-port", "socks-port", "port"] {
+        if let Some(port) = json_u16(config.get(key)) {
+            ports.insert(port);
+        }
+    }
+
+    if let Some(inbounds) = config.get("inbounds").and_then(Value::as_array) {
+        for inbound in inbounds {
+            for key in ["port", "listen_port"] {
+                if let Some(port) = json_u16(inbound.get(key)) {
+                    ports.insert(port);
+                }
+            }
+        }
+    }
+
+    let mut result = ports.into_iter().collect::<Vec<u16>>();
+    result.sort_unstable();
+    result
+}
+
+fn json_u16(value: Option<&Value>) -> Option<u16> {
+    match value? {
+        Value::Number(number) => number.as_u64().and_then(|value| u16::try_from(value).ok()),
+        Value::String(text) => text.trim().parse::<u16>().ok(),
+        _ => None,
+    }
+}
+
+pub fn cleanup_registered_bridge_processes(reason: &str) {
+    let pids = {
+        let mut guard = match bridge_child_pids().lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        guard.drain().collect::<Vec<u32>>()
+    };
+
+    for pid in pids {
+        let _ = terminate_bridge_pid(pid, reason);
+    }
+}
+
 pub async fn current_bridge_log_snippet() -> Option<String> {
     let runtime_state = bridge_runtime().lock().await;
     read_bridge_log_snippet(runtime_state.log_path.as_ref())
@@ -233,17 +343,7 @@ pub async fn current_bridge_log_snippet() -> Option<String> {
 
 fn stop_bridge_locked(runtime_state: &mut BridgeRuntime) {
     if let Some(mut child) = runtime_state.child.take() {
-        match child.try_wait() {
-            Ok(Some(_)) => {}
-            Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
-        }
+        terminate_bridge_child(&mut child, "gateway-bridge-stop");
     }
     runtime_state.key.clear();
     runtime_state.endpoint = None;
@@ -258,6 +358,7 @@ fn stop_bridge_locked(runtime_state: &mut BridgeRuntime) {
 fn remove_bridge_file_and_empty_parent(path: PathBuf) {
     let parent = path.parent().map(PathBuf::from);
     let _ = fs::remove_file(&path);
+    let _ = fs::remove_file(path.with_extension("pid"));
     if let Some(parent) = parent {
         let _ = fs::remove_dir(parent);
     }
@@ -384,9 +485,119 @@ fn spawn_bridge_process(
     command.stderr(Stdio::from(stderr));
     #[cfg(target_os = "windows")]
     command.creation_flags(CREATE_NO_WINDOW);
-    command
+    let mut child = command
         .spawn()
-        .map_err(|err| format!("启动代理桥接内核失败 {}: {}", binary_path.display(), err))
+        .map_err(|err| format!("启动代理桥接内核失败 {}: {}", binary_path.display(), err))?;
+    register_bridge_child(child.id());
+    if let Err(err) = write_bridge_pid(config_path, child.id()) {
+        terminate_bridge_child(&mut child, "bridge-pid-write-failed");
+        return Err(err);
+    }
+    Ok(child)
+}
+
+fn register_bridge_child(pid: u32) {
+    let mut guard = match bridge_child_pids().lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    guard.insert(pid);
+}
+
+fn unregister_bridge_child(pid: u32) {
+    let mut guard = match bridge_child_pids().lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    guard.remove(&pid);
+}
+
+fn write_bridge_pid(config_path: &PathBuf, pid: u32) -> Result<(), String> {
+    let pid_path = config_path.with_extension("pid");
+    fs::write(&pid_path, pid.to_string())
+        .map_err(|err| format!("写入代理桥接 PID 文件失败 {}: {}", pid_path.display(), err))
+}
+
+fn terminate_bridge_child(child: &mut Child, reason: &str) {
+    let pid = child.id();
+    match child.try_wait() {
+        Ok(Some(_)) => {
+            unregister_bridge_child(pid);
+            return;
+        }
+        Ok(None) => {}
+        Err(err) => {
+            crate::modules::logger::log_warn(&format!(
+                "[ProxyBridge] 检查桥接进程状态失败 pid={} reason={}: {}",
+                pid, reason, err
+            ));
+        }
+    }
+
+    let _ = terminate_bridge_pid(pid, reason);
+    let _ = child.kill();
+    let _ = child.wait();
+    unregister_bridge_child(pid);
+}
+
+fn terminate_bridge_pid(pid: u32, reason: &str) -> Result<bool, String> {
+    unregister_bridge_child(pid);
+    if pid == 0 || !process::is_pid_running(pid) {
+        return Ok(false);
+    }
+
+    crate::modules::logger::log_info(&format!(
+        "[ProxyBridge] 结束桥接内核进程: pid={}, reason={}",
+        pid, reason
+    ));
+
+    #[cfg(target_os = "windows")]
+    {
+        let output = Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|err| format!("执行 taskkill 失败 pid={}: {}", pid, err))?;
+        if !output.status.success() && process::is_pid_running(pid) {
+            let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(format!("结束桥接进程失败 pid={}: {}", pid, detail));
+        }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        let _ = Command::new("kill").args(["-TERM", &pid.to_string()]).output();
+        if process::is_pid_running(pid) {
+            let deadline = std::time::Instant::now() + BRIDGE_PROCESS_EXIT_TIMEOUT;
+            while std::time::Instant::now() < deadline {
+                if !process::is_pid_running(pid) {
+                    break;
+                }
+                std::thread::sleep(BRIDGE_PROCESS_EXIT_POLL_INTERVAL);
+            }
+        }
+        if process::is_pid_running(pid) {
+            let output = Command::new("kill")
+                .args(["-KILL", &pid.to_string()])
+                .output()
+                .map_err(|err| format!("执行 kill -KILL 失败 pid={}: {}", pid, err))?;
+            if !output.status.success() && process::is_pid_running(pid) {
+                let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                return Err(format!("结束桥接进程失败 pid={}: {}", pid, detail));
+            }
+        }
+    }
+
+    let deadline = std::time::Instant::now() + BRIDGE_PROCESS_EXIT_TIMEOUT;
+    while process::is_pid_running(pid) && std::time::Instant::now() < deadline {
+        std::thread::sleep(BRIDGE_PROCESS_EXIT_POLL_INTERVAL);
+    }
+
+    if process::is_pid_running(pid) {
+        return Err(format!("桥接进程仍未退出 pid={}", pid));
+    }
+
+    Ok(true)
 }
 
 fn bridge_log_path(config_path: &PathBuf) -> PathBuf {

@@ -8026,7 +8026,7 @@ pub fn kill_port_processes(port: u16) -> Result<usize, String> {
         use std::os::windows::process::CommandExt;
         for pid in &pids {
             let output = Command::new("taskkill")
-                .args(["/F", "/PID", &pid.to_string()])
+                .args(["/F", "/T", "/PID", &pid.to_string()])
                 .creation_flags(0x08000000)
                 .output();
             match output {

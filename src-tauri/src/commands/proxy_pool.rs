@@ -189,6 +189,18 @@ pub async fn proxy_pool_update_service_state(
     store::list_nodes()
 }
 
+#[tauri::command]
+pub async fn proxy_pool_prepare_gateway_restart() -> Result<ProxyPoolListResponse, String> {
+    gateway::prepare_gateway_for_restart().await?;
+    store::list_nodes()
+}
+
+#[tauri::command]
+pub async fn proxy_pool_restore_gateway_state() -> Result<ProxyPoolListResponse, String> {
+    gateway::sync_gateway_state().await?;
+    store::list_nodes()
+}
+
 fn normalize_progress_task_id(task_id: Option<String>) -> String {
     let value = task_id.unwrap_or_default().trim().to_string();
     if value.is_empty() {

@@ -121,3 +121,11 @@ export async function updateProxyPoolServiceState(
 ): Promise<ProxyPoolListResponse> {
   return await invoke('proxy_pool_update_service_state', { request });
 }
+
+export async function prepareProxyPoolGatewayForRestart(): Promise<ProxyPoolListResponse> {
+  return await invoke('proxy_pool_prepare_gateway_restart');
+}
+
+export async function restoreProxyPoolGatewayState(): Promise<ProxyPoolListResponse> {
+  return await invoke('proxy_pool_restore_gateway_state');
+}

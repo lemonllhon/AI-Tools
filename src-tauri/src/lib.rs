@@ -6,10 +6,10 @@ mod utils;
 
 use modules::config::CloseWindowBehavior;
 use modules::logger;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 #[cfg(target_os = "macos")]
 use tauri::ActivationPolicy;
-#[cfg(target_os = "macos")]
 use tauri::RunEvent;
 use tauri::WindowEvent;
 use tauri::{Emitter, Manager};
@@ -18,10 +18,32 @@ use tracing::info;
 
 /// 全局 AppHandle 存储
 static APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
+static SHUTDOWN_CLEANUP_STARTED: AtomicBool = AtomicBool::new(false);
 
 /// 获取全局 AppHandle
 pub fn get_app_handle() -> Option<&'static tauri::AppHandle> {
     APP_HANDLE.get()
+}
+
+async fn cleanup_network_services_before_exit(reason: &str) {
+    logger::log_info(&format!("[Shutdown] 开始清理网络服务: reason={}", reason));
+
+    if let Err(err) = modules::proxy_pool::gateway::prepare_gateway_for_restart().await {
+        logger::log_warn(&format!(
+            "[Shutdown] 清理内置代理网关失败: {}",
+            err
+        ));
+    }
+
+    if let Err(err) = modules::codex_local_access::prepare_local_access_gateway_for_restart().await {
+        logger::log_warn(&format!(
+            "[Shutdown] 清理 Codex API 本地接入服务失败: {}",
+            err
+        ));
+    }
+
+    modules::proxy_pool::bridge::cleanup_registered_bridge_processes(reason);
+    logger::log_info("[Shutdown] 网络服务清理完成");
 }
 
 #[cfg(target_os = "macos")]
@@ -112,6 +134,7 @@ pub fn run() {
 
             // 存储全局 AppHandle
             let _ = APP_HANDLE.set(app.handle().clone());
+            modules::proxy_pool::bridge::cleanup_stale_bridge_processes("startup");
 
             // 启动时清理 WebKit LocalStorage WAL，防止无限膨胀
             std::thread::spawn(|| {
@@ -453,6 +476,8 @@ pub fn run() {
             commands::proxy_pool::proxy_pool_check_node_ip_health,
             commands::proxy_pool::proxy_pool_check_all_ip_health,
             commands::proxy_pool::proxy_pool_update_service_state,
+            commands::proxy_pool::proxy_pool_prepare_gateway_restart,
+            commands::proxy_pool::proxy_pool_restore_gateway_state,
             // Logs Commands
             commands::logs::logs_get_snapshot,
             commands::logs::logs_open_log_directory,
@@ -897,6 +922,23 @@ pub fn run() {
         .expect("error while building tauri application");
 
     app.run(|app_handle, event| {
+        if let RunEvent::ExitRequested { api, .. } = &event {
+            if !SHUTDOWN_CLEANUP_STARTED.swap(true, Ordering::SeqCst) {
+                api.prevent_exit();
+                let cleanup_app_handle: tauri::AppHandle = app_handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    cleanup_network_services_before_exit("app-exit").await;
+                    cleanup_app_handle.exit(0);
+                });
+                return;
+            }
+        }
+        if matches!(&event, RunEvent::Exit)
+            && !SHUTDOWN_CLEANUP_STARTED.swap(true, Ordering::SeqCst)
+        {
+            tauri::async_runtime::block_on(cleanup_network_services_before_exit("app-exit-final"));
+        }
+
         #[cfg(target_os = "macos")]
         {
             match event {

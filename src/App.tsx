@@ -62,6 +62,10 @@ import {
 } from './utils/externalProviderImport';
 import { runAutoBackupCycle } from './services/scheduledBackupService';
 import { prepareCodexLocalAccessForRestart } from './services/codexLocalAccessService';
+import {
+  prepareProxyPoolGatewayForRestart,
+  restoreProxyPoolGatewayState,
+} from './services/proxyPoolService';
 
 const DashboardPage = lazy(() =>
   import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })),
@@ -720,11 +724,16 @@ function MainApp() {
     void invoke('update_log', { level, message }).catch(() => {});
   }, []);
 
-  const prepareCodexLocalAccessBeforeRelaunch = useCallback(async () => {
+  const prepareNetworkServicesBeforeRelaunch = useCallback(async () => {
     setUpdateRetryStatus(
-      t('update_notification.stoppingApiService', '正在关闭 API 服务...'),
+      t('update_notification.stoppingNetworkServices', '正在关闭网络服务...'),
     );
     try {
+      const proxyState = await prepareProxyPoolGatewayForRestart();
+      writeUpdateLog(
+        'info',
+        `应用重启前已关闭内置代理网关: enabled=${Boolean(proxyState.serviceState?.enabled)}, actual_port=${proxyState.serviceState?.actualPort ?? 'none'}`,
+      );
       const state = await prepareCodexLocalAccessForRestart();
       writeUpdateLog(
         'info',
@@ -733,13 +742,19 @@ function MainApp() {
     } catch (error) {
       writeUpdateLog(
         'warn',
-        `应用重启前关闭 Codex API 服务监听失败，已中止本次重启: error=${sanitizeUpdaterErrorMessage(error)}`,
+        `应用重启前关闭网络服务失败，已中止本次重启: error=${sanitizeUpdaterErrorMessage(error)}`,
       );
       throw error;
     }
   }, [t, writeUpdateLog]);
 
-  const restoreCodexLocalAccessAfterRelaunchFailure = useCallback(async () => {
+  const restoreNetworkServicesAfterRelaunchFailure = useCallback(async () => {
+    await restoreProxyPoolGatewayState().catch((error) => {
+      writeUpdateLog(
+        'warn',
+        `应用重启失败后恢复内置代理网关失败: error=${sanitizeUpdaterErrorMessage(error)}`,
+      );
+    });
     await invoke('codex_local_access_get_state').catch((error) => {
       writeUpdateLog(
         'warn',
@@ -1007,11 +1022,11 @@ function MainApp() {
         `用户点击立即重启应用更新: version=${targetVersion || 'unknown'}, install_before_restart=${shouldInstall}`,
       );
       setUpdateRetryStatus(
-        t('update_notification.stoppingApiService', '正在关闭 API 服务...'),
+        t('update_notification.stoppingNetworkServices', '正在关闭网络服务...'),
       );
       setUpdateDownloadError('');
       setUpdateErrorDetails('');
-      await prepareCodexLocalAccessBeforeRelaunch();
+      await prepareNetworkServicesBeforeRelaunch();
       failureStage = 'install';
       const pendingUpdate = pendingSilentUpdateRef.current;
       if (shouldInstall && pendingUpdate) {
@@ -1035,11 +1050,11 @@ function MainApp() {
       const { relaunch } = await import('@tauri-apps/plugin-process');
       await relaunch();
     } catch (error) {
-      await restoreCodexLocalAccessAfterRelaunchFailure();
+      await restoreNetworkServicesAfterRelaunchFailure();
       console.error('[App] Failed to apply pending update:', error);
       const compactError = sanitizeUpdaterErrorMessage(error);
       const errorMessage = failureStage === 'prepare'
-        ? t('update_notification.stopApiServiceFailed', '无法关闭 API 服务，请先停用后重试。')
+        ? t('update_notification.stopNetworkServicesFailed', '无法关闭网络服务，请先停用后重试。')
         : failureStage === 'install'
           ? t('update_notification.installFailed', '系统安装失败，请稍后重试或手动下载安装。')
           : t('update_notification.restartRequiredAfterInstall', '更新已安装，请手动重启应用完成切换。');
@@ -1053,8 +1068,8 @@ function MainApp() {
       throw error;
     }
   }, [
-    prepareCodexLocalAccessBeforeRelaunch,
-    restoreCodexLocalAccessAfterRelaunchFailure,
+    prepareNetworkServicesBeforeRelaunch,
+    restoreNetworkServicesAfterRelaunchFailure,
     silentUpdateVersion,
     updateAction,
     t,
@@ -1097,12 +1112,12 @@ function MainApp() {
 
       let relaunchStage: 'prepare' | 'relaunch' = 'prepare';
       try {
-        await prepareCodexLocalAccessBeforeRelaunch();
+        await prepareNetworkServicesBeforeRelaunch();
         relaunchStage = 'relaunch';
         const { relaunch } = await import('@tauri-apps/plugin-process');
         await relaunch();
       } catch (error) {
-        await restoreCodexLocalAccessAfterRelaunchFailure();
+        await restoreNetworkServicesAfterRelaunchFailure();
         const compactError = sanitizeUpdaterErrorMessage(error);
         console.error('[App] Linux managed update installed but relaunch failed:', error);
         writeUpdateLog(
@@ -1112,7 +1127,7 @@ function MainApp() {
         setUpdateRetryStatus('');
         setUpdateDownloadError(
           relaunchStage === 'prepare'
-            ? t('update_notification.stopApiServiceFailed', '无法关闭 API 服务，请先停用后重试。')
+            ? t('update_notification.stopNetworkServicesFailed', '无法关闭网络服务，请先停用后重试。')
             : t('update_notification.restartRequiredAfterInstall', '更新已安装，请手动重启应用完成切换。'),
         );
         setUpdateErrorDetails(compactError);
@@ -1136,8 +1151,8 @@ function MainApp() {
     }
   }, [
     closeUpdaterHandle,
-    prepareCodexLocalAccessBeforeRelaunch,
-    restoreCodexLocalAccessAfterRelaunchFailure,
+    prepareNetworkServicesBeforeRelaunch,
+    restoreNetworkServicesAfterRelaunchFailure,
     t,
     writeUpdateLog,
   ]);

@@ -6,6 +6,23 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.24] - 2026-05-23
+### Added
+- Added managed restart hooks for the built-in proxy gateway so app updates and relaunches close proxy gateway listeners, bridge processes, and Codex API local access before restarting.
+- Added startup cleanup for stale proxy bridge work directories, PID files, and leftover bridge listener ports from previous sessions.
+- Added a source multi-select directly inside the proxy node list header, letting the node list filter by one or more subscription sources.
+
+### Changed
+- Changed Windows proxy bridge cleanup to terminate the full process tree with `taskkill /F /T`, reducing leftover mihomo/sing-box/xray child processes and stuck ports.
+- Changed the proxy node list source filter behavior so search, group, and protocol filters reset source scope back to all sources, keeping filtered results predictable.
+- Changed the proxy node list header controls so the source filter, selected-node scope, and collapse button share the same compact height.
+
+### Fixed
+- Fixed built-in proxy gateway and bridge ports sometimes staying occupied after app updates, relaunch attempts, or gateway restarts.
+- Fixed preview latency tests and IP health checks in Add Resource appearing stuck on large subscriptions by adding bounded bridge-node concurrency and per-node timeout fallbacks.
+- Fixed the old Display Scope subscription selector duplicating the new node-list source filter.
+- Fixed source filtering being limited to a single subscription source when users need to combine nodes from multiple subscriptions.
+
 ## [0.0.23] - 2026-05-23
 ### Fixed
 - Fixed release builds failing in `proxy_pool::gateway` by adding the explicit outbound lifetime required when returning the successful gateway fallback target.

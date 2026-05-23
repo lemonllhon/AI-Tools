@@ -34,6 +34,9 @@ const DEFAULT_GROUP: &str = "默认";
 const SUPPORTED_MANUAL_PROTOCOLS: &[&str] = &["http", "https", "socks5"];
 const LATENCY_BATCH_CONCURRENCY: usize = 12;
 const IP_HEALTH_BATCH_CONCURRENCY: usize = 6;
+const PREVIEW_BRIDGE_BATCH_CONCURRENCY: usize = 4;
+const PREVIEW_LATENCY_TARGET_TIMEOUT: Duration = Duration::from_secs(22);
+const PREVIEW_IP_HEALTH_TARGET_TIMEOUT: Duration = Duration::from_secs(34);
 const DEFAULT_PROXY_GATEWAY_PORT: u16 = 7897;
 const DEFAULT_LOCAL_PROXY_PORT: u16 = 7890;
 
@@ -493,15 +496,17 @@ async fn check_preview_latency_targets(
     let (bridge_targets, direct_targets): (Vec<_>, Vec<_>) =
         targets.into_iter().partition(health::is_bridge_check_target);
     let mut items = stream::iter(direct_targets)
-        .map(health::test_latency)
+        .map(check_preview_latency_target)
         .buffer_unordered(LATENCY_BATCH_CONCURRENCY)
-        .map(preview_latency_check_item)
         .collect::<Vec<_>>()
         .await;
 
-    for target in bridge_targets {
-        items.push(preview_latency_check_item(health::test_latency(target).await));
-    }
+    let mut bridge_items = stream::iter(bridge_targets)
+        .map(check_preview_latency_target)
+        .buffer_unordered(PREVIEW_BRIDGE_BATCH_CONCURRENCY)
+        .collect::<Vec<_>>()
+        .await;
+    items.append(&mut bridge_items);
 
     items
 }
@@ -512,17 +517,59 @@ async fn check_preview_ip_health_targets(
     let (bridge_targets, direct_targets): (Vec<_>, Vec<_>) =
         targets.into_iter().partition(health::is_bridge_check_target);
     let mut items = stream::iter(direct_targets)
-        .map(health::check_ip_health)
+        .map(check_preview_ip_health_target)
         .buffer_unordered(IP_HEALTH_BATCH_CONCURRENCY)
-        .map(preview_ip_health_check_item)
         .collect::<Vec<_>>()
         .await;
 
-    for target in bridge_targets {
-        items.push(preview_ip_health_check_item(health::check_ip_health(target).await));
-    }
+    let mut bridge_items = stream::iter(bridge_targets)
+        .map(check_preview_ip_health_target)
+        .buffer_unordered(PREVIEW_BRIDGE_BATCH_CONCURRENCY)
+        .collect::<Vec<_>>()
+        .await;
+    items.append(&mut bridge_items);
 
     items
+}
+
+async fn check_preview_latency_target(target: ProxyCheckTarget) -> ProxyImportPreviewCheckItem {
+    let preview_id = target.id.clone();
+    match tokio::time::timeout(
+        PREVIEW_LATENCY_TARGET_TIMEOUT,
+        health::test_latency(target),
+    )
+    .await
+    {
+        Ok(result) => preview_latency_check_item(result),
+        Err(_) => ProxyImportPreviewCheckItem {
+            preview_id,
+            latency_ms: None,
+            latency_status: "timeout".to_string(),
+            ip_health: None,
+            ip_health_summary: String::new(),
+            error: "预览测速超时，请稍后重试或导入后单独检测".to_string(),
+        },
+    }
+}
+
+async fn check_preview_ip_health_target(target: ProxyCheckTarget) -> ProxyImportPreviewCheckItem {
+    let preview_id = target.id.clone();
+    match tokio::time::timeout(
+        PREVIEW_IP_HEALTH_TARGET_TIMEOUT,
+        health::check_ip_health(target),
+    )
+    .await
+    {
+        Ok(result) => preview_ip_health_check_item(result),
+        Err(_) => ProxyImportPreviewCheckItem {
+            preview_id,
+            latency_ms: None,
+            latency_status: String::new(),
+            ip_health: None,
+            ip_health_summary: "IP 健康检测超时，请稍后重试或导入后单独检测".to_string(),
+            error: "IP 健康检测超时，请稍后重试或导入后单独检测".to_string(),
+        },
+    }
 }
 
 fn preview_latency_check_item(result: ProxyPoolLatencyTestResult) -> ProxyImportPreviewCheckItem {
