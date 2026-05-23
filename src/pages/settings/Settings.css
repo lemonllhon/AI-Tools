@@ -216,6 +216,10 @@
   gap: 16px;
 }
 
+.proxy-runtime-panel.is-collapsed {
+  padding-bottom: 20px;
+}
+
 .proxy-runtime-header {
   display: flex;
   align-items: flex-start;
@@ -406,7 +410,7 @@
 .proxy-runtime-detail-row {
   min-width: 0;
   display: grid;
-  grid-template-columns: 58px minmax(0, 1fr);
+  grid-template-columns: 72px minmax(0, 1fr);
   gap: 10px;
   align-items: center;
   font-size: 12px;
@@ -704,6 +708,20 @@
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 600;
+}
+
+.proxy-pool-preview-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.proxy-pool-preview-head-actions .btn-compact {
+  min-height: 28px;
+  padding: 5px 8px;
+  font-size: 12px;
 }
 
 .proxy-pool-preview-select-all,

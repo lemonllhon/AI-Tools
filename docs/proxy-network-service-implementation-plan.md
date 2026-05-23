@@ -520,6 +520,221 @@ interface ProxyRuntimeStatus {
 - runtime 缺失时应用可启动，但代理服务显示不可用。
 - 至少完成当前平台的端到端验证；其他平台保留清单级和路径级测试，等待对应机器实测。
 
+## 剩余功能逐步开发计划
+
+本节用于约束 2026-05-23 之后继续开发的剩余代理能力。以下任务必须按顺序推进；每个功能点完成后必须先交付验收结果，只有用户明确回复“继续”或同等明确指令，才能进入下一个功能点。
+
+当前已确认的剩余功能：
+
+- HTTPS 上游代理在内置网关中的真正转发支持。
+- 订阅自动刷新调度器。
+- 自动故障切换与当前出口持久化。
+- 导入预览阶段的临时延迟测速与 IP 健康检测。
+- 批量测速 / IP 健康后端实时进度事件。
+
+当前执行状态（2026-05-23）：
+
+- 剩余阶段 1 已落地：HTTPS 上游代理可在内置网关中执行 TLS 连接、CONNECT 和普通 HTTP 转发。
+- 剩余阶段 2 已落地：批量延迟测速和批量 IP 健康检查支持后端实时进度事件。
+- 剩余阶段 3 已落地：导入预览节点支持用户点击触发的临时延迟测速和 IP 健康检测，检测结果仅保留在预览区。
+- 剩余阶段 4 已落地：节点池请求级故障切换成功后会在安全条件内持久化当前出口，并向前端同步当前出口展示。
+- 下一步必须等待用户验收确认后，再进入剩余阶段 5：订阅自动刷新调度器。
+
+### 剩余阶段 1：HTTPS 上游代理支持
+
+目标：
+
+- `https://host:port` 类型的上游代理必须可作为内置代理网关出口使用。
+- 该能力只表示“连接到 HTTPS 代理服务器本身时使用 TLS”，不是把目标站点强行走 HTTPS。
+- HTTP 请求和 CONNECT 请求都必须能复用 HTTPS 上游代理。
+
+实现范围：
+
+- 后端网关：`src-tauri/src/modules/proxy_pool/gateway.rs`。
+- 必要时补充 TLS helper：优先在 `gateway.rs` 内部实现，复杂度上升时再拆到 `src-tauri/src/modules/proxy_pool/tls.rs`。
+- 复用现有 `tokio-rustls` / `rustls` 依赖；如果需要系统根证书，再新增明确依赖并说明原因。
+- 继续保留 HTTP 上游代理、SOCKS5、直连、mihomo 桥接的现有行为。
+
+技术方案：
+
+- 新增 `connect_https_proxy(outbound)`，先 TCP 连接上游代理，再用 TLS 包裹连接。
+- TLS SNI 使用上游代理 `host`；IP 地址作为 host 时必须有清晰错误或安全兜底。
+- CONNECT 转发时，在 TLS 流内发送标准 `CONNECT target:port HTTP/1.1` 请求。
+- 普通 HTTP 转发时，在 TLS 流内发送 absolute-form HTTP 请求。
+- 代理认证继续复用现有 `Proxy-Authorization` 构造逻辑。
+- 错误信息要能区分：TCP 连接失败、TLS 握手失败、代理 CONNECT 返回非 2xx。
+
+验收标准：
+
+- 选择 HTTPS 代理节点后，`curl -x http://127.0.0.1:<gateway_port> https://example.com` 能通过内置网关转发。
+- HTTPS 上游代理账号密码可用，日志不泄露完整凭据。
+- HTTP / SOCKS5 / 高级节点桥接不发生回归。
+- HTTPS 上游代理不可用时，节点池备用节点仍可继续尝试。
+- Windows/macOS/Linux 代码路径一致，不引入仅 Windows 可用的实现。
+
+完成后暂停点：
+
+- 输出改动文件、验证命令、手动验收方法。
+- 等待用户确认后再进入剩余阶段 2。
+
+### 剩余阶段 2：后端实时进度事件基础与批量测速 / IP 健康进度
+
+目标：
+
+- 批量“测试全部”和“检查 IP”不再只等最终结果；后端每完成一个节点就向前端发送进度事件。
+- 先完成已存在批量任务的实时进度，再扩展到导入预览阶段。
+
+实现范围：
+
+- 后端命令：`src-tauri/src/commands/proxy_pool.rs`。
+- 后端检测逻辑：`src-tauri/src/modules/proxy_pool/store.rs`、`src-tauri/src/modules/proxy_pool/health.rs`。
+- 前端服务与类型：`src/services/proxyPoolService.ts`、`src/types/proxyPool.ts`。
+- 前端 UI：`src/pages/settings/ProxyPoolSection.tsx`、`src/pages/settings/Settings.css`。
+
+事件设计：
+
+- 事件名使用稳定前缀，例如 `proxy_pool://check_progress`。
+- 事件 payload 至少包含：
+  - `taskId`
+  - `kind`: `latency` 或 `ip_health`
+  - `phase`: `started` / `node_done` / `finished`
+  - `nodeId`
+  - `ok`
+  - `latencyMs`
+  - `ipHealthSummary`
+  - `error`
+  - `completed`
+  - `total`
+- 前端发起批量任务时生成或接收 `taskId`，只消费当前任务事件，避免历史事件串台。
+
+技术方案：
+
+- 批量检测仍保持并发上限，但每个节点完成后立即 emit 事件。
+- 高级节点检测仍串行或低并发，避免同时启动多个临时内核导致端口和资源压力。
+- 最终命令响应仍保留完整快照，用于兜底刷新 UI。
+- 前端收到事件后局部更新对应节点状态、进度计数和错误摘要。
+
+验收标准：
+
+- 批量延迟测试中，列表节点能逐个显示测试中、成功、失败。
+- 批量 IP 健康中，眼睛详情数据能在单个节点完成后更新。
+- 关闭或切换页面后不会重复注册事件监听。
+- 批量任务失败时仍返回最终错误摘要，不影响已完成节点结果持久化。
+
+完成后暂停点：
+
+- 输出事件 payload 示例、改动文件、验证结果。
+- 等待用户确认后再进入剩余阶段 3。
+
+### 剩余阶段 3：导入预览阶段临时测速与 IP 健康检测
+
+目标：
+
+- 添加资源或 URL 订阅预览后，用户可以对预览节点执行临时延迟测速与 IP 健康检测。
+- 检测结果只附着在预览结果上，不写入 `proxy_nodes`，只有真正导入后才进入持久化节点。
+
+实现范围：
+
+- 预览模型：`src-tauri/src/modules/proxy_pool/models.rs`、`src/types/proxyPool.ts`。
+- 预览检测命令：`src-tauri/src/commands/proxy_pool.rs`、`src/services/proxyPoolService.ts`。
+- 检测复用：`src-tauri/src/modules/proxy_pool/health.rs`。
+- 前端预览区：`src/pages/settings/ProxyPoolSection.tsx`。
+
+技术方案：
+
+- 新增预览检测请求，使用 `previewId` 和预览节点标准配置构造临时 `ProxyCheckTarget`。
+- 用户可选择：
+  - 只测速。
+  - 只查 IP 健康。
+  - 对当前勾选预览节点批量检测。
+- 临时检测必须沿用 mihomo 临时桥接能力，检测结束后清理临时子进程和配置文件。
+- IPPure 等第三方 IP 健康请求必须由用户点击触发，不能在预览完成后自动调用。
+
+验收标准：
+
+- 预览列表能显示临时延迟和 IP 健康摘要。
+- 导入后默认不自动选择为出口节点。
+- 导入后如需要保留预览检测结果，必须由导入请求显式携带；第一版可不持久化预览检测结果。
+- 预览检测失败不影响导入勾选和导入动作。
+
+完成后暂停点：
+
+- 输出手动验收流程：粘贴订阅、预览、检测、导入所选。
+- 等待用户确认后再进入剩余阶段 4。
+
+### 剩余阶段 4：自动故障切换与当前出口持久化
+
+目标：
+
+- 节点池模式下，如果当前活动节点不可用，网关只能在用户已选择的节点中尝试备用节点。
+- 某个备用节点转发成功后，应可按策略更新 `current_node_id`，让后续请求优先走成功节点。
+
+实现范围：
+
+- 网关候选逻辑：`src-tauri/src/modules/proxy_pool/gateway.rs`。
+- 节点池状态：`src-tauri/src/modules/proxy_pool/store.rs`。
+- 前端当前出口展示：`src/pages/settings/ProxyPoolSection.tsx`、`src/pages/SettingsPage.tsx`。
+
+策略：
+
+- 默认启用“请求级故障切换”：当前节点失败后尝试已选备用节点。
+- 新增“成功备用节点持久化为当前出口”逻辑，但必须满足：
+  - 只在 `outlet_mode = node_pool` 时执行。
+  - 只写入 `selected_node_ids_json` 内已有节点。
+  - 不把直连或本地代理自动切进节点池。
+  - 不在所有节点失败时清空用户选择。
+- 加入短冷却时间，避免两个并发请求反复互相覆盖当前出口。
+- 后续可扩展“按延迟优先”或“按 IP 健康优先”，但第一版只做失败后成功备用节点置顶。
+
+验收标准：
+
+- 选中 A、B 两个节点，A 不可用、B 可用时，请求能自动用 B 成功。
+- B 成功后当前出口显示变为 B。
+- 用户手动切回 A 后，下一次请求仍先尝试 A。
+- 所有节点不可用时，错误信息列出候选节点失败原因。
+- 不选择任何普通节点时不会误启用节点池。
+
+完成后暂停点：
+
+- 输出故障切换日志样例和数据库状态变化。
+- 等待用户确认后再进入剩余阶段 5。
+
+### 剩余阶段 5：订阅自动刷新调度器
+
+目标：
+
+- 支持用户为订阅来源开启自动刷新，并配置刷新间隔。
+- 自动刷新只更新订阅节点，不自动执行 IP 健康检查，不偷偷调用第三方 IP 服务。
+
+实现范围：
+
+- 订阅来源模型与更新接口：`src-tauri/src/modules/proxy_pool/models.rs`、`src-tauri/src/modules/proxy_pool/store.rs`。
+- 调度器：新增或扩展 `src-tauri/src/modules/proxy_pool/subscription_scheduler.rs`。
+- 应用启动恢复：`src-tauri/src/lib.rs`。
+- 前端订阅来源编辑：`src/pages/settings/ProxyPoolSection.tsx`。
+
+技术方案：
+
+- 复用 `proxy_sources.auto_refresh_enabled` 和 `refresh_interval_minutes` 字段。
+- 应用启动后启动单例调度器，按来源计算下一次刷新时间。
+- 每个 source 必须有独立锁，避免同一订阅并发刷新。
+- 刷新失败保留旧节点，写入 `last_error`，下次到点继续尝试。
+- 删除订阅来源后调度器要停止该来源任务。
+- 用户修改订阅 URL、分组、名称前缀或刷新间隔后，调度器立即重载。
+
+验收标准：
+
+- 开启自动刷新并设置短间隔后，到点能刷新订阅来源。
+- 刷新失败时旧节点不丢失，来源卡片显示最后错误。
+- 应用重启后自动刷新配置仍生效。
+- 删除订阅来源后不会继续请求已删除 URL。
+- 关闭应用时调度器任务退出，不残留后台子进程。
+
+完成后暂停点：
+
+- 输出调度器状态、验收结果和下一步建议。
+- 等待用户确认后再考虑更高级的出口轮换策略。
+
 ## 必测场景
 
 每个阶段至少运行：

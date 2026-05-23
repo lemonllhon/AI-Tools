@@ -12,3 +12,7 @@ export async function verifyProxyRuntime(): Promise<ProxyRuntimeStatus> {
 export async function openProxyRuntimeCacheDir(): Promise<void> {
   return await invoke('proxy_runtime_open_cache_dir');
 }
+
+export async function openProxyRuntimeResourceDir(): Promise<void> {
+  return await invoke('proxy_runtime_open_resource_dir');
+}

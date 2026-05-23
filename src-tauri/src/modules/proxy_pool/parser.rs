@@ -125,6 +125,10 @@ impl ParsedProxyNode {
             group: self.group.clone(),
             source_kind: self.source_kind.clone(),
             masked_url: build_masked_url(&self.protocol, &self.host, self.port),
+            latency_ms: None,
+            latency_status: String::new(),
+            ip_health: None,
+            ip_health_summary: String::new(),
         }
     }
 }

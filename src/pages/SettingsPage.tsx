@@ -56,7 +56,7 @@ import { ProxyPoolSection } from './settings/ProxyPoolSection';
 import './settings/Settings.css';
 import { 
   Save, FolderOpen,
-  AlertCircle, CheckCircle2, RefreshCw, FileText, Download, X
+  AlertCircle, CheckCircle2, ChevronDown, ChevronUp, RefreshCw, FileText, Download, X
 } from 'lucide-react';
 
 
@@ -348,11 +348,12 @@ export function SettingsPage() {
     const isChinese = language.toLowerCase().startsWith('zh');
     return isChinese ? {
       title: '内置代理内核',
-      name: 'xray / sing-box',
-      desc: '当前阶段只检测内核资源、缓存和版本，不启动代理节点。',
+      name: 'xray / sing-box / mihomo',
+      desc: '优先使用软件目录内的 proxy-runtime 内核，缓存目录仅作为不可执行时的兜底。',
       target: '平台',
       resourceDir: '资源目录',
       cacheDir: '缓存目录',
+      activePath: '运行路径',
       ready: '可用',
       unavailable: '不可用',
       loading: '检测中...',
@@ -362,19 +363,22 @@ export function SettingsPage() {
       cache: '缓存',
       refreshed: '已刷新缓存',
       verify: '重新检测',
-      openCache: '打开缓存',
+      openResource: '打开内核目录',
+      collapse: '折叠内核详情',
+      expand: '展开内核详情',
       loadFailed: '加载代理内核状态失败',
-      openFailed: '打开代理内核缓存失败',
-      bundled: '打包资源',
+      openFailed: '打开代理内核目录失败',
+      bundled: '软件目录',
       override: '覆盖路径',
       unknown: '未知',
     } : {
       title: 'Built-in Proxy Runtime',
-      name: 'xray / sing-box',
-      desc: 'This stage only checks runtime resources, cache, and versions. It does not start proxy nodes.',
+      name: 'xray / sing-box / mihomo',
+      desc: 'Prefer proxy-runtime binaries in the app directory; the cache is only a fallback when those binaries cannot run directly.',
       target: 'Target',
       resourceDir: 'Resource dir',
       cacheDir: 'Cache dir',
+      activePath: 'Runtime path',
       ready: 'Ready',
       unavailable: 'Unavailable',
       loading: 'Checking...',
@@ -384,10 +388,12 @@ export function SettingsPage() {
       cache: 'Cache',
       refreshed: 'Cache refreshed',
       verify: 'Verify',
-      openCache: 'Open cache',
+      openResource: 'Open runtime dir',
+      collapse: 'Collapse runtime details',
+      expand: 'Expand runtime details',
       loadFailed: 'Failed to load proxy runtime status',
-      openFailed: 'Failed to open proxy runtime cache',
-      bundled: 'Bundled',
+      openFailed: 'Failed to open proxy runtime directory',
+      bundled: 'App directory',
       override: 'Override',
       unknown: 'Unknown',
     };
@@ -740,6 +746,7 @@ export function SettingsPage() {
   const [proxyRuntimeStatus, setProxyRuntimeStatus] = useState<ProxyRuntimeStatus | null>(null);
   const [proxyRuntimeLoading, setProxyRuntimeLoading] = useState(false);
   const [proxyRuntimeError, setProxyRuntimeError] = useState<string | null>(null);
+  const [proxyRuntimeCollapsed, setProxyRuntimeCollapsed] = useState(true);
   const reportPreviewPort = reportActualPort ?? (parseInt(reportPort, 10) || reportDefaultPort);
   const reportPreviewToken = encodeURIComponent((reportToken || 'your-token').trim() || 'your-token');
   const reportRawPreviewUrl = `http://<当前IP>:${reportPreviewPort}/report?token=${reportPreviewToken}`;
@@ -1517,9 +1524,9 @@ export function SettingsPage() {
     }
   };
 
-  const handleOpenProxyRuntimeCacheDir = async () => {
+  const handleOpenProxyRuntimeResourceDir = async () => {
     try {
-      await proxyRuntimeService.openProxyRuntimeCacheDir();
+      await proxyRuntimeService.openProxyRuntimeResourceDir();
     } catch (err) {
       alert(`${proxyRuntimeText.openFailed}: ${String(err)}`);
     }
@@ -5426,7 +5433,7 @@ export function SettingsPage() {
             </div>
 
             <div className="group-title">{proxyRuntimeText.title}</div>
-            <div className="settings-group proxy-runtime-panel">
+            <div className={`settings-group proxy-runtime-panel ${proxyRuntimeCollapsed ? 'is-collapsed' : ''}`}>
               <div className="proxy-runtime-header">
                 <div className="proxy-runtime-copy">
                   <div className="row-title">{proxyRuntimeText.name}</div>
@@ -5445,22 +5452,31 @@ export function SettingsPage() {
                   <button
                     className="btn btn-secondary"
                     type="button"
-                    onClick={handleOpenProxyRuntimeCacheDir}
+                    onClick={handleOpenProxyRuntimeResourceDir}
                   >
                     <FolderOpen size={16} />
-                    {proxyRuntimeText.openCache}
+                    {proxyRuntimeText.openResource}
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    type="button"
+                    onClick={() => setProxyRuntimeCollapsed((collapsed) => !collapsed)}
+                    title={proxyRuntimeCollapsed ? proxyRuntimeText.expand : proxyRuntimeText.collapse}
+                  >
+                    {proxyRuntimeCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+                    {proxyRuntimeCollapsed ? proxyRuntimeText.expand : proxyRuntimeText.collapse}
                   </button>
                 </div>
               </div>
 
-              {proxyRuntimeError && (
+              {!proxyRuntimeCollapsed && proxyRuntimeError && (
                 <div className="proxy-runtime-error">
                   <AlertCircle size={16} />
                   <span>{proxyRuntimeText.loadFailed}: {proxyRuntimeError}</span>
                 </div>
               )}
 
-              {proxyRuntimeStatus && (
+              {!proxyRuntimeCollapsed && proxyRuntimeStatus && (
                 <div className="proxy-runtime-status">
                   <div className="proxy-runtime-summary">
                     <div className="proxy-runtime-summary-item">
@@ -5506,6 +5522,10 @@ export function SettingsPage() {
                           <div className="proxy-runtime-detail-row">
                             <span>{proxyRuntimeText.expected}</span>
                             <code>{runtime.expectedVersion}</code>
+                          </div>
+                          <div className="proxy-runtime-detail-row" title={runtime.activePath}>
+                            <span>{proxyRuntimeText.activePath}</span>
+                            <code>{runtime.activePath || proxyRuntimeText.unknown}</code>
                           </div>
                           <div className="proxy-runtime-detail-row" title={runtime.cachePath}>
                             <span>{proxyRuntimeText.cache}</span>

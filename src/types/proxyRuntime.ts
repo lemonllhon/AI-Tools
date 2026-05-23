@@ -6,6 +6,7 @@ export interface ProxyRuntimeStatusItem {
   manifestSha256: string;
   sourceKind: ProxyRuntimeSourceKind | null;
   sourcePath: string;
+  activePath: string;
   cachePath: string;
   available: boolean;
   executable: boolean;

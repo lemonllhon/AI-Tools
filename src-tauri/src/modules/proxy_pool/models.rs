@@ -122,6 +122,30 @@ pub struct ProxySubscriptionApplyRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProxyImportPreviewCheckRequest {
+    pub content: String,
+    #[serde(default)]
+    pub group: Option<String>,
+    #[serde(default)]
+    pub name_prefix: Option<String>,
+    pub selected_preview_ids: Vec<String>,
+    pub check_kind: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxySubscriptionPreviewCheckRequest {
+    pub url: String,
+    #[serde(default)]
+    pub group: Option<String>,
+    #[serde(default)]
+    pub name_prefix: Option<String>,
+    pub selected_preview_ids: Vec<String>,
+    pub check_kind: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProxySubscriptionRefreshRequest {
     pub source_id: String,
 }
@@ -223,6 +247,23 @@ pub struct ProxyPoolIpHealthResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProxyPoolCheckProgressEvent {
+    pub task_id: String,
+    pub kind: String,
+    pub phase: String,
+    pub node_id: String,
+    pub ok: Option<bool>,
+    pub latency_ms: Option<i64>,
+    pub latency_status: String,
+    pub ip_health: Option<ProxyPoolIpHealthResult>,
+    pub ip_health_summary: String,
+    pub error: String,
+    pub completed: usize,
+    pub total: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProxyImportPreviewItem {
     pub preview_id: String,
     pub name: String,
@@ -232,6 +273,27 @@ pub struct ProxyImportPreviewItem {
     pub group: String,
     pub source_kind: String,
     pub masked_url: String,
+    pub latency_ms: Option<i64>,
+    pub latency_status: String,
+    pub ip_health: Option<ProxyPoolIpHealthResult>,
+    pub ip_health_summary: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyImportPreviewCheckItem {
+    pub preview_id: String,
+    pub latency_ms: Option<i64>,
+    pub latency_status: String,
+    pub ip_health: Option<ProxyPoolIpHealthResult>,
+    pub ip_health_summary: String,
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyImportPreviewCheckResponse {
+    pub items: Vec<ProxyImportPreviewCheckItem>,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -1,6 +1,6 @@
 [package]
 name = "cockpit-tools"
-version = "0.0.21"
+version = "0.0.22"
 description = "AI Lemon Tools"
 authors = ["jlcodes"]
 license = "CC-BY-NC-SA-4.0"
@@ -44,6 +44,7 @@ minisign-verify = "0.2"
 tokio = { version = "1", features = ["full"] }
 tokio-rustls = "0.26"
 rustls = "0.23"
+rustls-native-certs = "0.8.3"
 rcgen = "0.13"
 thiserror = "2"
 anyhow = "1.0"

@@ -6,6 +6,27 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.22] - 2026-05-23
+### Added
+- Added HTTPS upstream proxy support in the built-in proxy gateway, including TLS connection setup to the upstream proxy, system root certificate validation, CONNECT tunneling, absolute-form HTTP forwarding, and upstream proxy authentication reuse.
+- Added realtime backend progress events for batch proxy latency tests and batch IP health checks, with `started`, per-node `node_done`, and `finished` phases keyed by task ID.
+- Added import-preview latency tests and IP health checks for selected preview nodes before importing paste resources or URL subscriptions.
+- Added proxy gateway failover events so the Network Services UI can update the current node-pool outlet when a backup node becomes active.
+
+### Changed
+- Changed proxy runtime resolution to prefer the packaged application `proxy-runtime` directory before falling back to cached runtime binaries, while keeping Windows, macOS, and Linux paths supported.
+- Changed the built-in proxy runtime settings panel to be collapsible and added direct access to the packaged runtime resource directory.
+- Changed batch latency and IP health checks to persist each completed node result immediately and update the UI progressively instead of waiting for the full batch to finish.
+- Changed node-pool gateway routing so a successful backup node is persisted as `current_node_id` when the previous current node fails, with cooldown protection against concurrent request churn.
+- Updated the proxy network service implementation plan with staged completion status for HTTPS upstream proxying, realtime progress, preview diagnostics, and failover persistence.
+
+### Fixed
+- Fixed HTTPS proxy nodes being unusable as built-in gateway upstreams because the gateway only supported plaintext HTTP proxy forwarding.
+- Fixed batch proxy diagnostics feeling frozen during long checks by streaming individual node progress to the frontend.
+- Fixed imported preview nodes requiring full import before they could be temporarily latency-tested or IP-health checked.
+- Fixed node-pool failover only working for the current request without promoting the working backup node for later gateway requests.
+- Fixed open settings state not reflecting automatic gateway failover until the node list was manually reloaded.
+
 ## [0.0.21] - 2026-05-23
 ### Changed
 - Changed Codex API local access port cleanup to wait for gateway port release and treat already-exited owner PIDs as non-fatal after rechecking the listener state.

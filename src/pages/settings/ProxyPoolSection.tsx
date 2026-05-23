@@ -1,3 +1,4 @@
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { FormEvent, WheelEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -21,13 +22,17 @@ import {
   applyProxyPoolImport,
   applyProxyPoolSubscription,
   checkAllProxyPoolIpHealth,
+  checkProxyPoolImportPreview,
   checkProxyPoolNodeIpHealth,
+  checkProxyPoolSubscriptionPreview,
   deleteProxyPoolNode,
   deleteProxyPoolNodes,
   deleteProxyPoolSubscriptionSource,
   listProxyPoolNodes,
   previewProxyPoolImport,
   previewProxyPoolSubscription,
+  PROXY_POOL_CHECK_PROGRESS_EVENT,
+  PROXY_POOL_GATEWAY_FAILOVER_EVENT,
   refreshAllProxyPoolSubscriptions,
   refreshProxyPoolSubscription,
   saveProxyPoolNode,
@@ -38,6 +43,10 @@ import {
 } from '../../services/proxyPoolService';
 import type {
   ManualProxyNodeProtocol,
+  ProxyGatewayFailoverEvent,
+  ProxyPoolCheckProgressEvent,
+  ProxyImportPreviewCheckKind,
+  ProxyImportPreviewCheckResponse,
   ProxyImportPreviewResponse,
   ProxyPoolIpHealthResult,
   ProxyPoolListResponse,
@@ -70,6 +79,11 @@ interface ProxySourceFormState {
   dns: string;
 }
 
+interface ProxyPoolProgressState {
+  completed: number;
+  total: number;
+}
+
 const DEFAULT_FORM_STATE: ProxyNodeFormState = {
   name: '',
   protocol: 'http',
@@ -85,6 +99,15 @@ const NODE_LIST_VISIBLE_COUNT = 10;
 
 const MANUAL_PROTOCOLS: ManualProxyNodeProtocol[] = ['http', 'https', 'socks5'];
 type ImportMode = 'paste' | 'url';
+
+function createProxyPoolCheckTaskId(kind: string) {
+  return `${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function formatProxyPoolProgress(progress: ProxyPoolProgressState | null) {
+  if (!progress || progress.total <= 0) return '';
+  return ` ${progress.completed}/${progress.total}`;
+}
 
 export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps) {
   const [data, setData] = useState<ProxyPoolListResponse | null>(null);
@@ -103,13 +126,19 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
   const [importPreview, setImportPreview] = useState<ProxyImportPreviewResponse | null>(null);
   const [selectedPreviewIds, setSelectedPreviewIds] = useState<Set<string>>(() => new Set());
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewCheckingLatency, setPreviewCheckingLatency] = useState(false);
+  const [previewCheckingIpHealth, setPreviewCheckingIpHealth] = useState(false);
+  const [checkingPreviewLatencyIds, setCheckingPreviewLatencyIds] = useState<Set<string>>(() => new Set());
+  const [checkingPreviewIpHealthIds, setCheckingPreviewIpHealthIds] = useState<Set<string>>(() => new Set());
   const [importing, setImporting] = useState(false);
   const [refreshingAllSources, setRefreshingAllSources] = useState(false);
   const [refreshingSourceIds, setRefreshingSourceIds] = useState<Set<string>>(() => new Set());
   const [testingAllLatency, setTestingAllLatency] = useState(false);
   const [testingLatencyIds, setTestingLatencyIds] = useState<Set<string>>(() => new Set());
+  const [latencyProgress, setLatencyProgress] = useState<ProxyPoolProgressState | null>(null);
   const [checkingAllIpHealth, setCheckingAllIpHealth] = useState(false);
   const [checkingIpHealthIds, setCheckingIpHealthIds] = useState<Set<string>>(() => new Set());
+  const [ipHealthProgress, setIpHealthProgress] = useState<ProxyPoolProgressState | null>(null);
   const [editingSourceId, setEditingSourceId] = useState<string | null>(null);
   const [sourceForm, setSourceForm] = useState<ProxySourceFormState>({ url: '', group: '', namePrefix: '', dns: '' });
   const [sourceSavingId, setSourceSavingId] = useState<string | null>(null);
@@ -125,6 +154,8 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
   const [nodeListMaxHeight, setNodeListMaxHeight] = useState<string | undefined>(undefined);
   const nodeListRef = useRef<HTMLDivElement | null>(null);
   const filteredNodeSelectAllRef = useRef<HTMLInputElement | null>(null);
+  const activeLatencyTaskIdRef = useRef<string | null>(null);
+  const activeIpHealthTaskIdRef = useRef<string | null>(null);
   const currentLanguage = getCurrentLanguage();
 
   const text = useMemo(() => {
@@ -253,6 +284,11 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
           selectAll: '全选',
           importedCount: '已导入 {{count}} 个节点',
           previewCount: '{{count}} 个节点',
+          previewTestLatency: '测速所选',
+          previewCheckIpHealth: '检测所选 IP',
+          previewCheckingLatency: '测速中...',
+          previewCheckingIpHealth: 'IP 检测中...',
+          previewCheckFailed: '预览节点检测失败',
           sourcesTitle: '订阅来源',
           sourcesCount: '{{count}} 个来源',
           sourceNodeCount: '{{count}} 个节点',
@@ -398,6 +434,11 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
           selectAll: 'Select all',
           importedCount: 'Imported {{count}} nodes',
           previewCount: '{{count}} nodes',
+          previewTestLatency: 'Test selected',
+          previewCheckIpHealth: 'Check selected IP',
+          previewCheckingLatency: 'Testing...',
+          previewCheckingIpHealth: 'Checking IP...',
+          previewCheckFailed: 'Failed to check preview nodes',
           sourcesTitle: 'Subscription Sources',
           sourcesCount: '{{count}} sources',
           sourceNodeCount: '{{count}} nodes',
@@ -434,6 +475,56 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
       groups: snapshot.groups,
       sources: snapshot.sources,
     } : current);
+  };
+
+  const applyProxyPoolProgressEvent = (payload: ProxyPoolCheckProgressEvent) => {
+    const nextProgress = {
+      completed: payload.completed,
+      total: payload.total,
+    };
+
+    if (payload.kind === 'latency') {
+      setLatencyProgress(nextProgress);
+    } else if (payload.kind === 'ip_health') {
+      setIpHealthProgress(nextProgress);
+    }
+
+    if (payload.phase !== 'node_done' || !payload.nodeId) {
+      return;
+    }
+
+    if (payload.kind === 'latency') {
+      setTestingLatencyIds((current) => {
+        const next = new Set(current);
+        next.delete(payload.nodeId);
+        return next;
+      });
+      setData((current) => current ? {
+        ...current,
+        nodes: current.nodes.map((node) => node.id === payload.nodeId ? {
+          ...node,
+          latencyMs: payload.latencyMs,
+          latencyStatus: payload.latencyStatus || (payload.ok ? 'ok' : payload.error),
+        } : node),
+      } : current);
+      return;
+    }
+
+    if (payload.kind === 'ip_health') {
+      setCheckingIpHealthIds((current) => {
+        const next = new Set(current);
+        next.delete(payload.nodeId);
+        return next;
+      });
+      setData((current) => current ? {
+        ...current,
+        nodes: current.nodes.map((node) => node.id === payload.nodeId ? {
+          ...node,
+          ipHealth: payload.ipHealth ?? node.ipHealth,
+          ipHealthSummary: payload.ipHealthSummary || payload.error || node.ipHealthSummary,
+        } : node),
+      } : current);
+    }
   };
 
   const loadNodes = async () => {
@@ -581,6 +672,72 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
   );
   const enabledNodeIds = useMemo(() => nodes.filter((node) => node.enabled).map((node) => node.id), [nodes]);
 
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: UnlistenFn | null = null;
+
+    listen<ProxyPoolCheckProgressEvent>(PROXY_POOL_CHECK_PROGRESS_EVENT, (event) => {
+      const payload = event.payload;
+      if (!payload?.taskId) return;
+
+      if (payload.kind === 'latency') {
+        if (payload.taskId !== activeLatencyTaskIdRef.current) return;
+        applyProxyPoolProgressEvent(payload);
+        return;
+      }
+
+      if (payload.kind === 'ip_health') {
+        if (payload.taskId !== activeIpHealthTaskIdRef.current) return;
+        applyProxyPoolProgressEvent(payload);
+      }
+    }).then((nextUnlisten) => {
+      if (disposed) {
+        nextUnlisten();
+      } else {
+        unlisten = nextUnlisten;
+      }
+    }).catch((err) => {
+      console.error('监听代理检测进度失败:', err);
+    });
+
+    return () => {
+      disposed = true;
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: UnlistenFn | null = null;
+
+    listen<ProxyGatewayFailoverEvent>(PROXY_POOL_GATEWAY_FAILOVER_EVENT, (event) => {
+      const payload = event.payload;
+      if (!payload?.serviceState) return;
+      setData((current) => current ? {
+        ...current,
+        serviceState: payload.serviceState,
+      } : current);
+      onServiceStateChange?.(payload.serviceState);
+    }).then((nextUnlisten) => {
+      if (disposed) {
+        nextUnlisten();
+      } else {
+        unlisten = nextUnlisten;
+      }
+    }).catch((err) => {
+      console.error('监听代理网关故障切换失败:', err);
+    });
+
+    return () => {
+      disposed = true;
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, []);
+
   const resetNodeSearchFilters = () => {
     setSearch('');
     setGroupFilter('all');
@@ -630,6 +787,10 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
   const resetImportPreview = () => {
     setImportPreview(null);
     setSelectedPreviewIds(new Set());
+    setPreviewCheckingLatency(false);
+    setPreviewCheckingIpHealth(false);
+    setCheckingPreviewLatencyIds(new Set());
+    setCheckingPreviewIpHealthIds(new Set());
   };
 
   const updateImportMode = (mode: ImportMode) => {
@@ -716,6 +877,8 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
     setPreviewLoading(true);
     setError(null);
     setNotice(null);
+    setCheckingPreviewLatencyIds(new Set());
+    setCheckingPreviewIpHealthIds(new Set());
     try {
       const preview =
         importMode === 'url'
@@ -735,6 +898,78 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
       setError(`${text.previewFailed}: ${String(err)}`);
     } finally {
       setPreviewLoading(false);
+    }
+  };
+
+  const applyPreviewCheckResponse = (
+    result: ProxyImportPreviewCheckResponse,
+    checkKind: ProxyImportPreviewCheckKind,
+  ) => {
+    const resultMap = new Map(result.items.map((item) => [item.previewId, item]));
+    setImportPreview((current) => current ? {
+      ...current,
+      items: current.items.map((item) => {
+        const checked = resultMap.get(item.previewId);
+        if (!checked) return item;
+        if (checkKind === 'latency') {
+          return {
+            ...item,
+            latencyMs: checked.latencyMs,
+            latencyStatus: checked.latencyStatus || checked.error,
+          };
+        }
+        return {
+          ...item,
+          ipHealth: checked.ipHealth ?? item.ipHealth,
+          ipHealthSummary: checked.ipHealthSummary || checked.error || item.ipHealthSummary,
+        };
+      }),
+    } : current);
+  };
+
+  const handleCheckPreviewNodes = async (checkKind: ProxyImportPreviewCheckKind) => {
+    const selectedIds = Array.from(selectedPreviewIds);
+    if (selectedIds.length === 0) return;
+
+    const checkingIds = new Set(selectedIds);
+    if (checkKind === 'latency') {
+      setPreviewCheckingLatency(true);
+      setCheckingPreviewLatencyIds(checkingIds);
+    } else {
+      setPreviewCheckingIpHealth(true);
+      setCheckingPreviewIpHealthIds(checkingIds);
+    }
+    setError(null);
+    setNotice(null);
+
+    try {
+      const result =
+        importMode === 'url'
+          ? await checkProxyPoolSubscriptionPreview({
+              url: subscriptionUrl,
+              group: importGroup || undefined,
+              namePrefix: importNamePrefix || undefined,
+              selectedPreviewIds: selectedIds,
+              checkKind,
+            })
+          : await checkProxyPoolImportPreview({
+              content: importContent,
+              group: importGroup || undefined,
+              namePrefix: importNamePrefix || undefined,
+              selectedPreviewIds: selectedIds,
+              checkKind,
+            });
+      applyPreviewCheckResponse(result, checkKind);
+    } catch (err) {
+      setError(`${text.previewCheckFailed}: ${String(err)}`);
+    } finally {
+      if (checkKind === 'latency') {
+        setPreviewCheckingLatency(false);
+        setCheckingPreviewLatencyIds(new Set());
+      } else {
+        setPreviewCheckingIpHealth(false);
+        setCheckingPreviewIpHealthIds(new Set());
+      }
     }
   };
 
@@ -1000,12 +1235,15 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
 
   const handleTestAllLatency = async () => {
     if (enabledNodeIds.length === 0) return;
+    const taskId = createProxyPoolCheckTaskId('latency');
+    activeLatencyTaskIdRef.current = taskId;
     setTestingAllLatency(true);
     setTestingLatencyIds(new Set(enabledNodeIds));
+    setLatencyProgress({ completed: 0, total: enabledNodeIds.length });
     setError(null);
     setNotice(null);
     try {
-      const result = await testAllProxyPoolLatency();
+      const result = await testAllProxyPoolLatency(taskId);
       applyProxyPoolSnapshot(result);
       if (result.failed > 0) {
         const firstError = result.results.find((item) => !item.ok)?.error || '';
@@ -1016,8 +1254,12 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
     } catch (err) {
       setError(`${text.latencyTestFailed}: ${String(err)}`);
     } finally {
+      if (activeLatencyTaskIdRef.current === taskId) {
+        activeLatencyTaskIdRef.current = null;
+      }
       setTestingAllLatency(false);
       setTestingLatencyIds(new Set());
+      setLatencyProgress(null);
     }
   };
 
@@ -1047,12 +1289,15 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
 
   const handleCheckAllIpHealth = async () => {
     if (enabledNodeIds.length === 0) return;
+    const taskId = createProxyPoolCheckTaskId('ip-health');
+    activeIpHealthTaskIdRef.current = taskId;
     setCheckingAllIpHealth(true);
     setCheckingIpHealthIds(new Set(enabledNodeIds));
+    setIpHealthProgress({ completed: 0, total: enabledNodeIds.length });
     setError(null);
     setNotice(null);
     try {
-      const result = await checkAllProxyPoolIpHealth();
+      const result = await checkAllProxyPoolIpHealth(taskId);
       applyProxyPoolSnapshot(result);
       if (result.failed > 0) {
         const firstError = result.results.find((item) => !item.ok)?.error || '';
@@ -1063,8 +1308,12 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
     } catch (err) {
       setError(`${text.ipHealthFailed}: ${String(err)}`);
     } finally {
+      if (activeIpHealthTaskIdRef.current === taskId) {
+        activeIpHealthTaskIdRef.current = null;
+      }
       setCheckingAllIpHealth(false);
       setCheckingIpHealthIds(new Set());
+      setIpHealthProgress(null);
     }
   };
 
@@ -1124,6 +1373,28 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
     return text.latencyPending;
   };
 
+  const formatPreviewLatency = (item: ProxyImportPreviewResponse['items'][number]) => {
+    if (checkingPreviewLatencyIds.has(item.previewId)) return text.previewCheckingLatency;
+    if (item.latencyStatus === 'ok' && item.latencyMs !== null && item.latencyMs !== undefined) {
+      return `${item.latencyMs} ms`;
+    }
+    if (item.latencyStatus) return text.latencyFailed;
+    return text.latencyPending;
+  };
+
+  const getPreviewLatencyTitle = (item: ProxyImportPreviewResponse['items'][number]) => {
+    if (item.latencyStatus === 'ok' && item.latencyMs !== null && item.latencyMs !== undefined) {
+      return `${text.latency}: ${item.latencyMs} ms`;
+    }
+    return item.latencyStatus || text.latencyPending;
+  };
+
+  const formatPreviewIpHealth = (item: ProxyImportPreviewResponse['items'][number]) => {
+    if (checkingPreviewIpHealthIds.has(item.previewId)) return text.previewCheckingIpHealth;
+    if (item.ipHealthSummary) return item.ipHealthSummary;
+    return text.ipHealthPending;
+  };
+
   const getLatencyTitle = (node: ProxyPoolNode) => {
     if (node.latencyStatus === 'ok' && node.latencyMs !== null) return `${text.latency}: ${node.latencyMs} ms`;
     if (node.latencyStatus) return node.latencyStatus;
@@ -1177,6 +1448,9 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
 
   const ipHealthDetailNode = nodes.find((node) => node.id === ipHealthDetailNodeId) ?? null;
   const ipHealthDetail = ipHealthDetailNode?.ipHealth ?? null;
+  const latencyProgressText = formatProxyPoolProgress(latencyProgress);
+  const ipHealthProgressText = formatProxyPoolProgress(ipHealthProgress);
+  const previewCheckBusy = previewCheckingLatency || previewCheckingIpHealth || previewLoading || importing;
 
   return (
     <>
@@ -1381,7 +1655,27 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
                     />
                     <span>{text.selectAll}</span>
                   </label>
-                  <span>{text.previewCount.replace('{{count}}', String(importPreview.items.length))}</span>
+                  <div className="proxy-pool-preview-head-actions">
+                    <span>{text.previewCount.replace('{{count}}', String(importPreview.items.length))}</span>
+                    <button
+                      className="btn btn-secondary btn-compact"
+                      type="button"
+                      onClick={() => void handleCheckPreviewNodes('latency')}
+                      disabled={previewCheckBusy || selectedPreviewIds.size === 0}
+                    >
+                      <Activity size={14} className={previewCheckingLatency ? 'animate-spin' : undefined} />
+                      {previewCheckingLatency ? text.previewCheckingLatency : text.previewTestLatency}
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-compact"
+                      type="button"
+                      onClick={() => void handleCheckPreviewNodes('ip_health')}
+                      disabled={previewCheckBusy || selectedPreviewIds.size === 0}
+                    >
+                      <ShieldCheck size={14} className={previewCheckingIpHealth ? 'animate-spin' : undefined} />
+                      {previewCheckingIpHealth ? text.previewCheckingIpHealth : text.previewCheckIpHealth}
+                    </button>
+                  </div>
                 </div>
                 {importPreview.errors.length > 0 && (
                   <div className="proxy-pool-preview-errors">
@@ -1411,6 +1705,22 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
                           <code title={item.maskedUrl}>{item.maskedUrl}</code>
                           <div className="proxy-pool-node-meta">
                             <span>{text.group}: {item.group || '-'}</span>
+                            <span
+                              className={`proxy-pool-health-chip ${
+                                item.latencyStatus === 'ok' ? 'is-ok' : item.latencyStatus ? 'is-error' : 'is-muted'
+                              }`}
+                              title={getPreviewLatencyTitle(item)}
+                            >
+                              {text.latency}: {formatPreviewLatency(item)}
+                            </span>
+                            <span
+                              className={`proxy-pool-health-chip ${
+                                item.ipHealth?.ok ? 'is-ok' : item.ipHealthSummary ? 'is-error' : 'is-muted'
+                              }`}
+                              title={item.ipHealthSummary || text.ipHealthPending}
+                            >
+                              {text.ipHealth}: {formatPreviewIpHealth(item)}
+                            </span>
                           </div>
                         </div>
                       </label>
@@ -1561,7 +1871,7 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
             disabled={testingAllLatency || enabledNodeIds.length === 0}
           >
             <Activity size={16} />
-            {testingAllLatency ? text.testingLatency : text.testAllLatency}
+            {testingAllLatency ? `${text.testingLatency}${latencyProgressText}` : text.testAllLatency}
           </button>
           <button
             className="btn btn-secondary proxy-pool-check-all"
@@ -1570,7 +1880,7 @@ export function ProxyPoolSection({ onServiceStateChange }: ProxyPoolSectionProps
             disabled={checkingAllIpHealth || enabledNodeIds.length === 0}
           >
             <ShieldCheck size={16} />
-            {checkingAllIpHealth ? text.checkingIpHealth : text.checkAllIpHealth}
+            {checkingAllIpHealth ? `${text.checkingIpHealth}${ipHealthProgressText}` : text.checkAllIpHealth}
           </button>
           <button
             className="btn btn-secondary proxy-pool-delete-selected"

@@ -102,11 +102,40 @@ export interface ProxyImportPreviewItem {
   group: string;
   sourceKind: string;
   maskedUrl: string;
+  latencyMs?: number | null;
+  latencyStatus?: string;
+  ipHealth?: ProxyPoolIpHealthResult | null;
+  ipHealthSummary?: string;
 }
 
 export interface ProxyImportPreviewResponse {
   items: ProxyImportPreviewItem[];
   errors: string[];
+}
+
+export type ProxyImportPreviewCheckKind = 'latency' | 'ip_health';
+
+export interface ProxyImportPreviewCheckRequest extends ProxyImportPreviewRequest {
+  selectedPreviewIds: string[];
+  checkKind: ProxyImportPreviewCheckKind;
+}
+
+export interface ProxySubscriptionPreviewCheckRequest extends ProxySubscriptionPreviewRequest {
+  selectedPreviewIds: string[];
+  checkKind: ProxyImportPreviewCheckKind;
+}
+
+export interface ProxyImportPreviewCheckItem {
+  previewId: string;
+  latencyMs: number | null;
+  latencyStatus: string;
+  ipHealth: ProxyPoolIpHealthResult | null;
+  ipHealthSummary: string;
+  error: string;
+}
+
+export interface ProxyImportPreviewCheckResponse {
+  items: ProxyImportPreviewCheckItem[];
 }
 
 export interface ProxyImportApplyRequest extends ProxyImportPreviewRequest {
@@ -197,6 +226,30 @@ export interface ProxyPoolIpHealthResponse {
   nodes: ProxyPoolNode[];
   groups: string[];
   sources: ProxySource[];
+}
+
+export type ProxyPoolCheckProgressKind = 'latency' | 'ip_health';
+export type ProxyPoolCheckProgressPhase = 'started' | 'node_done' | 'finished';
+
+export interface ProxyPoolCheckProgressEvent {
+  taskId: string;
+  kind: ProxyPoolCheckProgressKind;
+  phase: ProxyPoolCheckProgressPhase;
+  nodeId: string;
+  ok: boolean | null;
+  latencyMs: number | null;
+  latencyStatus: string;
+  ipHealth: ProxyPoolIpHealthResult | null;
+  ipHealthSummary: string;
+  error: string;
+  completed: number;
+  total: number;
+}
+
+export interface ProxyGatewayFailoverEvent {
+  fromNodeId: string;
+  toNodeId: string;
+  serviceState: ProxyPoolServiceState;
 }
 
 export interface ProxySubscriptionRefreshItem {

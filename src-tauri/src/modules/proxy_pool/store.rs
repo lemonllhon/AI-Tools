@@ -1,9 +1,11 @@
 use super::models::{
     ProxyImportApplyRequest, ProxyImportApplyResponse, ProxyImportPreviewRequest,
-    ProxyImportPreviewResponse, ProxyNodeSaveRequest, ProxyPoolListResponse, ProxyPoolNode,
+    ProxyImportPreviewCheckItem, ProxyImportPreviewCheckRequest, ProxyImportPreviewCheckResponse,
+    ProxyImportPreviewResponse, ProxyNodeSaveRequest, ProxyPoolCheckProgressEvent,
     ProxyPoolIpHealthResponse, ProxyPoolIpHealthResult, ProxyPoolLatencyTestResponse,
-    ProxyPoolLatencyTestResult, ProxyPoolServiceState, ProxyPoolServiceUpdateRequest, ProxySource,
-    ProxySourceUpdateRequest, ProxySubscriptionApplyRequest, ProxySubscriptionApplyResponse,
+    ProxyPoolLatencyTestResult, ProxyPoolListResponse, ProxyPoolNode, ProxyPoolServiceState,
+    ProxyPoolServiceUpdateRequest, ProxySource, ProxySourceUpdateRequest,
+    ProxySubscriptionApplyRequest, ProxySubscriptionApplyResponse, ProxySubscriptionPreviewCheckRequest,
     ProxySubscriptionPreviewRequest, ProxySubscriptionRefreshItem, ProxySubscriptionRefreshRequest,
     ProxySubscriptionRefreshResponse, DIRECT_NODE_ID, LOCAL_NODE_ID, OUTLET_MODE_DIRECT,
     OUTLET_MODE_LOCAL, OUTLET_MODE_NODE_POOL,
@@ -20,6 +22,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 use url::Url;
 use uuid::Uuid;
@@ -33,6 +36,8 @@ const LATENCY_BATCH_CONCURRENCY: usize = 12;
 const IP_HEALTH_BATCH_CONCURRENCY: usize = 6;
 const DEFAULT_PROXY_GATEWAY_PORT: u16 = 7897;
 const DEFAULT_LOCAL_PROXY_PORT: u16 = 7890;
+
+pub type ProxyPoolProgressEmitter = Arc<dyn Fn(ProxyPoolCheckProgressEvent) + Send + Sync>;
 
 pub fn list_nodes() -> Result<ProxyPoolListResponse, String> {
     let db_path = proxy_pool_db_path()?;
@@ -331,6 +336,20 @@ pub fn preview_import(
     parser::preview_import(&request)
 }
 
+pub async fn check_import_preview(
+    request: ProxyImportPreviewCheckRequest,
+) -> Result<ProxyImportPreviewCheckResponse, String> {
+    let selected_ids = normalize_preview_check_ids(request.selected_preview_ids)?;
+    let check_kind = parse_preview_check_kind(&request.check_kind)?;
+    let preview_request = ProxyImportPreviewRequest {
+        content: request.content,
+        group: request.group,
+        name_prefix: request.name_prefix,
+    };
+    let parsed = parser::parse_import_request(&preview_request)?;
+    check_parsed_preview_nodes(parsed.nodes, &selected_ids, check_kind).await
+}
+
 pub fn apply_import(request: ProxyImportApplyRequest) -> Result<ProxyImportApplyResponse, String> {
     if request.selected_preview_ids.is_empty() {
         return Err("请选择要导入的代理节点".to_string());
@@ -389,6 +408,147 @@ pub async fn preview_subscription(
         group: request.group,
         name_prefix: request.name_prefix,
     })
+}
+
+pub async fn check_subscription_preview(
+    request: ProxySubscriptionPreviewCheckRequest,
+) -> Result<ProxyImportPreviewCheckResponse, String> {
+    let selected_ids = normalize_preview_check_ids(request.selected_preview_ids)?;
+    let check_kind = parse_preview_check_kind(&request.check_kind)?;
+    let fetched = subscription::fetch_subscription(&request.url).await?;
+    let preview_request = ProxyImportPreviewRequest {
+        content: fetched.content,
+        group: request.group,
+        name_prefix: request.name_prefix,
+    };
+    let parsed = parser::parse_import_request(&preview_request)?;
+    check_parsed_preview_nodes(parsed.nodes, &selected_ids, check_kind).await
+}
+
+#[derive(Debug, Clone, Copy)]
+enum PreviewCheckKind {
+    Latency,
+    IpHealth,
+}
+
+fn normalize_preview_check_ids(ids: Vec<String>) -> Result<HashSet<String>, String> {
+    let ids = ids
+        .into_iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect::<HashSet<_>>();
+    if ids.is_empty() {
+        return Err("请选择要检测的预览节点".to_string());
+    }
+    Ok(ids)
+}
+
+fn parse_preview_check_kind(raw: &str) -> Result<PreviewCheckKind, String> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "latency" => Ok(PreviewCheckKind::Latency),
+        "ip_health" | "ip-health" => Ok(PreviewCheckKind::IpHealth),
+        other => Err(format!("不支持的预览检测类型: {}", other)),
+    }
+}
+
+async fn check_parsed_preview_nodes(
+    nodes: Vec<parser::ParsedProxyNode>,
+    selected_ids: &HashSet<String>,
+    check_kind: PreviewCheckKind,
+) -> Result<ProxyImportPreviewCheckResponse, String> {
+    let targets = nodes
+        .into_iter()
+        .filter(|node| selected_ids.contains(&node.preview_id))
+        .map(preview_node_to_check_target)
+        .collect::<Vec<_>>();
+
+    if targets.is_empty() {
+        return Err("所选预览节点已失效，请重新预览后再检测".to_string());
+    }
+
+    let items = match check_kind {
+        PreviewCheckKind::Latency => check_preview_latency_targets(targets).await,
+        PreviewCheckKind::IpHealth => check_preview_ip_health_targets(targets).await,
+    };
+
+    Ok(ProxyImportPreviewCheckResponse { items })
+}
+
+fn preview_node_to_check_target(node: parser::ParsedProxyNode) -> ProxyCheckTarget {
+    ProxyCheckTarget {
+        id: node.preview_id,
+        name: node.name,
+        protocol: node.protocol,
+        host: node.host,
+        port: node.port,
+        username: node.username,
+        password: node.password,
+        standard_config: node.standard_config,
+    }
+}
+
+async fn check_preview_latency_targets(
+    targets: Vec<ProxyCheckTarget>,
+) -> Vec<ProxyImportPreviewCheckItem> {
+    let (bridge_targets, direct_targets): (Vec<_>, Vec<_>) =
+        targets.into_iter().partition(health::is_bridge_check_target);
+    let mut items = stream::iter(direct_targets)
+        .map(health::test_latency)
+        .buffer_unordered(LATENCY_BATCH_CONCURRENCY)
+        .map(preview_latency_check_item)
+        .collect::<Vec<_>>()
+        .await;
+
+    for target in bridge_targets {
+        items.push(preview_latency_check_item(health::test_latency(target).await));
+    }
+
+    items
+}
+
+async fn check_preview_ip_health_targets(
+    targets: Vec<ProxyCheckTarget>,
+) -> Vec<ProxyImportPreviewCheckItem> {
+    let (bridge_targets, direct_targets): (Vec<_>, Vec<_>) =
+        targets.into_iter().partition(health::is_bridge_check_target);
+    let mut items = stream::iter(direct_targets)
+        .map(health::check_ip_health)
+        .buffer_unordered(IP_HEALTH_BATCH_CONCURRENCY)
+        .map(preview_ip_health_check_item)
+        .collect::<Vec<_>>()
+        .await;
+
+    for target in bridge_targets {
+        items.push(preview_ip_health_check_item(health::check_ip_health(target).await));
+    }
+
+    items
+}
+
+fn preview_latency_check_item(result: ProxyPoolLatencyTestResult) -> ProxyImportPreviewCheckItem {
+    let latency_status = latency_status_for_result(&result);
+    let error = result.error;
+    ProxyImportPreviewCheckItem {
+        preview_id: result.node_id,
+        latency_ms: result.latency_ms,
+        latency_status,
+        ip_health: None,
+        ip_health_summary: String::new(),
+        error,
+    }
+}
+
+fn preview_ip_health_check_item(result: ProxyPoolIpHealthResult) -> ProxyImportPreviewCheckItem {
+    let ip_health_summary = health::summarize_ip_health(&result);
+    let error = result.error.clone();
+    ProxyImportPreviewCheckItem {
+        preview_id: result.node_id.clone(),
+        latency_ms: None,
+        latency_status: String::new(),
+        ip_health: Some(result),
+        ip_health_summary,
+        error,
+    }
 }
 
 pub async fn apply_subscription(
@@ -609,18 +769,81 @@ pub async fn test_node_latency(node_id: &str) -> Result<ProxyPoolLatencyTestResp
 }
 
 pub async fn test_all_latency() -> Result<ProxyPoolLatencyTestResponse, String> {
+    test_all_latency_with_progress(None, None).await
+}
+
+pub async fn test_all_latency_with_progress(
+    task_id: Option<String>,
+    progress: Option<ProxyPoolProgressEmitter>,
+) -> Result<ProxyPoolLatencyTestResponse, String> {
     let targets = load_enabled_check_targets()?;
+    let total = targets.len();
+    emit_progress(
+        progress.as_ref(),
+        build_progress_event(
+            task_id.as_deref(),
+            "latency",
+            "started",
+            "",
+            None,
+            0,
+            total,
+        ),
+    );
     let (bridge_targets, direct_targets): (Vec<_>, Vec<_>) =
         targets.into_iter().partition(health::is_bridge_check_target);
-    let mut results = stream::iter(direct_targets)
+    let mut completed = 0usize;
+    let mut results = Vec::with_capacity(total);
+    let mut direct_stream = stream::iter(direct_targets)
         .map(health::test_latency)
-        .buffer_unordered(LATENCY_BATCH_CONCURRENCY)
-        .collect::<Vec<_>>()
-        .await;
-    for target in bridge_targets {
-        results.push(health::test_latency(target).await);
+        .buffer_unordered(LATENCY_BATCH_CONCURRENCY);
+    while let Some(result) = direct_stream.next().await {
+        persist_latency_results(std::slice::from_ref(&result))?;
+        completed += 1;
+        emit_progress(
+            progress.as_ref(),
+            build_progress_event(
+                task_id.as_deref(),
+                "latency",
+                "node_done",
+                result.node_id.as_str(),
+                Some(ProxyPoolProgressResult::Latency(result.clone())),
+                completed,
+                total,
+            ),
+        );
+        results.push(result);
     }
-    persist_latency_results(&results)?;
+    for target in bridge_targets {
+        let result = health::test_latency(target).await;
+        persist_latency_results(std::slice::from_ref(&result))?;
+        completed += 1;
+        emit_progress(
+            progress.as_ref(),
+            build_progress_event(
+                task_id.as_deref(),
+                "latency",
+                "node_done",
+                result.node_id.as_str(),
+                Some(ProxyPoolProgressResult::Latency(result.clone())),
+                completed,
+                total,
+            ),
+        );
+        results.push(result);
+    }
+    emit_progress(
+        progress.as_ref(),
+        build_progress_event(
+            task_id.as_deref(),
+            "latency",
+            "finished",
+            "",
+            None,
+            completed,
+            total,
+        ),
+    );
     build_latency_response(results)
 }
 
@@ -632,19 +855,144 @@ pub async fn check_node_ip_health(node_id: &str) -> Result<ProxyPoolIpHealthResp
 }
 
 pub async fn check_all_ip_health() -> Result<ProxyPoolIpHealthResponse, String> {
+    check_all_ip_health_with_progress(None, None).await
+}
+
+pub async fn check_all_ip_health_with_progress(
+    task_id: Option<String>,
+    progress: Option<ProxyPoolProgressEmitter>,
+) -> Result<ProxyPoolIpHealthResponse, String> {
     let targets = load_enabled_check_targets()?;
+    let total = targets.len();
+    emit_progress(
+        progress.as_ref(),
+        build_progress_event(
+            task_id.as_deref(),
+            "ip_health",
+            "started",
+            "",
+            None,
+            0,
+            total,
+        ),
+    );
     let (bridge_targets, direct_targets): (Vec<_>, Vec<_>) =
         targets.into_iter().partition(health::is_bridge_check_target);
-    let mut results = stream::iter(direct_targets)
+    let mut completed = 0usize;
+    let mut results = Vec::with_capacity(total);
+    let mut direct_stream = stream::iter(direct_targets)
         .map(health::check_ip_health)
-        .buffer_unordered(IP_HEALTH_BATCH_CONCURRENCY)
-        .collect::<Vec<_>>()
-        .await;
-    for target in bridge_targets {
-        results.push(health::check_ip_health(target).await);
+        .buffer_unordered(IP_HEALTH_BATCH_CONCURRENCY);
+    while let Some(result) = direct_stream.next().await {
+        persist_ip_health_results(std::slice::from_ref(&result))?;
+        completed += 1;
+        emit_progress(
+            progress.as_ref(),
+            build_progress_event(
+                task_id.as_deref(),
+                "ip_health",
+                "node_done",
+                result.node_id.as_str(),
+                Some(ProxyPoolProgressResult::IpHealth(result.clone())),
+                completed,
+                total,
+            ),
+        );
+        results.push(result);
     }
-    persist_ip_health_results(&results)?;
+    for target in bridge_targets {
+        let result = health::check_ip_health(target).await;
+        persist_ip_health_results(std::slice::from_ref(&result))?;
+        completed += 1;
+        emit_progress(
+            progress.as_ref(),
+            build_progress_event(
+                task_id.as_deref(),
+                "ip_health",
+                "node_done",
+                result.node_id.as_str(),
+                Some(ProxyPoolProgressResult::IpHealth(result.clone())),
+                completed,
+                total,
+            ),
+        );
+        results.push(result);
+    }
+    emit_progress(
+        progress.as_ref(),
+        build_progress_event(
+            task_id.as_deref(),
+            "ip_health",
+            "finished",
+            "",
+            None,
+            completed,
+            total,
+        ),
+    );
     build_ip_health_response(results)
+}
+
+enum ProxyPoolProgressResult {
+    Latency(ProxyPoolLatencyTestResult),
+    IpHealth(ProxyPoolIpHealthResult),
+}
+
+fn emit_progress(progress: Option<&ProxyPoolProgressEmitter>, event: ProxyPoolCheckProgressEvent) {
+    if let Some(progress) = progress {
+        progress(event);
+    }
+}
+
+fn build_progress_event(
+    task_id: Option<&str>,
+    kind: &str,
+    phase: &str,
+    node_id: &str,
+    result: Option<ProxyPoolProgressResult>,
+    completed: usize,
+    total: usize,
+) -> ProxyPoolCheckProgressEvent {
+    let mut event = ProxyPoolCheckProgressEvent {
+        task_id: task_id.unwrap_or_default().to_string(),
+        kind: kind.to_string(),
+        phase: phase.to_string(),
+        node_id: node_id.to_string(),
+        ok: None,
+        latency_ms: None,
+        latency_status: String::new(),
+        ip_health: None,
+        ip_health_summary: String::new(),
+        error: String::new(),
+        completed,
+        total,
+    };
+
+    match result {
+        Some(ProxyPoolProgressResult::Latency(result)) => {
+            event.ok = Some(result.ok);
+            event.latency_ms = result.latency_ms;
+            event.latency_status = latency_status_for_result(&result);
+            event.error = result.error;
+        }
+        Some(ProxyPoolProgressResult::IpHealth(result)) => {
+            event.ok = Some(result.ok);
+            event.ip_health_summary = health::summarize_ip_health(&result);
+            event.error = result.error.clone();
+            event.ip_health = Some(result);
+        }
+        None => {}
+    }
+
+    event
+}
+
+fn latency_status_for_result(result: &ProxyPoolLatencyTestResult) -> String {
+    if result.ok {
+        "ok".to_string()
+    } else {
+        truncate_refresh_error(&result.error)
+    }
 }
 
 pub fn proxy_pool_db_path() -> Result<PathBuf, String> {
@@ -1413,6 +1761,55 @@ pub fn update_service_actual_port(actual_port: Option<u16>) -> Result<(), String
     )
     .map_err(|err| format!("更新内置代理网关实际端口失败: {}", err))?;
     Ok(())
+}
+
+pub fn promote_gateway_outbound_after_failover(
+    previous_current_node_id: &str,
+    successful_node_id: &str,
+) -> Result<Option<ProxyPoolServiceState>, String> {
+    let previous_current_node_id =
+        normalize_required_text(previous_current_node_id, "原当前出口节点", 120)?;
+    let successful_node_id = normalize_required_text(successful_node_id, "备用出口节点", 120)?;
+    if previous_current_node_id == successful_node_id {
+        return Ok(None);
+    }
+
+    let db_path = proxy_pool_db_path()?;
+    let mut conn = open_connection_at(&db_path)?;
+    initialize_schema(&conn)?;
+    seed_builtin_nodes(&conn)?;
+    let now = now_iso();
+
+    let tx = conn
+        .transaction()
+        .map_err(|err| format!("持久化自动故障切换失败: {}", err))?;
+    let mut selection = load_service_selection_from_conn(&*tx)?;
+    if selection.outlet_mode != OUTLET_MODE_NODE_POOL {
+        return Ok(None);
+    }
+    if selection.current_node_id != previous_current_node_id {
+        return Ok(None);
+    }
+    if !selection
+        .selected_node_ids
+        .iter()
+        .any(|id| id == &successful_node_id)
+    {
+        return Ok(None);
+    }
+    if !matches!(load_node_builtin(&*tx, &successful_node_id)?, Some(false)) {
+        return Ok(None);
+    }
+
+    selection.current_node_id = successful_node_id;
+    persist_service_selection(&*tx, &selection, &now)?;
+    tx.commit()
+        .map_err(|err| format!("持久化自动故障切换失败: {}", err))?;
+
+    let conn = open_connection_at(&db_path)?;
+    initialize_schema(&conn)?;
+    seed_builtin_nodes(&conn)?;
+    service_state_from_conn(&conn).map(Some)
 }
 
 fn reset_current_node_if_missing_in_tx(tx: &Transaction<'_>, now: &str) -> Result<(), String> {

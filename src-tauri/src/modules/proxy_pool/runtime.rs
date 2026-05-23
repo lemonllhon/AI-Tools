@@ -39,6 +39,7 @@ pub struct ProxyRuntimeCachedBinary {
     pub manifest_sha256: String,
     pub source_kind: ProxyRuntimeSourceKind,
     pub source_path: String,
+    pub active_path: String,
     pub cache_path: String,
     pub cache_refreshed: bool,
     pub executable: bool,
@@ -61,6 +62,7 @@ pub struct ProxyRuntimeStatusItem {
     pub manifest_sha256: String,
     pub source_kind: Option<ProxyRuntimeSourceKind>,
     pub source_path: String,
+    pub active_path: String,
     pub cache_path: String,
     pub available: bool,
     pub executable: bool,
@@ -134,10 +136,10 @@ pub fn ensure_runtime_binary<R: TauriRuntime>(
     if !cached.executable {
         return Err(format!(
             "代理内核 {} 不可执行: {}",
-            runtime_name, cached.cache_path
+            runtime_name, cached.active_path
         ));
     }
-    Ok(PathBuf::from(cached.cache_path))
+    Ok(PathBuf::from(cached.active_path))
 }
 
 pub fn get_runtime_status_from_dirs(
@@ -320,6 +322,26 @@ fn ensure_runtime_cached(
         ));
     }
 
+    let source_permission_error = match set_executable_permission(&source_path) {
+        Ok(()) => None,
+        Err(err) => Some(err),
+    };
+    if is_executable(&source_path) {
+        return Ok(ProxyRuntimeCachedBinary {
+            runtime: entry.runtime.clone(),
+            expected_version: entry.version.clone(),
+            manifest_sha256: entry.sha256.clone(),
+            source_kind,
+            source_path: display_path(&source_path),
+            active_path: display_path(&source_path),
+            cache_path: cache_path_for_entry(resource_dir, cache_root, entry)
+                .map(|path| display_path(&path))
+                .unwrap_or_default(),
+            cache_refreshed: false,
+            executable: true,
+        });
+    }
+
     let binary_name = manifest_path(resource_dir, &entry.path)?
         .file_name()
         .ok_or_else(|| format!("代理内核清单路径缺少文件名: {}", entry.path))?
@@ -372,15 +394,29 @@ fn ensure_runtime_cached(
         ));
     }
 
+    let executable = is_executable(&cache_path);
+    if !executable {
+        let source_detail = source_permission_error
+            .map(|err| format!("；资源路径设置执行权限失败: {}", err))
+            .unwrap_or_default();
+        return Err(format!(
+            "代理内核 {} 缓存不可执行: {}{}",
+            entry.runtime,
+            cache_path.display(),
+            source_detail
+        ));
+    }
+
     Ok(ProxyRuntimeCachedBinary {
         runtime: entry.runtime.clone(),
         expected_version: entry.version.clone(),
         manifest_sha256: entry.sha256.clone(),
         source_kind,
         source_path: display_path(&source_path),
+        active_path: display_path(&cache_path),
         cache_path: display_path(&cache_path),
         cache_refreshed,
-        executable: is_executable(&cache_path),
+        executable,
     })
 }
 
@@ -391,9 +427,9 @@ fn build_runtime_status_item(
 ) -> ProxyRuntimeStatusItem {
     match ensure_runtime_cached(resource_dir, cache_root, entry) {
         Ok(cached) => {
-            let cache_path = PathBuf::from(cached.cache_path.clone());
+            let active_path = PathBuf::from(cached.active_path.clone());
             let (detected_version, version_output, version_error) =
-                detect_runtime_version(&cache_path, &entry.runtime);
+                detect_runtime_version(&active_path, &entry.runtime);
             let executable = cached.executable;
             let available = executable && version_error.is_none();
             ProxyRuntimeStatusItem {
@@ -402,6 +438,7 @@ fn build_runtime_status_item(
                 manifest_sha256: cached.manifest_sha256,
                 source_kind: Some(cached.source_kind),
                 source_path: cached.source_path,
+                active_path: cached.active_path,
                 cache_path: cached.cache_path,
                 available,
                 executable,
@@ -419,6 +456,7 @@ fn build_runtime_status_item(
             source_path: manifest_path(resource_dir, &entry.path)
                 .map(|path| display_path(&path))
                 .unwrap_or_default(),
+            active_path: String::new(),
             cache_path: cache_path_for_entry(resource_dir, cache_root, entry)
                 .map(|path| display_path(&path))
                 .unwrap_or_default(),
@@ -664,11 +702,11 @@ fn set_executable_permission(path: &Path) -> Result<(), String> {
     {
         use std::os::unix::fs::PermissionsExt;
         let mut permissions = fs::metadata(path)
-            .map_err(|err| format!("读取代理内核缓存权限失败 {}: {}", path.display(), err))?
+            .map_err(|err| format!("读取代理内核执行权限失败 {}: {}", path.display(), err))?
             .permissions();
         permissions.set_mode(0o755);
         fs::set_permissions(path, permissions)
-            .map_err(|err| format!("设置代理内核缓存执行权限失败 {}: {}", path.display(), err))?;
+            .map_err(|err| format!("设置代理内核执行权限失败 {}: {}", path.display(), err))?;
     }
 
     #[cfg(not(unix))]
@@ -704,8 +742,8 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
-    fn caches_bundled_runtime_files() {
-        let fixture = TestFixture::new("caches_bundled_runtime_files");
+    fn prefers_bundled_runtime_files() {
+        let fixture = TestFixture::new("prefers_bundled_runtime_files");
         let xray_sha = fixture.write_resource_runtime("xray", "xray.exe", b"xray-binary");
         let sing_box_sha =
             fixture.write_resource_runtime("sing-box", "sing-box.exe", b"sing-box-binary");
@@ -722,14 +760,16 @@ mod tests {
             &fixture.data_dir,
             "windows-x86_64",
         )
-        .expect("runtime cache should be prepared");
+        .expect("runtime binaries should be prepared");
 
         assert_eq!(state.target, "windows-x86_64");
         assert_eq!(state.runtimes.len(), 3);
         for runtime in state.runtimes {
-            assert!(PathBuf::from(runtime.cache_path).is_file());
+            let active_path = PathBuf::from(runtime.active_path.clone());
+            assert!(active_path.is_file());
+            assert!(active_path.starts_with(&fixture.resource_dir));
             assert_eq!(runtime.source_kind, ProxyRuntimeSourceKind::Bundled);
-            assert!(runtime.cache_refreshed);
+            assert!(!runtime.cache_refreshed);
             assert!(runtime.executable);
         }
     }
@@ -759,8 +799,8 @@ mod tests {
     }
 
     #[test]
-    fn refreshes_corrupted_cache_file() {
-        let fixture = TestFixture::new("refreshes_corrupted_cache_file");
+    fn uses_resource_runtime_when_cache_is_corrupted() {
+        let fixture = TestFixture::new("uses_resource_runtime_when_cache_is_corrupted");
         let xray_sha = fixture.write_resource_runtime("xray", "xray.exe", b"xray-binary");
         let sing_box_sha =
             fixture.write_resource_runtime("sing-box", "sing-box.exe", b"sing-box-binary");
@@ -788,15 +828,16 @@ mod tests {
             &fixture.data_dir,
             "windows-x86_64",
         )
-        .expect("runtime cache should be repaired");
+        .expect("runtime binaries should be prepared");
 
         let xray = state
             .runtimes
             .iter()
             .find(|runtime| runtime.runtime == "xray")
             .expect("xray should be present");
-        assert!(xray.cache_refreshed);
-        assert_eq!(fs::read(xray_cache_path).unwrap(), b"xray-binary".to_vec());
+        assert!(!xray.cache_refreshed);
+        assert_ne!(xray.active_path, xray.cache_path);
+        assert_eq!(fs::read(xray_cache_path).unwrap(), b"corrupted".to_vec());
     }
 
     struct TestFixture {

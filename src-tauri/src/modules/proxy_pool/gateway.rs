@@ -1,14 +1,18 @@
 use super::bridge;
 use super::store::{self, GatewayOutboundTarget};
 use base64::{engine::general_purpose, Engine as _};
+use rustls::pki_types::ServerName;
+use rustls::{ClientConfig, RootCertStore};
 use serde_json::json;
 use std::net::IpAddr;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
+use tauri::Emitter;
 use std::time::Duration;
-use tokio::io::{copy_bidirectional, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{copy_bidirectional, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{watch, Mutex as TokioMutex};
 use tokio::time::{timeout, Instant};
+use tokio_rustls::TlsConnector;
 use url::Url;
 
 const GATEWAY_BIND_HOST: &str = "127.0.0.1";
@@ -17,15 +21,30 @@ const CONNECT_UPSTREAM_TIMEOUT: Duration = Duration::from_secs(20);
 const GATEWAY_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const GATEWAY_BIND_RETRY_TIMEOUT: Duration = Duration::from_secs(5);
 const GATEWAY_BIND_RETRY_INTERVAL: Duration = Duration::from_millis(100);
+const FAILOVER_PROMOTION_COOLDOWN: Duration = Duration::from_secs(2);
 const MAX_HTTP_HEAD_BYTES: usize = 64 * 1024;
+const PROXY_POOL_GATEWAY_FAILOVER_EVENT: &str = "proxy_pool://gateway_failover";
 
 static GATEWAY_RUNTIME: OnceLock<TokioMutex<GatewayRuntime>> = OnceLock::new();
+static HTTPS_PROXY_TLS_CONFIG: OnceLock<Result<Arc<ClientConfig>, String>> = OnceLock::new();
+static FAILOVER_PROMOTION_STATE: OnceLock<TokioMutex<FailoverPromotionState>> = OnceLock::new();
+
+trait GatewayIo: AsyncRead + AsyncWrite + Unpin + Send {}
+
+impl<T> GatewayIo for T where T: AsyncRead + AsyncWrite + Unpin + Send {}
+
+type GatewayStream = Box<dyn GatewayIo>;
 
 #[derive(Default)]
 struct GatewayRuntime {
     task: Option<tokio::task::JoinHandle<()>>,
     shutdown_sender: Option<watch::Sender<bool>>,
     running_port: Option<u16>,
+}
+
+#[derive(Default)]
+struct FailoverPromotionState {
+    last_attempt_at: Option<Instant>,
 }
 
 #[derive(Debug)]
@@ -58,6 +77,10 @@ struct HttpDestination {
 
 fn gateway_runtime() -> &'static TokioMutex<GatewayRuntime> {
     GATEWAY_RUNTIME.get_or_init(|| TokioMutex::new(GatewayRuntime::default()))
+}
+
+fn failover_promotion_state() -> &'static TokioMutex<FailoverPromotionState> {
+    FAILOVER_PROMOTION_STATE.get_or_init(|| TokioMutex::new(FailoverPromotionState::default()))
 }
 
 pub async fn restore_gateway_state() {
@@ -253,7 +276,8 @@ async fn proxy_connect_request(
     outbounds: &[GatewayOutboundTarget],
 ) -> Result<(), String> {
     let (host, port) = parse_authority(&request.target, 443)?;
-    let mut upstream = open_tunnel_with_fallback(outbounds, &host, port).await?;
+    let (mut upstream, outbound) = open_tunnel_with_fallback(outbounds, &host, port).await?;
+    persist_successful_failover_if_needed(outbounds, outbound).await;
     client
         .write_all(b"HTTP/1.1 200 Connection Established\r\nProxy-Agent: AI-Lemon-Tools\r\n\r\n")
         .await
@@ -272,7 +296,7 @@ async fn proxy_http_request(
 ) -> Result<(), String> {
     let destination = resolve_http_destination(request)?;
     let (mut upstream, outbound) = open_http_upstream_with_fallback(outbounds, &destination).await?;
-    let use_upstream_http_proxy = outbound.protocol.eq_ignore_ascii_case("http");
+    let use_upstream_http_proxy = is_http_proxy_outbound(outbound);
     let request_target = if use_upstream_http_proxy {
         destination.absolute_target.as_str()
     } else {
@@ -294,6 +318,7 @@ async fn proxy_http_request(
             .map_err(|error| format!("写入上游请求体失败: {}", error))?;
     }
 
+    persist_successful_failover_if_needed(outbounds, outbound).await;
     let _ = copy_bidirectional(client, &mut upstream)
         .await
         .map_err(|error| format!("HTTP 转发失败: {}", error))?;
@@ -304,7 +329,7 @@ async fn open_tunnel_with_fallback(
     outbounds: &[GatewayOutboundTarget],
     destination_host: &str,
     destination_port: u16,
-) -> Result<TcpStream, String> {
+) -> Result<(GatewayStream, &GatewayOutboundTarget), String> {
     let mut errors = Vec::new();
     for outbound in outbounds {
         match open_tunnel(outbound, destination_host, destination_port).await {
@@ -315,7 +340,7 @@ async fn open_tunnel_with_fallback(
                         outbound.name, outbound.protocol
                     ));
                 }
-                return Ok(stream);
+                return Ok((stream, outbound));
             }
             Err(error) => {
                 crate::modules::logger::log_warn(&format!(
@@ -332,17 +357,27 @@ async fn open_tunnel_with_fallback(
 async fn open_http_upstream_with_fallback<'a>(
     outbounds: &'a [GatewayOutboundTarget],
     destination: &HttpDestination,
-) -> Result<(TcpStream, &'a GatewayOutboundTarget), String> {
+) -> Result<(GatewayStream, &'a GatewayOutboundTarget), String> {
     let mut errors = Vec::new();
     for outbound in outbounds {
-        let result = if outbound.protocol.eq_ignore_ascii_case("http") {
-            bridge::stop_bridge().await;
-            match guard_not_self_proxy(outbound) {
-                Ok(()) => connect_tcp(&outbound.host, outbound.port).await,
-                Err(error) => Err(error),
+        let result = match outbound.protocol.to_ascii_lowercase().as_str() {
+            "http" => {
+                bridge::stop_bridge().await;
+                match guard_not_self_proxy(outbound) {
+                    Ok(()) => connect_tcp(&outbound.host, outbound.port)
+                        .await
+                        .map(box_gateway_stream),
+                    Err(error) => Err(error),
+                }
             }
-        } else {
-            open_tunnel(outbound, &destination.host, destination.port).await
+            "https" => {
+                bridge::stop_bridge().await;
+                match guard_not_self_proxy(outbound) {
+                    Ok(()) => connect_https_proxy(outbound).await,
+                    Err(error) => Err(error),
+                }
+            }
+            _ => open_tunnel(outbound, &destination.host, destination.port).await,
         };
 
         match result {
@@ -367,6 +402,73 @@ async fn open_http_upstream_with_fallback<'a>(
     Err(format_outbound_errors("所有已选择的代理节点均不可用", errors))
 }
 
+async fn persist_successful_failover_if_needed(
+    outbounds: &[GatewayOutboundTarget],
+    successful_outbound: &GatewayOutboundTarget,
+) {
+    let Some(primary_outbound) = outbounds.first() else {
+        return;
+    };
+    if primary_outbound.id == successful_outbound.id {
+        return;
+    }
+
+    {
+        let mut state = failover_promotion_state().lock().await;
+        let now = Instant::now();
+        if state
+            .last_attempt_at
+            .is_some_and(|last| now.duration_since(last) < FAILOVER_PROMOTION_COOLDOWN)
+        {
+            return;
+        }
+        state.last_attempt_at = Some(now);
+    }
+
+    let previous_current_node_id = primary_outbound.id.clone();
+    let successful_node_id = successful_outbound.id.clone();
+    let successful_name = successful_outbound.name.clone();
+    match tokio::task::spawn_blocking(move || {
+        store::promote_gateway_outbound_after_failover(
+            &previous_current_node_id,
+            &successful_node_id,
+        )
+        .map(|state| (previous_current_node_id, successful_node_id, state))
+    })
+    .await
+    {
+        Ok(Ok((from_node_id, to_node_id, Some(service_state)))) => {
+            crate::modules::logger::log_info(&format!(
+                "[ProxyGateway] 自动故障切换已持久化: {} -> {} ({})",
+                from_node_id, to_node_id, successful_name
+            ));
+            if let Some(app) = crate::get_app_handle() {
+                let _ = app.emit(
+                    PROXY_POOL_GATEWAY_FAILOVER_EVENT,
+                    json!({
+                        "fromNodeId": from_node_id,
+                        "toNodeId": to_node_id,
+                        "serviceState": service_state,
+                    }),
+                );
+            }
+        }
+        Ok(Ok((_from_node_id, _to_node_id, None))) => {}
+        Ok(Err(error)) => {
+            crate::modules::logger::log_warn(&format!(
+                "[ProxyGateway] 持久化自动故障切换失败: {}",
+                error
+            ));
+        }
+        Err(error) => {
+            crate::modules::logger::log_warn(&format!(
+                "[ProxyGateway] 持久化自动故障切换任务失败: {}",
+                error
+            ));
+        }
+    }
+}
+
 fn format_outbound_errors(prefix: &str, errors: Vec<String>) -> String {
     match errors.len() {
         0 => prefix.to_string(),
@@ -379,25 +481,32 @@ async fn open_tunnel(
     outbound: &GatewayOutboundTarget,
     destination_host: &str,
     destination_port: u16,
-) -> Result<TcpStream, String> {
+) -> Result<GatewayStream, String> {
     match outbound.protocol.to_ascii_lowercase().as_str() {
         "direct" => {
             bridge::stop_bridge().await;
-            connect_tcp(destination_host, destination_port).await
+            connect_tcp(destination_host, destination_port)
+                .await
+                .map(box_gateway_stream)
         }
         "http" => {
             bridge::stop_bridge().await;
             guard_not_self_proxy(outbound)?;
-            open_http_proxy_tunnel(outbound, destination_host, destination_port).await
+            open_http_proxy_tunnel(outbound, destination_host, destination_port)
+                .await
+                .map(box_gateway_stream)
         }
         "socks5" => {
             bridge::stop_bridge().await;
             guard_not_self_proxy(outbound)?;
-            open_socks5_tunnel(outbound, destination_host, destination_port).await
+            open_socks5_tunnel(outbound, destination_host, destination_port)
+                .await
+                .map(box_gateway_stream)
         }
         "https" => {
             bridge::stop_bridge().await;
-            Err("HTTPS 上游代理需要 TLS 代理握手，当前网关阶段暂未启用；请先使用 HTTP 或 SOCKS5 节点".to_string())
+            guard_not_self_proxy(outbound)?;
+            open_https_proxy_tunnel(outbound, destination_host, destination_port).await
         }
         "vmess" | "vless" | "trojan" | "ss" | "hysteria" | "hysteria2" | "tuic"
         | "anytls" => {
@@ -414,12 +523,19 @@ async fn open_tunnel(
                 standard_config: json!({}),
             };
             match open_socks5_tunnel(&bridge_outbound, destination_host, destination_port).await {
-                Ok(stream) => Ok(stream),
+                Ok(stream) => Ok(box_gateway_stream(stream)),
                 Err(error) => Err(append_bridge_log(error).await),
             }
         }
         other => Err(format!("内置代理网关暂不支持 {} 协议出口", other)),
     }
+}
+
+fn box_gateway_stream<S>(stream: S) -> GatewayStream
+where
+    S: GatewayIo + 'static,
+{
+    Box::new(stream)
 }
 
 async fn append_bridge_log(error: String) -> String {
@@ -450,6 +566,44 @@ async fn open_http_proxy_tunnel(
     destination_port: u16,
 ) -> Result<TcpStream, String> {
     let mut stream = connect_tcp(&outbound.host, outbound.port).await?;
+    write_http_proxy_connect(
+        &mut stream,
+        outbound,
+        destination_host,
+        destination_port,
+        "HTTP",
+    )
+    .await?;
+    Ok(stream)
+}
+
+async fn open_https_proxy_tunnel(
+    outbound: &GatewayOutboundTarget,
+    destination_host: &str,
+    destination_port: u16,
+) -> Result<GatewayStream, String> {
+    let mut stream = connect_https_proxy(outbound).await?;
+    write_http_proxy_connect(
+        &mut *stream,
+        outbound,
+        destination_host,
+        destination_port,
+        "HTTPS",
+    )
+    .await?;
+    Ok(stream)
+}
+
+async fn write_http_proxy_connect<S>(
+    stream: &mut S,
+    outbound: &GatewayOutboundTarget,
+    destination_host: &str,
+    destination_port: u16,
+    proxy_scheme: &str,
+) -> Result<(), String>
+where
+    S: AsyncRead + AsyncWrite + Unpin + ?Sized,
+{
     let authority = format_authority(destination_host, destination_port);
     let proxy_auth = proxy_authorization_header(outbound);
     let request = format!(
@@ -458,16 +612,91 @@ async fn open_http_proxy_tunnel(
     stream
         .write_all(request.as_bytes())
         .await
-        .map_err(|error| format!("写入上游 HTTP 代理 CONNECT 失败: {}", error))?;
-    let response = read_http_head(&mut stream).await?;
+        .map_err(|error| format!("写入上游 {} 代理 CONNECT 失败: {}", proxy_scheme, error))?;
+    let response = read_http_head(stream).await?;
     let status = parse_response_status(&response.head)?;
     if !(200..300).contains(&status) {
         return Err(format!(
-            "上游 HTTP 代理 CONNECT 失败: HTTP {} ({})",
-            status, outbound.name
+            "上游 {} 代理 CONNECT 失败: HTTP {} ({})",
+            proxy_scheme, status, outbound.name
         ));
     }
-    Ok(stream)
+    Ok(())
+}
+
+async fn connect_https_proxy(outbound: &GatewayOutboundTarget) -> Result<GatewayStream, String> {
+    let tcp = connect_tcp(&outbound.host, outbound.port)
+        .await
+        .map_err(|error| format!("连接上游 HTTPS 代理 TCP 失败: {}", error))?;
+    let server_name = https_proxy_server_name(&outbound.host)?;
+    let connector = TlsConnector::from(https_proxy_tls_config()?);
+    let stream = timeout(CONNECT_UPSTREAM_TIMEOUT, connector.connect(server_name, tcp))
+        .await
+        .map_err(|_| {
+            format!(
+                "HTTPS 上游代理 TLS 握手超时: {}",
+                format_authority(&outbound.host, outbound.port)
+            )
+        })?
+        .map_err(|error| {
+            format!(
+                "HTTPS 上游代理 TLS 握手失败 {}: {}",
+                format_authority(&outbound.host, outbound.port),
+                error
+            )
+        })?;
+    Ok(box_gateway_stream(stream))
+}
+
+fn https_proxy_server_name(host: &str) -> Result<ServerName<'static>, String> {
+    let host = host.trim().trim_matches('[').trim_matches(']');
+    if host.is_empty() {
+        return Err("HTTPS 上游代理主机名为空，无法执行 TLS 握手".to_string());
+    }
+    ServerName::try_from(host.to_string()).map_err(|_| {
+        format!(
+            "HTTPS 上游代理主机名无法作为 TLS SNI 使用: {}，请使用证书匹配的域名",
+            host
+        )
+    })
+}
+
+fn https_proxy_tls_config() -> Result<Arc<ClientConfig>, String> {
+    HTTPS_PROXY_TLS_CONFIG
+        .get_or_init(build_https_proxy_tls_config)
+        .clone()
+}
+
+fn build_https_proxy_tls_config() -> Result<Arc<ClientConfig>, String> {
+    let certs = rustls_native_certs::load_native_certs()
+        .map_err(|error| format!("加载系统根证书失败: {}", error))?;
+    if certs.is_empty() {
+        return Err("系统根证书为空，无法验证 HTTPS 上游代理证书".to_string());
+    }
+
+    let mut root_store = RootCertStore::empty();
+    let mut accepted = 0usize;
+    let mut rejected = 0usize;
+    for cert in certs {
+        match root_store.add(cert) {
+            Ok(()) => accepted += 1,
+            Err(_) => rejected += 1,
+        }
+    }
+    if accepted == 0 {
+        return Err("系统根证书无法被 rustls 使用，无法验证 HTTPS 上游代理证书".to_string());
+    }
+    if rejected > 0 {
+        crate::modules::logger::log_warn(&format!(
+            "[ProxyGateway] 已跳过 {} 个无法解析的系统根证书",
+            rejected
+        ));
+    }
+
+    let config = ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+    Ok(Arc::new(config))
 }
 
 async fn open_socks5_tunnel(
@@ -614,15 +843,18 @@ async fn connect_tcp(host: &str, port: u16) -> Result<TcpStream, String> {
     .map_err(|error| format!("连接 {} 失败: {}", format_authority(host, port), error))
 }
 
-async fn read_http_head(stream: &mut TcpStream) -> Result<HttpHead, String> {
+async fn read_http_head<S>(stream: &mut S) -> Result<HttpHead, String>
+where
+    S: AsyncRead + Unpin + ?Sized,
+{
     let mut buffer = Vec::with_capacity(4096);
     let mut chunk = [0u8; 2048];
 
     loop {
         let bytes_read = timeout(HTTP_HEAD_READ_TIMEOUT, stream.read(&mut chunk))
             .await
-            .map_err(|_| "读取 HTTP 请求头超时".to_string())?
-            .map_err(|error| format!("读取 HTTP 请求头失败: {}", error))?;
+            .map_err(|_| "读取 HTTP 头超时".to_string())?
+            .map_err(|error| format!("读取 HTTP 头失败: {}", error))?;
         if bytes_read == 0 {
             break;
         }
@@ -794,6 +1026,11 @@ fn build_forward_http_head(
     }
     output.push_str("\r\n");
     output.into_bytes()
+}
+
+fn is_http_proxy_outbound(outbound: &GatewayOutboundTarget) -> bool {
+    outbound.protocol.eq_ignore_ascii_case("http")
+        || outbound.protocol.eq_ignore_ascii_case("https")
 }
 
 fn should_drop_proxy_header(name: &str) -> bool {

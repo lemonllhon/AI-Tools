@@ -2,6 +2,8 @@ import { invoke } from '@tauri-apps/api/core';
 import type {
   ProxyImportApplyRequest,
   ProxyImportApplyResponse,
+  ProxyImportPreviewCheckRequest,
+  ProxyImportPreviewCheckResponse,
   ProxyPoolIpHealthResponse,
   ProxyPoolLatencyTestResponse,
   ProxyImportPreviewRequest,
@@ -13,10 +15,14 @@ import type {
   ProxySourceUpdateRequest,
   ProxySubscriptionApplyRequest,
   ProxySubscriptionApplyResponse,
+  ProxySubscriptionPreviewCheckRequest,
   ProxySubscriptionPreviewRequest,
   ProxySubscriptionRefreshRequest,
   ProxySubscriptionRefreshResponse,
 } from '../types/proxyPool';
+
+export const PROXY_POOL_CHECK_PROGRESS_EVENT = 'proxy_pool://check_progress';
+export const PROXY_POOL_GATEWAY_FAILOVER_EVENT = 'proxy_pool://gateway_failover';
 
 export async function listProxyPoolNodes(): Promise<ProxyPoolListResponse> {
   return await invoke('proxy_pool_list_nodes');
@@ -44,6 +50,12 @@ export async function previewProxyPoolImport(
   return await invoke('proxy_pool_preview_import', { request });
 }
 
+export async function checkProxyPoolImportPreview(
+  request: ProxyImportPreviewCheckRequest,
+): Promise<ProxyImportPreviewCheckResponse> {
+  return await invoke('proxy_pool_check_import_preview', { request });
+}
+
 export async function applyProxyPoolImport(
   request: ProxyImportApplyRequest,
 ): Promise<ProxyImportApplyResponse> {
@@ -54,6 +66,12 @@ export async function previewProxyPoolSubscription(
   request: ProxySubscriptionPreviewRequest,
 ): Promise<ProxyImportPreviewResponse> {
   return await invoke('proxy_pool_preview_subscription', { request });
+}
+
+export async function checkProxyPoolSubscriptionPreview(
+  request: ProxySubscriptionPreviewCheckRequest,
+): Promise<ProxyImportPreviewCheckResponse> {
+  return await invoke('proxy_pool_check_subscription_preview', { request });
 }
 
 export async function applyProxyPoolSubscription(
@@ -86,16 +104,16 @@ export async function testProxyPoolNodeLatency(id: string): Promise<ProxyPoolLat
   return await invoke('proxy_pool_test_node_latency', { id });
 }
 
-export async function testAllProxyPoolLatency(): Promise<ProxyPoolLatencyTestResponse> {
-  return await invoke('proxy_pool_test_all_latency');
+export async function testAllProxyPoolLatency(taskId?: string): Promise<ProxyPoolLatencyTestResponse> {
+  return await invoke('proxy_pool_test_all_latency', { taskId });
 }
 
 export async function checkProxyPoolNodeIpHealth(id: string): Promise<ProxyPoolIpHealthResponse> {
   return await invoke('proxy_pool_check_node_ip_health', { id });
 }
 
-export async function checkAllProxyPoolIpHealth(): Promise<ProxyPoolIpHealthResponse> {
-  return await invoke('proxy_pool_check_all_ip_health');
+export async function checkAllProxyPoolIpHealth(taskId?: string): Promise<ProxyPoolIpHealthResponse> {
+  return await invoke('proxy_pool_check_all_ip_health', { taskId });
 }
 
 export async function updateProxyPoolServiceState(
