@@ -107,5 +107,8 @@ export interface CodexLocalAccessTestFailure {
 
 export interface CodexLocalAccessPortCleanupResult {
   killedCount: number;
+  previousPort: number;
+  currentPort: number;
+  portChanged: boolean;
   state: CodexLocalAccessState;
 }

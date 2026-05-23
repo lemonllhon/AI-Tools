@@ -25,6 +25,7 @@ import type { CodexAccountGroup } from '../services/codexAccountGroupService';
 import type {
   CodexLocalAccessAddressKind,
   CodexLocalAccessCustomRoutingRule,
+  CodexLocalAccessPortCleanupResult,
   CodexLocalAccessRoutingStrategy,
   CodexLocalAccessScope,
   CodexLocalAccessState,
@@ -93,7 +94,10 @@ interface CodexLocalAccessModalProps {
     accountId: string | null,
   ) => Promise<unknown> | unknown;
   onRotateApiKey: () => Promise<unknown> | unknown;
-  onKillPort: () => Promise<unknown> | unknown;
+  onKillPort: () =>
+    | Promise<CodexLocalAccessPortCleanupResult | null>
+    | CodexLocalAccessPortCleanupResult
+    | null;
   onTest: () => Promise<CodexLocalAccessTestResult> | CodexLocalAccessTestResult;
   saving: boolean;
   testing: boolean;
@@ -1029,12 +1033,15 @@ export function CodexLocalAccessModal({
     }
   };
 
-  const runAction = async (task: () => Promise<void>, successText: string) => {
+  const runAction = async (task: () => Promise<string | null | void>, successText: string) => {
     setError('');
     setNotice('');
     try {
-      await task();
-      setNotice(successText);
+      const nextNotice = await task();
+      if (nextNotice === null) {
+        return;
+      }
+      setNotice(nextNotice || successText);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -1362,7 +1369,28 @@ export function CodexLocalAccessModal({
   const handleKillPort = async () => {
     await runAction(
       async () => {
-        await onKillPort();
+        const result = await onKillPort();
+        if (!result) {
+          return null;
+        }
+        if (result.portChanged) {
+          return t('codex.localAccess.killPortChanged', {
+            previousPort: result.previousPort,
+            currentPort: result.currentPort,
+            defaultValue:
+              '原端口 {{previousPort}} 未能释放，已自动切换到 {{currentPort}}',
+          });
+        }
+        if (result.killedCount > 0) {
+          return t('codex.localAccess.killPortSuccess', {
+            count: result.killedCount,
+            defaultValue: '端口已清理（结束 {{count}} 个进程）',
+          });
+        }
+        return t(
+          'codex.localAccess.killPortSuccessNone',
+          '端口已检查，未发现外部占用进程',
+        );
       },
       t('codex.localAccess.killPortSuccessUnknown', 'API 服务端口已清理'),
     );

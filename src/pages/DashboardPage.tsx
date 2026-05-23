@@ -584,7 +584,7 @@ export function DashboardPage({
         cancelLabel: t('common.cancel', '取消'),
       },
     );
-    if (!confirmed) return;
+    if (!confirmed) return null;
 
     setApiServicePortCleanupBusy(true);
     try {
@@ -593,7 +593,14 @@ export function DashboardPage({
       scheduleApiServiceStateRefresh();
       setApiServiceMessage({
         text:
-          result.killedCount > 0
+          result.portChanged
+            ? t('codex.localAccess.killPortChanged', {
+                previousPort: result.previousPort,
+                currentPort: result.currentPort,
+                defaultValue:
+                  '原端口 {{previousPort}} 未能释放，已自动切换到 {{currentPort}}',
+              })
+            : result.killedCount > 0
             ? t('codex.localAccess.killPortSuccess', {
                 count: result.killedCount,
                 defaultValue: '已清理 {{count}} 个占用端口的进程',
@@ -601,6 +608,7 @@ export function DashboardPage({
             : t('codex.localAccess.killPortSuccessNone', '没有发现需要清理的占用进程'),
         tone: 'success',
       });
+      return result;
     } catch (error) {
       setApiServiceMessage({
         text: t('dashboard.apiServices.actionFailed', {

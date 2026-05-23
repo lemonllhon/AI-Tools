@@ -6,6 +6,16 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.21] - 2026-05-23
+### Changed
+- Changed Codex API local access port cleanup to wait for gateway port release and treat already-exited owner PIDs as non-fatal after rechecking the listener state.
+- Changed port cleanup results and UI notices to show when the API service switches from the previous port to a new available port.
+
+### Fixed
+- Fixed Windows port cleanup failing when `taskkill` reported that a PID found by `netstat` no longer existed; the cleanup now rechecks whether the process and port are still alive before deciding failure.
+- Fixed macOS port cleanup treating `lsof`-discovered PIDs that exit during cleanup as hard failures, while still waiting for the port to release and changing ports when needed.
+- Fixed Linux port owner detection relying only on `lsof`; Linux now falls back to `ss -ltnp` and `netstat -ltnp` so minimal environments can still clear or recover from occupied API service ports.
+
 ## [0.0.20] - 2026-05-23
 ### Changed
 - Changed the proxy node import preview action label from "Preview import" to "Preview", keeping "Import selected" as the only action that actually writes nodes.

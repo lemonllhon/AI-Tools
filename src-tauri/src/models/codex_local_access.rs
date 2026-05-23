@@ -226,5 +226,8 @@ pub struct CodexLocalAccessTestResult {
 #[serde(rename_all = "camelCase")]
 pub struct CodexLocalAccessPortCleanupResult {
     pub killed_count: u32,
+    pub previous_port: u16,
+    pub current_port: u16,
+    pub port_changed: bool,
     pub state: CodexLocalAccessState,
 }

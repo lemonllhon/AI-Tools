@@ -7779,25 +7779,211 @@ pub fn start_opencode_with_path(custom_path: Option<&str>) -> Result<(), String>
     Err("不支持的操作系统".to_string())
 }
 
+fn parse_listening_pids_from_netstat(stdout: &str, port: u16, current_pid: u32) -> Vec<u32> {
+    let mut pids = HashSet::new();
+    let port_suffix = format!(":{}", port);
+
+    for line in stdout.lines() {
+        let line = line.trim();
+        if !line.starts_with("TCP") {
+            continue;
+        }
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 5 {
+            continue;
+        }
+        let local = parts[1];
+        let state = parts[3];
+        let pid_str = parts[4];
+        if !state.eq_ignore_ascii_case("LISTENING") {
+            continue;
+        }
+        if !local.ends_with(&port_suffix) {
+            continue;
+        }
+        if let Ok(pid) = pid_str.parse::<u32>() {
+            if pid != current_pid {
+                pids.insert(pid);
+            }
+        }
+    }
+
+    let mut result: Vec<u32> = pids.into_iter().collect();
+    result.sort_unstable();
+    result
+}
+
+fn combined_process_output(output: &std::process::Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    match (stdout.is_empty(), stderr.is_empty()) {
+        (true, true) => format!("退出状态 {}", output.status),
+        (false, true) => stdout,
+        (true, false) => stderr,
+        (false, false) => format!("{} {}", stdout, stderr),
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn parse_lsof_pid_lines(stdout: &str, current_pid: u32) -> Vec<u32> {
+    let mut pids = HashSet::new();
+    for line in stdout.lines() {
+        if let Ok(pid) = line.trim().parse::<u32>() {
+            if pid != current_pid {
+                pids.insert(pid);
+            }
+        }
+    }
+    let mut result: Vec<u32> = pids.into_iter().collect();
+    result.sort_unstable();
+    result
+}
+
+#[cfg(target_os = "linux")]
+fn collect_linux_process_field_pids(field: &str, current_pid: u32, pids: &mut HashSet<u32>) {
+    let mut rest = field;
+    while let Some(index) = rest.find("pid=") {
+        let after = &rest[index + 4..];
+        let digits = after
+            .chars()
+            .take_while(|ch| ch.is_ascii_digit())
+            .collect::<String>();
+        if let Ok(pid) = digits.parse::<u32>() {
+            if pid != current_pid {
+                pids.insert(pid);
+            }
+        }
+        rest = &after[digits.len()..];
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn parse_listening_pids_from_ss(stdout: &str, port: u16, current_pid: u32) -> Vec<u32> {
+    let mut pids = HashSet::new();
+    let port_suffix = format!(":{}", port);
+
+    for line in stdout.lines() {
+        let line = line.trim();
+        if !line.starts_with("LISTEN") {
+            continue;
+        }
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 6 {
+            continue;
+        }
+        if !parts[3].ends_with(&port_suffix) {
+            continue;
+        }
+        for field in &parts[5..] {
+            collect_linux_process_field_pids(field, current_pid, &mut pids);
+        }
+    }
+
+    let mut result: Vec<u32> = pids.into_iter().collect();
+    result.sort_unstable();
+    result
+}
+
+#[cfg(target_os = "linux")]
+fn parse_listening_pids_from_linux_netstat(stdout: &str, port: u16, current_pid: u32) -> Vec<u32> {
+    let mut pids = HashSet::new();
+    let port_suffix = format!(":{}", port);
+
+    for line in stdout.lines() {
+        let line = line.trim();
+        if !line.starts_with("tcp") {
+            continue;
+        }
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 7 {
+            continue;
+        }
+        if !parts[3].ends_with(&port_suffix) {
+            continue;
+        }
+        if !parts[5].eq_ignore_ascii_case("LISTEN") {
+            continue;
+        }
+        let pid_text = parts[6].split('/').next().unwrap_or_default();
+        if let Ok(pid) = pid_text.parse::<u32>() {
+            if pid != current_pid {
+                pids.insert(pid);
+            }
+        }
+    }
+
+    let mut result: Vec<u32> = pids.into_iter().collect();
+    result.sort_unstable();
+    result
+}
+
 pub fn find_pids_by_port(port: u16) -> Result<Vec<u32>, String> {
     let current_pid = std::process::id();
-    let mut pids = HashSet::new();
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        let output = Command::new("lsof")
+        let mut pids = HashSet::new();
+        let mut probe_errors = Vec::new();
+        let mut probe_succeeded = false;
+
+        match Command::new("lsof")
             .args(["-nP", &format!("-iTCP:{}", port), "-sTCP:LISTEN", "-t"])
             .output()
-            .map_err(|e| format!("执行 lsof 失败: {}", e))?;
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            if let Ok(pid) = line.trim().parse::<u32>() {
-                if pid != current_pid {
+        {
+            Ok(output) => {
+                probe_succeeded = true;
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for pid in parse_lsof_pid_lines(&stdout, current_pid) {
                     pids.insert(pid);
                 }
             }
+            Err(err) => {
+                probe_errors.push(format!("执行 lsof 失败: {}", err));
+            }
         }
+
+        #[cfg(target_os = "linux")]
+        {
+            match Command::new("ss").args(["-ltnp"]).output() {
+                Ok(output) => {
+                    probe_succeeded = true;
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    for pid in parse_listening_pids_from_ss(&stdout, port, current_pid) {
+                        pids.insert(pid);
+                    }
+                }
+                Err(err) => {
+                    probe_errors.push(format!("执行 ss 失败: {}", err));
+                }
+            }
+
+            match Command::new("netstat").args(["-ltnp"]).output() {
+                Ok(output) => {
+                    probe_succeeded = true;
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    for pid in
+                        parse_listening_pids_from_linux_netstat(&stdout, port, current_pid)
+                    {
+                        pids.insert(pid);
+                    }
+                }
+                Err(err) => {
+                    probe_errors.push(format!("执行 netstat 失败: {}", err));
+                }
+            }
+        }
+
+        if !probe_succeeded {
+            return Err(format!(
+                "查找端口 {} 占用进程失败: {}",
+                port,
+                probe_errors.join("; ")
+            ));
+        }
+
+        let mut result: Vec<u32> = pids.into_iter().collect();
+        result.sort_unstable();
+        return Ok(result);
     }
 
     #[cfg(target_os = "windows")]
@@ -7810,34 +7996,15 @@ pub fn find_pids_by_port(port: u16) -> Result<Vec<u32>, String> {
             .map_err(|e| format!("执行 netstat 失败: {}", e))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let port_suffix = format!(":{}", port);
-        for line in stdout.lines() {
-            let line = line.trim();
-            if !line.starts_with("TCP") {
-                continue;
-            }
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() < 5 {
-                continue;
-            }
-            let local = parts[1];
-            let state = parts[3];
-            let pid_str = parts[4];
-            if !state.eq_ignore_ascii_case("LISTENING") {
-                continue;
-            }
-            if !local.ends_with(&port_suffix) {
-                continue;
-            }
-            if let Ok(pid) = pid_str.parse::<u32>() {
-                if pid != current_pid {
-                    pids.insert(pid);
-                }
-            }
-        }
+        return Ok(parse_listening_pids_from_netstat(
+            &stdout,
+            port,
+            current_pid,
+        ));
     }
 
-    Ok(pids.into_iter().collect())
+    #[allow(unreachable_code)]
+    Ok(Vec::new())
 }
 
 pub fn is_port_in_use(port: u16) -> Result<bool, String> {
@@ -7850,7 +8017,9 @@ pub fn kill_port_processes(port: u16) -> Result<usize, String> {
         return Ok(0);
     }
 
+    let mut killed_count = 0usize;
     let mut failed = Vec::new();
+    let mut already_exited = Vec::new();
 
     #[cfg(target_os = "windows")]
     {
@@ -7861,12 +8030,32 @@ pub fn kill_port_processes(port: u16) -> Result<usize, String> {
                 .creation_flags(0x08000000)
                 .output();
             match output {
-                Ok(out) if out.status.success() => {}
-                Ok(out) => {
-                    let stderr = String::from_utf8_lossy(&out.stderr);
-                    failed.push(format!("pid {}: {}", pid, stderr.trim()));
+                Ok(out) if out.status.success() => {
+                    killed_count += 1;
                 }
-                Err(e) => failed.push(format!("pid {}: {}", pid, e)),
+                Ok(out) => {
+                    let detail = combined_process_output(&out);
+                    if is_pid_running(*pid) {
+                        failed.push(format!("pid {}: {}", pid, detail));
+                    } else {
+                        already_exited.push(*pid);
+                        crate::modules::logger::log_warn(&format!(
+                            "[PortCleanup] taskkill reported failure for pid={}, but the process is no longer running: {}",
+                            pid, detail
+                        ));
+                    }
+                }
+                Err(e) => {
+                    if is_pid_running(*pid) {
+                        failed.push(format!("pid {}: {}", pid, e));
+                    } else {
+                        already_exited.push(*pid);
+                        crate::modules::logger::log_warn(&format!(
+                            "[PortCleanup] taskkill could not run for pid={}, but the process is no longer running: {}",
+                            pid, e
+                        ));
+                    }
+                }
             }
         }
     }
@@ -7876,21 +8065,41 @@ pub fn kill_port_processes(port: u16) -> Result<usize, String> {
         for pid in &pids {
             let output = Command::new("kill").args(["-9", &pid.to_string()]).output();
             match output {
-                Ok(out) if out.status.success() => {}
-                Ok(out) => {
-                    let stderr = String::from_utf8_lossy(&out.stderr);
-                    failed.push(format!("pid {}: {}", pid, stderr.trim()));
+                Ok(out) if out.status.success() => {
+                    killed_count += 1;
                 }
-                Err(e) => failed.push(format!("pid {}: {}", pid, e)),
+                Ok(out) => {
+                    let detail = combined_process_output(&out);
+                    if is_pid_running(*pid) {
+                        failed.push(format!("pid {}: {}", pid, detail));
+                    } else {
+                        already_exited.push(*pid);
+                    }
+                }
+                Err(e) => {
+                    if is_pid_running(*pid) {
+                        failed.push(format!("pid {}: {}", pid, e));
+                    } else {
+                        already_exited.push(*pid);
+                    }
+                }
             }
         }
+    }
+
+    if !already_exited.is_empty() {
+        crate::modules::logger::log_warn(&format!(
+            "[PortCleanup] 端口 {} 的部分占用进程已经退出: {}",
+            port,
+            summarize_pid_list_for_log(&already_exited)
+        ));
     }
 
     if !failed.is_empty() {
         return Err(format!("关闭进程失败: {}", failed.join("; ")));
     }
 
-    Ok(pids.len())
+    Ok(killed_count)
 }
 
 pub fn start_vscode_with_args_with_new_window(
@@ -9417,5 +9626,49 @@ tell application \"System Events\" to keystroke \"q\" using command down",
     #[cfg(not(target_os = "macos"))]
     {
         let _ = pid;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_windows_netstat_listening_pids_for_port() {
+        let output = r#"
+  TCP    127.0.0.1:13607        0.0.0.0:0              LISTENING       3828
+  TCP    0.0.0.0:13607          0.0.0.0:0              LISTENING       4000
+  TCP    [::1]:13607            [::]:0                 LISTENING       5000
+  TCP    127.0.0.1:13608        0.0.0.0:0              LISTENING       6000
+  TCP    127.0.0.1:13607        127.0.0.1:61234        ESTABLISHED     7000
+"#;
+
+        let pids = parse_listening_pids_from_netstat(output, 13607, 4000);
+
+        assert_eq!(pids, vec![3828, 5000]);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn parses_lsof_pid_lines_for_unix_ports() {
+        let output = "3828\n4000\n3828\n";
+
+        let pids = parse_lsof_pid_lines(output, 4000);
+
+        assert_eq!(pids, vec![3828]);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parses_linux_ss_listening_pids_for_port() {
+        let output = r#"
+State  Recv-Q Send-Q Local Address:Port  Peer Address:Port Process
+LISTEN 0      4096      127.0.0.1:13607      0.0.0.0:*     users:(("node",pid=3828,fd=23))
+LISTEN 0      4096      127.0.0.1:13608      0.0.0.0:*     users:(("node",pid=5000,fd=23))
+"#;
+
+        let pids = parse_listening_pids_from_ss(output, 13607, 0);
+
+        assert_eq!(pids, vec![3828]);
     }
 }

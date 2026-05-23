@@ -4895,8 +4895,7 @@ pub async fn prepare_local_access_gateway_for_restart() -> Result<CodexLocalAcce
     Ok(build_state_snapshot(&runtime))
 }
 
-pub async fn kill_local_access_port_processes() -> Result<CodexLocalAccessPortCleanupResult, String>
-{
+pub async fn kill_local_access_port_processes() -> Result<CodexLocalAccessPortCleanupResult, String> {
     if let Err(err) = ensure_runtime_loaded_without_start().await {
         logger::log_codex_api_warn(&format!(
             "[CodexLocalAccess] 清理端口前加载配置失败: {}",
@@ -4905,15 +4904,76 @@ pub async fn kill_local_access_port_processes() -> Result<CodexLocalAccessPortCl
         return Err(err);
     }
 
-    let collection = {
+    let mut collection = {
         let runtime = gateway_runtime().lock().await;
         runtime.collection.clone()
     }
     .ok_or_else(|| "API 服务集合尚未创建".to_string())?;
 
-    stop_gateway().await;
+    let previous_port = collection.port;
+    let bind_host = bind_host_for_collection(&collection).to_string();
+    let mut cleanup_warnings = Vec::new();
 
-    let killed_count = process::kill_port_processes(collection.port)? as u32;
+    if let Some(endpoint) = stop_gateway().await {
+        if let Err(err) = wait_for_gateway_port_release(&endpoint.bind_host, endpoint.port).await {
+            cleanup_warnings.push(err);
+        }
+    }
+
+    let killed_count = match process::kill_port_processes(previous_port) {
+        Ok(count) => count as u32,
+        Err(err) => {
+            cleanup_warnings.push(err);
+            0
+        }
+    };
+
+    let mut current_port = previous_port;
+    let mut port_changed = false;
+    if let Err(release_error) = wait_for_gateway_port_release(&bind_host, previous_port).await {
+        let remaining_pids = process::find_pids_by_port(previous_port)?;
+        let live_remaining_pids = remaining_pids
+            .iter()
+            .copied()
+            .filter(|pid| process::is_pid_running(*pid))
+            .collect::<Vec<u32>>();
+
+        if !live_remaining_pids.is_empty() {
+            cleanup_warnings.push(release_error);
+            cleanup_warnings.push(format!(
+                "端口 {} 仍被进程占用: {}",
+                previous_port,
+                process::summarize_pid_list_for_log(&live_remaining_pids)
+            ));
+            return Err(cleanup_warnings.join("; "));
+        }
+
+        let fallback_port = allocate_random_local_port(&bind_host)?;
+        logger::log_codex_api_warn(&format!(
+            "[CodexLocalAccess] 端口 {} 清理后仍不可绑定，但未发现仍在运行的占用进程，已自动切换到端口 {}。release_error={} warnings={}",
+            previous_port,
+            fallback_port,
+            release_error,
+            cleanup_warnings.join("; ")
+        ));
+        collection.port = fallback_port;
+        collection.updated_at = now_ms();
+        save_collection_to_disk(&collection)?;
+
+        {
+            let mut runtime = gateway_runtime().lock().await;
+            sync_runtime_collection(&mut runtime, collection.clone());
+        }
+
+        current_port = fallback_port;
+        port_changed = true;
+    } else if !cleanup_warnings.is_empty() {
+        logger::log_codex_api_warn(&format!(
+            "[CodexLocalAccess] 清理端口 {} 时出现非致命警告，但端口已释放: {}",
+            previous_port,
+            cleanup_warnings.join("; ")
+        ));
+    }
 
     if collection.enabled {
         ensure_gateway_matches_runtime().await?;
@@ -4922,6 +4982,9 @@ pub async fn kill_local_access_port_processes() -> Result<CodexLocalAccessPortCl
     let state = snapshot_state().await?;
     Ok(CodexLocalAccessPortCleanupResult {
         killed_count,
+        previous_port,
+        current_port,
+        port_changed,
         state,
     })
 }

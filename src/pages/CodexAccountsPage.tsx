@@ -4772,7 +4772,9 @@ export function CodexAccountsPage() {
   }, [setMessage, t]);
 
   const handleKillLocalAccessPort = useCallback(async () => {
-    if (!localAccessCollection) return;
+    if (!localAccessCollection) {
+      return null;
+    }
     const confirmed = await confirmDialog(
       t("codex.localAccess.killPortConfirmMessage", {
         port: localAccessCollection.port,
@@ -4786,7 +4788,7 @@ export function CodexAccountsPage() {
         cancelLabel: t("common.cancel", "取消"),
       },
     );
-    if (!confirmed) return;
+    if (!confirmed) return null;
 
     setLocalAccessPortKilling(true);
     try {
@@ -4794,7 +4796,14 @@ export function CodexAccountsPage() {
       setLocalAccessState(result.state);
       setMessage({
         text:
-          result.killedCount > 0
+          result.portChanged
+            ? t("codex.localAccess.killPortChanged", {
+                previousPort: result.previousPort,
+                currentPort: result.currentPort,
+                defaultValue:
+                  "原端口 {{previousPort}} 未能释放，已自动切换到 {{currentPort}}",
+              })
+            : result.killedCount > 0
             ? t("codex.localAccess.killPortSuccess", {
                 count: result.killedCount,
                 defaultValue: "端口已清理（结束 {{count}} 个进程）",
@@ -4804,7 +4813,7 @@ export function CodexAccountsPage() {
                 "端口已检查，未发现外部占用进程",
               ),
       });
-      return result.state;
+      return result;
     } catch (error) {
       console.error("Failed to kill local access port:", error);
       throw new Error(String(error).replace(/^Error:\s*/, ""));
