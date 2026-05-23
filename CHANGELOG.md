@@ -6,6 +6,10 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.25] - 2026-05-24
+### New addition
+Multilingual support.
+
 ## [0.0.24] - 2026-05-23
 ### Added
 - Added managed restart hooks for the built-in proxy gateway so app updates and relaunches close proxy gateway listeners, bridge processes, and Codex API local access before restarting.
