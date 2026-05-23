@@ -6,6 +6,19 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.0.19] - 2026-05-23
+
+### 变更
+- 调整代理延迟测速逻辑，按顺序尝试多个 `generate_204` 探测地址，减少单个探测站点被阻断或临时网关错误导致的误判。
+- 调整 mihomo 桥接启动方式，为每个节点使用独立工作目录，并关闭 profile 缓存持久化，降低重复检测或批量检测时的 cache 文件竞争。
+- 调整 WebSocket 桥接字段映射，分享链接里的 `host` 只作为 WS `Host` 请求头，不再误复用为 TLS `servername`。
+
+### 修复
+- 修复批量延迟测速过度依赖 `cp.cloudflare.com/generate_204`，导致节点实际可用但测速失败的问题。
+- 修复 VLESS/WS/TLS 节点因为 WS Host 与 TLS servername 没有清晰分离，更容易触发 mihomo `unexpected status: 502 Bad Gateway` 的问题。
+- 修复内置代理网关重启时，前一个监听任务尚未完全释放就误报网关端口被占用的问题。
+- 修复 Codex API 本地接入修改端口时可能先启动旧端口，导致提示 `127.0.0.1:<port> 已被占用` 的问题。
+
 ## [0.0.18] - 2026-05-23
 
 ### 变更

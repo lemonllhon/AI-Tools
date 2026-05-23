@@ -3775,7 +3775,17 @@ async fn ensure_runtime_loaded() -> Result<(), String> {
 async fn ensure_gateway_matches_runtime() -> Result<(), String> {
     let (collection, running, actual_port, actual_bind_host, stale_task) = {
         let mut runtime = gateway_runtime().lock().await;
-        let stale_task = if !runtime.running {
+        let stale_task = if runtime
+            .task
+            .as_ref()
+            .is_some_and(|task| task.is_finished())
+        {
+            runtime.running = false;
+            runtime.actual_port = None;
+            runtime.actual_bind_host = None;
+            runtime.shutdown_sender = None;
+            runtime.task.take()
+        } else if !runtime.running {
             runtime.task.take()
         } else {
             None
@@ -4917,7 +4927,7 @@ pub async fn kill_local_access_port_processes() -> Result<CodexLocalAccessPortCl
 }
 
 pub async fn update_local_access_port(port: u16) -> Result<CodexLocalAccessState, String> {
-    ensure_runtime_loaded().await?;
+    ensure_runtime_loaded_without_start().await?;
 
     let maybe_collection = {
         let runtime = gateway_runtime().lock().await;

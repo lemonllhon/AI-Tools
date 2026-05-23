@@ -8,13 +8,15 @@ use std::time::Duration;
 use tokio::io::{copy_bidirectional, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{watch, Mutex as TokioMutex};
-use tokio::time::timeout;
+use tokio::time::{timeout, Instant};
 use url::Url;
 
 const GATEWAY_BIND_HOST: &str = "127.0.0.1";
 const HTTP_HEAD_READ_TIMEOUT: Duration = Duration::from_secs(15);
 const CONNECT_UPSTREAM_TIMEOUT: Duration = Duration::from_secs(20);
 const GATEWAY_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
+const GATEWAY_BIND_RETRY_TIMEOUT: Duration = Duration::from_secs(5);
+const GATEWAY_BIND_RETRY_INTERVAL: Duration = Duration::from_millis(100);
 const MAX_HTTP_HEAD_BYTES: usize = 64 * 1024;
 
 static GATEWAY_RUNTIME: OnceLock<TokioMutex<GatewayRuntime>> = OnceLock::new();
@@ -84,6 +86,25 @@ pub async fn sync_gateway_state() -> Result<(), String> {
     if !bridge::is_bridge_protocol(&current_outbound.protocol) {
         bridge::stop_bridge().await;
     }
+    let stale_task = {
+        let mut runtime = gateway_runtime().lock().await;
+        if runtime
+            .task
+            .as_ref()
+            .is_some_and(|task| task.is_finished())
+        {
+            runtime.running_port = None;
+            runtime.shutdown_sender = None;
+            runtime.task.take()
+        } else {
+            None
+        }
+    };
+    if let Some(task) = stale_task {
+        let _ = task.await;
+        store::update_service_actual_port(None)?;
+    }
+
     let already_running = {
         let runtime = gateway_runtime().lock().await;
         runtime.running_port == Some(preferred_port) && runtime.task.is_some()
@@ -95,7 +116,7 @@ pub async fn sync_gateway_state() -> Result<(), String> {
     stop_gateway().await;
     store::update_service_actual_port(None)?;
 
-    let listener = TcpListener::bind((GATEWAY_BIND_HOST, preferred_port))
+    let listener = bind_gateway_listener(preferred_port)
         .await
         .map_err(|error| format_gateway_bind_error(preferred_port, &error))?;
     let (shutdown_sender, mut shutdown_receiver) = watch::channel(false);
@@ -187,6 +208,21 @@ async fn stop_gateway() {
         }
     }
     bridge::stop_bridge().await;
+}
+
+async fn bind_gateway_listener(port: u16) -> Result<TcpListener, std::io::Error> {
+    let deadline = Instant::now() + GATEWAY_BIND_RETRY_TIMEOUT;
+    loop {
+        match TcpListener::bind((GATEWAY_BIND_HOST, port)).await {
+            Ok(listener) => return Ok(listener),
+            Err(error)
+                if error.kind() == std::io::ErrorKind::AddrInUse && Instant::now() < deadline =>
+            {
+                tokio::time::sleep(GATEWAY_BIND_RETRY_INTERVAL).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 async fn handle_client(mut client: TcpStream) -> Result<(), String> {

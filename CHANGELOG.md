@@ -6,6 +6,18 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.19] - 2026-05-23
+### Changed
+- Changed proxy latency tests to try multiple `generate_204` endpoints in order, reducing false failures when a single probe host is blocked or returns a transient gateway error.
+- Changed mihomo bridge startup to run from an isolated per-node work directory and disable profile cache persistence, reducing cache-file contention during repeated or batch checks.
+- Changed WebSocket bridge option mapping so share-link `host` is treated as the WS `Host` header instead of being reused as the TLS `servername`.
+
+### Fixed
+- Fixed batch latency checks failing too easily when `cp.cloudflare.com/generate_204` could not complete through an otherwise usable node.
+- Fixed selected VLESS/WS/TLS nodes producing mihomo `unexpected status: 502 Bad Gateway` more often because WS Host and TLS server name were not separated cleanly.
+- Fixed built-in proxy gateway restarts reporting the gateway port as occupied while a previous listener task was still shutting down.
+- Fixed Codex API local access port updates starting the old port before switching, which could leave the service reporting `127.0.0.1:<port> already in use`.
+
 ## [0.0.18] - 2026-05-23
 ### Changed
 - Changed temporary mihomo bridge readiness so latency tests and IP health checks wait briefly after the local mixed/SOCKS endpoint is reachable, giving mihomo compatible providers time to finish initialization.

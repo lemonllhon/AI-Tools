@@ -71,10 +71,10 @@ impl Drop for TemporaryBridge {
             }
         }
         if let Some(path) = self.config_path.take() {
-            let _ = fs::remove_file(path);
+            remove_bridge_file_and_empty_parent(path);
         }
         if let Some(path) = self.log_path.take() {
-            let _ = fs::remove_file(path);
+            remove_bridge_file_and_empty_parent(path);
         }
     }
 }
@@ -248,10 +248,18 @@ fn stop_bridge_locked(runtime_state: &mut BridgeRuntime) {
     runtime_state.key.clear();
     runtime_state.endpoint = None;
     if let Some(path) = runtime_state.config_path.take() {
-        let _ = fs::remove_file(path);
+        remove_bridge_file_and_empty_parent(path);
     }
     if let Some(path) = runtime_state.log_path.take() {
-        let _ = fs::remove_file(path);
+        remove_bridge_file_and_empty_parent(path);
+    }
+}
+
+fn remove_bridge_file_and_empty_parent(path: PathBuf) {
+    let parent = path.parent().map(PathBuf::from);
+    let _ = fs::remove_file(&path);
+    if let Some(parent) = parent {
+        let _ = fs::remove_dir(parent);
     }
 }
 
@@ -353,8 +361,14 @@ fn spawn_bridge_process(
             command.arg("run").arg("-c").arg(config_path);
         }
         BridgeRuntimeKind::Mihomo => {
+            if let Some(parent) = config_path.parent() {
+                command.arg("-d").arg(parent);
+            }
             command.arg("-f").arg(config_path);
         }
+    }
+    if let Some(parent) = config_path.parent() {
+        command.current_dir(parent);
     }
     let stdout = OpenOptions::new()
         .create(true)
@@ -438,13 +452,21 @@ fn write_bridge_config(
         .join(BRIDGE_DIR_NAME);
     fs::create_dir_all(&dir)
         .map_err(|err| format!("创建代理桥接配置目录失败 {}: {}", dir.display(), err))?;
-    let file_name = format!(
-        "{}-{}-{}.json",
+    let dir_name = format!(
+        "{}-{}-{}",
         runtime_name,
         sanitize_file_part(&target.id),
         &key[..12]
     );
-    let path = dir.join(file_name);
+    let runtime_dir = dir.join(dir_name);
+    fs::create_dir_all(&runtime_dir).map_err(|err| {
+        format!(
+            "创建代理桥接工作目录失败 {}: {}",
+            runtime_dir.display(),
+            err
+        )
+    })?;
+    let path = runtime_dir.join("config.json");
     let content = serde_json::to_string_pretty(config)
         .map_err(|err| format!("生成代理桥接配置失败: {}", err))?;
     fs::write(&path, content)
@@ -510,6 +532,10 @@ fn build_mihomo_config(target: &GatewayOutboundTarget, local_port: u16) -> Resul
         "unified-delay": true,
         "tcp-concurrent": true,
         "find-process-mode": "off",
+        "profile": {
+            "store-selected": false,
+            "store-fake-ip": false
+        },
         "proxies": [
             build_mihomo_proxy(target, MIHOMO_PROXY_NAME)?
         ],
@@ -847,12 +873,7 @@ fn insert_mihomo_transport_options(proxy: &mut Map<String, Value>, target: &Gate
                     &["query.path", "path", "options.path", "options.ws-opts.path"],
                 ),
             );
-            if let Some(host) =
-                first_text(target, &["query.host", "options.ws-opts.headers.Host", "headers.Host"])
-                    .filter(|value| !value.trim().is_empty())
-            {
-                ws.insert("headers".to_string(), json!({ "Host": host }));
-            }
+            ws.insert("headers".to_string(), json!({ "Host": first_ws_host(target) }));
             proxy.insert("ws-opts".to_string(), Value::Object(ws));
         }
         "grpc" => {
@@ -1149,13 +1170,7 @@ fn build_xray_stream_settings(target: &GatewayOutboundTarget) -> Map<String, Val
                     &["path", "query.path", "options.path", "options.ws-opts.path"],
                 ),
             );
-            let host = first_text(
-                target,
-                &["query.host", "options.ws-opts.headers.Host", "headers.Host"],
-            );
-            if let Some(host) = host.filter(|value| !value.trim().is_empty()) {
-                ws.insert("headers".to_string(), json!({ "Host": host }));
-            }
+            ws.insert("headers".to_string(), json!({ "Host": first_ws_host(target) }));
             stream.insert("wsSettings".to_string(), Value::Object(ws));
         }
         "grpc" => {
@@ -1395,7 +1410,6 @@ fn first_server_name(target: &GatewayOutboundTarget) -> Option<String> {
             "query.peer",
             "query.servername",
             "query.serverName",
-            "query.host",
             "options.sni",
             "options.servername",
             "options.serverName",
@@ -1403,6 +1417,20 @@ fn first_server_name(target: &GatewayOutboundTarget) -> Option<String> {
             "options.peer",
         ],
     )
+}
+
+fn first_ws_host(target: &GatewayOutboundTarget) -> String {
+    first_text(
+        target,
+        &[
+            "query.host",
+            "options.ws-opts.headers.Host",
+            "options.ws-opts.headers.host",
+            "headers.Host",
+            "headers.host",
+        ],
+    )
+    .unwrap_or_else(|| target.host.clone())
 }
 
 fn node_secret(target: &GatewayOutboundTarget) -> String {
@@ -1544,12 +1572,7 @@ fn build_sing_box_v2ray_transport(target: &GatewayOutboundTarget) -> Option<Valu
                     &["query.path", "path", "options.path", "options.ws-opts.path"],
                 ),
             );
-            if let Some(host) =
-                first_text(target, &["query.host", "options.ws-opts.headers.Host", "headers.Host"])
-                    .filter(|value| !value.trim().is_empty())
-            {
-                transport.insert("headers".to_string(), json!({ "Host": host }));
-            }
+            transport.insert("headers".to_string(), json!({ "Host": first_ws_host(target) }));
             Some(Value::Object(transport))
         }
         "grpc" => {
@@ -1761,5 +1784,48 @@ mod tests {
         let proxy = build_mihomo_proxy(&node, MIHOMO_PROXY_NAME).expect("mihomo proxy");
         assert_eq!(proxy["name"], json!(MIHOMO_PROXY_NAME));
         assert_eq!(proxy["servername"], json!("edge.example.com"));
+    }
+
+    #[test]
+    fn mihomo_ws_host_does_not_become_tls_servername() {
+        let node = target(
+            "vless",
+            json!({
+                "id": "11111111-1111-4111-8111-111111111111",
+                "query": {
+                    "security": "tls",
+                    "type": "ws",
+                    "host": "ws.example.com",
+                    "path": "/proxy"
+                }
+            }),
+        );
+
+        let proxy = build_mihomo_proxy(&node, MIHOMO_PROXY_NAME).expect("mihomo proxy");
+        assert_eq!(proxy["tls"], json!(true));
+        assert!(proxy.get("servername").is_none());
+        assert_eq!(proxy["ws-opts"]["headers"]["Host"], json!("ws.example.com"));
+        assert_eq!(proxy["ws-opts"]["path"], json!("/proxy"));
+    }
+
+    #[test]
+    fn mihomo_ws_host_falls_back_to_server_host() {
+        let node = target(
+            "vless",
+            json!({
+                "id": "11111111-1111-4111-8111-111111111111",
+                "query": {
+                    "security": "tls",
+                    "type": "ws",
+                    "path": "/proxy"
+                }
+            }),
+        );
+
+        let proxy = build_mihomo_proxy(&node, MIHOMO_PROXY_NAME).expect("mihomo proxy");
+        assert_eq!(
+            proxy["ws-opts"]["headers"]["Host"],
+            json!("proxy.example.com")
+        );
     }
 }

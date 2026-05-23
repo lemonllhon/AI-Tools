@@ -6,7 +6,11 @@ use serde_json::{json, Value};
 use std::error::Error;
 use std::time::{Duration, Instant};
 
-const LATENCY_TEST_URL: &str = "http://cp.cloudflare.com/generate_204";
+const LATENCY_TEST_URLS: &[&str] = &[
+    "http://www.gstatic.com/generate_204",
+    "http://cp.cloudflare.com/generate_204",
+    "http://connectivitycheck.gstatic.com/generate_204",
+];
 const IPPURE_INFO_URL: &str = "https://my.ippure.com/v1/info";
 const LATENCY_TIMEOUT_SECONDS: u64 = 10;
 const IP_HEALTH_TIMEOUT_SECONDS: u64 = 20;
@@ -64,39 +68,39 @@ pub async fn test_latency(target: ProxyCheckTarget) -> ProxyPoolLatencyTestResul
             }
         };
 
-    let started_at = Instant::now();
-    let response = client_context
-        .client
-        .get(LATENCY_TEST_URL)
-        .header("Cache-Control", "no-cache")
-        .send()
-        .await;
-    let latency_ms = elapsed_ms(started_at);
+    let mut failures = Vec::new();
+    let mut last_latency_ms = None;
 
-    match response {
-        Ok(response) if response.status().is_success() => ProxyPoolLatencyTestResult {
-            node_id: target.id,
-            ok: true,
-            latency_ms: Some(latency_ms),
-            error: String::new(),
-        },
-        Ok(response) => ProxyPoolLatencyTestResult {
-            node_id: target.id,
-            ok: false,
-            latency_ms: Some(latency_ms),
-            error: format!("HTTP {}", response.status().as_u16()),
-        },
-        Err(error) => {
-            ProxyPoolLatencyTestResult {
-                node_id: target.id,
-                ok: false,
-                latency_ms: Some(latency_ms),
-                error: client_context.append_bridge_log(format!(
-                    "测速失败: {}",
-                    format_reqwest_error(&error)
-                )),
+    for url in LATENCY_TEST_URLS {
+        let started_at = Instant::now();
+        let response = client_context
+            .client
+            .get(*url)
+            .header("Cache-Control", "no-cache")
+            .send()
+            .await;
+        let latency_ms = elapsed_ms(started_at);
+        last_latency_ms = Some(latency_ms);
+
+        match response {
+            Ok(response) if response.status().is_success() => {
+                return ProxyPoolLatencyTestResult {
+                    node_id: target.id,
+                    ok: true,
+                    latency_ms: Some(latency_ms),
+                    error: String::new(),
+                };
             }
+            Ok(response) => failures.push(format!("{}: HTTP {}", url, response.status().as_u16())),
+            Err(error) => failures.push(format!("{}: {}", url, format_reqwest_error(&error))),
         }
+    }
+
+    ProxyPoolLatencyTestResult {
+        node_id: target.id,
+        ok: false,
+        latency_ms: last_latency_ms,
+        error: client_context.append_bridge_log(format!("测速失败: {}", failures.join("；"))),
     }
 }
 
