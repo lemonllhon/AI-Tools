@@ -24,6 +24,18 @@ const OAUTH_STATE_FILE: &str = "codex_oauth_pending.json";
 const OAUTH_TIMEOUT_SECONDS: i64 = 300;
 const TOKEN_REFRESH_SKEW_SECONDS: i64 = 300;
 
+#[derive(Debug)]
+struct TokenHttpFailure {
+    status: reqwest::StatusCode,
+    body: String,
+}
+
+#[derive(Debug)]
+enum TokenFailure {
+    Request(String),
+    Http(TokenHttpFailure),
+}
+
 pub fn get_callback_port() -> u16 {
     OAUTH_CALLBACK_PORT
 }
@@ -96,6 +108,57 @@ fn extract_token_error_code(body: &str) -> Option<String> {
         })
         .or_else(|| value.get("code").and_then(|item| item.as_str()))
         .map(|item| item.to_string())
+}
+
+fn format_token_failure(prefix: &str, failure: &TokenFailure) -> String {
+    match failure {
+        TokenFailure::Request(message) => format!("{}: {}", prefix, message),
+        TokenFailure::Http(failure) => {
+            let mut message = format!(
+                "{}: status={}, body_len={}",
+                prefix,
+                failure.status,
+                failure.body.len()
+            );
+            if let Some(error_code) = extract_token_error_code(&failure.body) {
+                message.push_str(&format!(", error_code={}", error_code));
+            }
+            if failure.status == reqwest::StatusCode::FORBIDDEN {
+                message.push_str("。如果正在使用内置节点池，通常表示当前出口节点被授权服务拒绝，请切换节点后重试。");
+            }
+            message
+        }
+    }
+}
+
+fn is_forbidden_token_failure(failure: &TokenFailure) -> bool {
+    match failure {
+        TokenFailure::Http(failure) => failure.status == reqwest::StatusCode::FORBIDDEN,
+        TokenFailure::Request(_) => false,
+    }
+}
+
+async fn promote_proxy_pool_candidate_after_forbidden() -> Result<Option<String>, String> {
+    tokio::task::spawn_blocking(|| {
+        let result: Result<Option<String>, String> = (|| {
+            let candidates = crate::modules::proxy_pool::store::load_gateway_outbound_candidates()?;
+            if candidates.len() < 2 {
+                return Ok(None);
+            }
+
+            let current = &candidates[0];
+            let next = &candidates[1];
+            let promoted =
+                crate::modules::proxy_pool::store::promote_gateway_outbound_after_failover(
+                    &current.id,
+                    &next.id,
+                )?;
+            Ok(promoted.map(|_| next.name.clone()))
+        })();
+        result
+    })
+    .await
+    .map_err(|error| format!("切换内置节点池出口任务失败: {}", error))?
 }
 
 fn load_pending_state_from_disk() -> Option<OAuthState> {
@@ -591,31 +654,33 @@ async fn exchange_code_for_token_internal(
 
     logger::log_info("Codex OAuth 开始交换 Token");
 
-    let response = client
-        .post(TOKEN_ENDPOINT)
-        .form(&params)
-        .send()
-        .await
-        .map_err(|e| format!("Token 请求失败: {}", e))?;
-
-    let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|e| format!("读取响应失败: {}", e))?;
-
-    if !status.is_success() {
-        logger::log_error(&format!(
-            "Token 交换失败: status={}, body_len={}",
-            status,
-            body.len()
-        ));
-        return Err(format!(
-            "Token 交换失败: status={}, body_len={}",
-            status,
-            body.len()
-        ));
-    }
+    let body = match post_token_form(&client, &params).await {
+        Ok(body) => body,
+        Err(failure) if is_forbidden_token_failure(&failure) => {
+            logger::log_error(&format_token_failure("Token 交换失败", &failure));
+            match promote_proxy_pool_candidate_after_forbidden().await {
+                Ok(Some(node_name)) => {
+                    logger::log_warn(&format!(
+                        "Codex OAuth Token 交换收到 403，已切换内置节点池出口到 {} 并重试一次",
+                        node_name
+                    ));
+                    let retry_client = reqwest::Client::new();
+                    post_token_form(&retry_client, &params)
+                        .await
+                        .map_err(|failure| format_token_failure("Token 交换失败", &failure))?
+                }
+                Ok(None) => return Err(format_token_failure("Token 交换失败", &failure)),
+                Err(error) => {
+                    logger::log_warn(&format!(
+                        "Codex OAuth Token 交换 403 后切换内置节点池出口失败: {}",
+                        error
+                    ));
+                    return Err(format_token_failure("Token 交换失败", &failure));
+                }
+            }
+        }
+        Err(failure) => return Err(format_token_failure("Token 交换失败", &failure)),
+    };
 
     logger::log_info("Codex OAuth Token 交换成功");
 
@@ -644,6 +709,30 @@ async fn exchange_code_for_token_internal(
         access_token,
         refresh_token,
     })
+}
+
+async fn post_token_form(
+    client: &reqwest::Client,
+    params: &[(&str, &str)],
+) -> Result<String, TokenFailure> {
+    let response = client
+        .post(TOKEN_ENDPOINT)
+        .form(params)
+        .send()
+        .await
+        .map_err(|e| TokenFailure::Request(format!("Token 请求失败: {}", e)))?;
+
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|e| TokenFailure::Request(format!("读取响应失败: {}", e)))?;
+
+    if status.is_success() {
+        Ok(body)
+    } else {
+        Err(TokenFailure::Http(TokenHttpFailure { status, body }))
+    }
 }
 
 pub async fn complete_oauth_login(login_id: &str) -> Result<CodexTokens, String> {

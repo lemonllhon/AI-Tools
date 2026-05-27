@@ -6,6 +6,11 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.27] - 2026-05-27
+### Fixed
+- Improved Codex OAuth token exchange failures with clearer status, response length, and provider error-code details.
+- Added a Codex OAuth retry after a 403 response by promoting the next built-in proxy pool outlet, helping recover when the current outlet is rejected by the authorization service.
+
 ## [0.0.26] - 2026-05-27
 ### New addition
 - Added a one-click Codex speed control in the dashboard API Services console, allowing all Codex accounts to be set to Standard or Fast from one place.
