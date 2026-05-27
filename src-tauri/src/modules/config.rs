@@ -683,10 +683,10 @@ fn default_codex_auto_switch_enabled() -> bool {
     false
 }
 fn default_codex_auto_switch_primary_threshold() -> i32 {
-    20
+    10
 }
 fn default_codex_auto_switch_secondary_threshold() -> i32 {
-    20
+    10
 }
 fn default_codex_auto_switch_account_scope_mode() -> String {
     "all_accounts".to_string()

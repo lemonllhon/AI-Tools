@@ -490,6 +490,7 @@ export function SettingsPage() {
     useState<AutoSwitchAccountScopeMode>(AUTO_SWITCH_SCOPE_ALL_ACCOUNTS);
   const [autoSwitchSelectedAccountIds, setAutoSwitchSelectedAccountIds] = useState<string[]>([]);
   const [codexAutoSwitchEnabled, setCodexAutoSwitchEnabled] = useState(false);
+  const [codexAutoSwitchPrimaryThreshold, setCodexAutoSwitchPrimaryThreshold] = useState('10');
   const [codexAutoSwitchAccountScopeMode, setCodexAutoSwitchAccountScopeMode] =
     useState<AutoSwitchAccountScopeMode>(AUTO_SWITCH_SCOPE_ALL_ACCOUNTS);
   const [codexAutoSwitchSelectedAccountIds, setCodexAutoSwitchSelectedAccountIds] = useState<
@@ -838,6 +839,10 @@ export function SettingsPage() {
       : 1;
     const parsedAutoSwitchThreshold = Number.parseInt(autoSwitchThreshold, 10);
     const parsedAutoSwitchCreditsThreshold = Number.parseInt(autoSwitchCreditsThreshold, 10);
+    const parsedCodexAutoSwitchPrimaryThreshold = Number.parseInt(
+      codexAutoSwitchPrimaryThreshold,
+      10,
+    );
     const parsedQuotaAlertThreshold = Number.parseInt(quotaAlertThreshold, 10);
     const parsedCodexQuotaAlertThreshold = Number.parseInt(codexQuotaAlertThreshold, 10);
     const parsedGhcpQuotaAlertThreshold = Number.parseInt(ghcpQuotaAlertThreshold, 10);
@@ -913,6 +918,13 @@ export function SettingsPage() {
             : parsedAutoSwitchCreditsThreshold,
           autoSwitchAccountScopeMode,
           autoSwitchSelectedAccountIds,
+          codexAutoSwitchEnabled,
+          codexAutoSwitchPrimaryThreshold: Number.isNaN(parsedCodexAutoSwitchPrimaryThreshold)
+            ? 10
+            : parsedCodexAutoSwitchPrimaryThreshold,
+          codexAutoSwitchSecondaryThreshold: Number.isNaN(parsedCodexAutoSwitchPrimaryThreshold)
+            ? 10
+            : parsedCodexAutoSwitchPrimaryThreshold,
           codexAutoSwitchAccountScopeMode,
           codexAutoSwitchSelectedAccountIds,
           quotaAlertEnabled,
@@ -1030,6 +1042,8 @@ export function SettingsPage() {
     autoSwitchCreditsThreshold,
     autoSwitchAccountScopeMode,
     autoSwitchSelectedAccountIds,
+    codexAutoSwitchEnabled,
+    codexAutoSwitchPrimaryThreshold,
     codexAutoSwitchAccountScopeMode,
     codexAutoSwitchSelectedAccountIds,
     quotaAlertEnabled,
@@ -1343,6 +1357,7 @@ export function SettingsPage() {
       );
       setAutoSwitchSelectedAccountIds(config.auto_switch_selected_account_ids ?? []);
       setCodexAutoSwitchEnabled(config.codex_auto_switch_enabled ?? false);
+      setCodexAutoSwitchPrimaryThreshold(String(config.codex_auto_switch_primary_threshold ?? 10));
       setCodexAutoSwitchAccountScopeMode(
         normalizeAutoSwitchAccountScopeMode(config.codex_auto_switch_account_scope_mode),
       );
@@ -2981,6 +2996,78 @@ export function SettingsPage() {
                   </div>
                 </div>
               </div>
+              <div className="settings-row settings-row--align-start">
+                <div className="row-label">
+                  <div className="row-title">
+                    {t('quickSettings.autoSwitch.enable', '自动切号')}
+                  </div>
+                  <div className="row-desc">
+                    {t(
+                      'settings.general.codexAutoSwitchDesc',
+                      '当前 Codex 账号 5小时配额小于等于阈值时，无感切换到范围内 5小时配额更高的账号。',
+                    )}
+                  </div>
+                </div>
+                <div className="row-control">
+                  <label className="switch">
+                    <input
+                      type="checkbox"
+                      checked={codexAutoSwitchEnabled}
+                      onChange={(e) => setCodexAutoSwitchEnabled(e.target.checked)}
+                    />
+                    <span className="slider"></span>
+                  </label>
+                </div>
+              </div>
+
+              {codexAutoSwitchEnabled && (
+                <div className="settings-row" style={{ animation: 'fadeUp 0.3s ease both' }}>
+                  <div className="row-label">
+                    <div className="row-title">
+                      {t(
+                        'settings.general.codexAutoSwitchPrimaryThreshold',
+                        '5小时配额切号阈值',
+                      )}
+                    </div>
+                    <div className="row-desc">
+                      {t(
+                        'settings.general.codexAutoSwitchPrimaryThresholdDesc',
+                        '默认 10%。只按 5小时配额判断，周配额不会阻止无感切号。',
+                      )}
+                    </div>
+                  </div>
+                  <div className="row-control">
+                    <div className="settings-inline-input">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        className="settings-select settings-select--input-mode settings-select--with-unit"
+                        value={codexAutoSwitchPrimaryThreshold}
+                        placeholder={t('quickSettings.inputPercent', '输入百分比')}
+                        onChange={(e) =>
+                          setCodexAutoSwitchPrimaryThreshold(sanitizeNumberInput(e.target.value))
+                        }
+                        onBlur={() =>
+                          setCodexAutoSwitchPrimaryThreshold(
+                            normalizeNumberInput(codexAutoSwitchPrimaryThreshold, 0, 100),
+                          )
+                        }
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            setCodexAutoSwitchPrimaryThreshold(
+                              normalizeNumberInput(codexAutoSwitchPrimaryThreshold, 0, 100),
+                            );
+                          }
+                        }}
+                      />
+                      <span className="settings-input-unit">%</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="settings-row settings-row--align-start">
                 <div className="row-label">
                   <div className="row-title">{t('settings.general.codexAutoSwitchAccountScope')}</div>

@@ -2573,6 +2573,24 @@ fn resolve_remaining_quota(account: &CodexAccount) -> Option<i32> {
     percentages.into_iter().min()
 }
 
+fn resolve_primary_remaining_quota(account: &CodexAccount) -> Option<i32> {
+    let quota = account.quota.as_ref()?;
+    quota.hourly_window_present
+        .unwrap_or(true)
+        .then_some(quota.hourly_percentage.clamp(0, 100))
+}
+
+fn should_skip_account_for_codex_auto_switch(account: &CodexAccount) -> Option<i32> {
+    let cfg = crate::modules::config::get_user_config();
+    if !cfg.codex_auto_switch_enabled {
+        return None;
+    }
+
+    let threshold = cfg.codex_auto_switch_primary_threshold.clamp(0, 100);
+    let primary_remaining = resolve_primary_remaining_quota(account)?;
+    (primary_remaining <= threshold).then_some(primary_remaining)
+}
+
 fn resolve_subscription_expiry_ms(account: &CodexAccount) -> Option<i64> {
     let raw = account.subscription_active_until.as_deref()?.trim();
     if raw.is_empty() {
@@ -7293,6 +7311,26 @@ async fn proxy_request_with_account_pool(
                     "API Key 账号不支持加入本地接入",
                 );
                 last_error = "API Key 账号不支持加入本地接入".to_string();
+                continue;
+            }
+            if let Some(primary_remaining) = should_skip_account_for_codex_auto_switch(&account) {
+                log_codex_api_failure(
+                    None,
+                    Some(request),
+                    None,
+                    Some(account.id.as_str()),
+                    Some(account.email.as_str()),
+                    None,
+                    format!(
+                        "5小时配额剩余 {}%，低于 Codex 自动切号阈值，已无感跳过该账号",
+                        primary_remaining
+                    )
+                    .as_str(),
+                );
+                last_error = format!(
+                    "账号 {} 5小时配额剩余 {}%，已按自动切号阈值跳过",
+                    account.email, primary_remaining
+                );
                 continue;
             }
             if collection.restrict_free_accounts && is_free_plan_type(account.plan_type.as_deref())

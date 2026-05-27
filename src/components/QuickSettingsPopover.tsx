@@ -333,7 +333,6 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
   const [customCreditsThreshold, setCustomCreditsThreshold] = useState('');
   const [quotaAlertCustomThreshold, setQuotaAlertCustomThreshold] = useState('');
   const [codexAutoSwitchPrimaryCustomThreshold, setCodexAutoSwitchPrimaryCustomThreshold] = useState('');
-  const [codexAutoSwitchSecondaryCustomThreshold, setCodexAutoSwitchSecondaryCustomThreshold] = useState('');
   const [codexQuotaAlertPrimaryCustomThreshold, setCodexQuotaAlertPrimaryCustomThreshold] = useState('');
   const [codexQuotaAlertSecondaryCustomThreshold, setCodexQuotaAlertSecondaryCustomThreshold] = useState('');
   const [autoSwitchDisplayGroups, setAutoSwitchDisplayGroups] = useState<DisplayGroup[]>([]);
@@ -764,7 +763,6 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
       setQuotaAlertCustomThreshold('');
       setCurrentAccountRefreshMap(loadCurrentAccountRefreshMinutesMap());
       setCodexAutoSwitchPrimaryCustomThreshold(String(cfg.codex_auto_switch_primary_threshold));
-      setCodexAutoSwitchSecondaryCustomThreshold(String(cfg.codex_auto_switch_secondary_threshold));
       setCodexQuotaAlertPrimaryCustomThreshold(String(cfg.codex_quota_alert_primary_threshold));
       setCodexQuotaAlertSecondaryCustomThreshold(String(cfg.codex_quota_alert_secondary_threshold));
     } catch (err) {
@@ -1324,10 +1322,7 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
   const showQuotaAlertThresholdInput = quotaAlertThresholdEditing;
   const codexAutoSwitchPrimaryThresholdValue = config
     ? Number(config.codex_auto_switch_primary_threshold)
-    : 20;
-  const codexAutoSwitchSecondaryThresholdValue = config
-    ? Number(config.codex_auto_switch_secondary_threshold)
-    : 20;
+    : 10;
   const codexQuotaAlertPrimaryThresholdValue = config
     ? Number(config.codex_quota_alert_primary_threshold)
     : 20;
@@ -2379,7 +2374,7 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
                       <div className="qs-row">
                         <div className="qs-row-label">
                           <span>
-                            primary_window ({t('codex.quota.hourly', '5小时配额')}) {t('quickSettings.autoSwitch.threshold', '切号阈值')}
+                            {t('codex.quota.hourly', '5小时配额')} {t('quickSettings.autoSwitch.threshold', '切号阈值')}
                           </span>
                         </div>
                         <div className="qs-row-control">
@@ -2422,56 +2417,6 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
                         </div>
                       </div>
 
-                      <div className="qs-hint" style={{ marginTop: 0, marginBottom: 4 }}>
-                        {t('quickSettings.codexWindow.orDivider', 'OR（命中任一即触发）')}
-                      </div>
-
-                      <div className="qs-row">
-                        <div className="qs-row-label">
-                          <span>
-                            secondary_window ({t('codex.quota.weekly', '周配额')}) {t('quickSettings.autoSwitch.threshold', '切号阈值')}
-                          </span>
-                        </div>
-                        <div className="qs-row-control">
-                          <div className="qs-inline-input">
-                            <input
-                              type="number"
-                              min={0}
-                              max={100}
-                              className="qs-select qs-select--input-mode qs-select--with-unit"
-                              value={codexAutoSwitchSecondaryCustomThreshold}
-                              placeholder={t('quickSettings.inputPercent', '输入百分比')}
-                              onChange={(e) =>
-                                handleCodexWindowThresholdInputChange(
-                                  e.target.value,
-                                  setCodexAutoSwitchSecondaryCustomThreshold,
-                                )
-                              }
-                              onBlur={() =>
-                                handleCodexWindowCustomThresholdApply(
-                                  codexAutoSwitchSecondaryCustomThreshold,
-                                  setCodexAutoSwitchSecondaryCustomThreshold,
-                                  'codex_auto_switch_secondary_threshold',
-                                  codexAutoSwitchSecondaryThresholdValue,
-                                )
-                              }
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  handleCodexWindowCustomThresholdApply(
-                                    codexAutoSwitchSecondaryCustomThreshold,
-                                    setCodexAutoSwitchSecondaryCustomThreshold,
-                                    'codex_auto_switch_secondary_threshold',
-                                    codexAutoSwitchSecondaryThresholdValue,
-                                  );
-                                }
-                              }}
-                            />
-                            <span className="qs-input-unit">%</span>
-                          </div>
-                        </div>
-                      </div>
-
                       <div className="qs-row qs-row--top">
                         <div className="qs-row-label">
                           <span>{t('settings.general.codexAutoSwitchAccountScope', 'Codex 自动切号账号范围')}</span>
@@ -2495,8 +2440,8 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
 
                       <div className="qs-hint">
                         {t(
-                          'quickSettings.autoSwitch.hint',
-                          '当任意模型配额低于阈值时，自动切换到配额最高的账号。'
+                          'quickSettings.codexAutoSwitch.hint',
+                          '当前 Codex 账号 5小时配额低于阈值时，会无感切换到范围内 5小时配额更高的账号。'
                         )}
                         <div>
                           {t(
@@ -2505,7 +2450,7 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
                           )}
                         </div>
                         <div>
-                          {`primary_window <= ${codexAutoSwitchPrimaryThresholdValue}% OR secondary_window <= ${codexAutoSwitchSecondaryThresholdValue}%`}
+                          {`primary_window <= ${codexAutoSwitchPrimaryThresholdValue}%`}
                         </div>
                       </div>
                     </div>

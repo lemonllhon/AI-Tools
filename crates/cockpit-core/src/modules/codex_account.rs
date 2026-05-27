@@ -4526,6 +4526,12 @@ fn average_quota_percentage(metrics: &[CodexQuotaMetric]) -> f64 {
     sum as f64 / metrics.len() as f64
 }
 
+fn extract_primary_quota_metric(account: &CodexAccount) -> Option<CodexQuotaMetric> {
+    extract_quota_metrics(account)
+        .into_iter()
+        .find(|metric| metric.key == "primary_window")
+}
+
 fn metric_crossed_threshold(
     metric: &CodexQuotaMetric,
     primary_threshold: i32,
@@ -4626,6 +4632,23 @@ fn pick_best_candidate(mut candidates: Vec<CodexSwitchCandidate>) -> Option<Code
         .map(|candidate| candidate.account)
 }
 
+fn build_primary_window_switch_candidate(
+    account: &CodexAccount,
+    primary_threshold: i32,
+) -> Option<CodexSwitchCandidate> {
+    let primary = extract_primary_quota_metric(account)?;
+    if primary.percentage <= primary_threshold {
+        return None;
+    }
+
+    Some(CodexSwitchCandidate {
+        account: account.clone(),
+        min_margin: primary.percentage - primary_threshold,
+        min_percentage: primary.percentage,
+        average_percentage: primary.percentage as f64,
+    })
+}
+
 fn build_quota_alert_cooldown_key(
     account_id: &str,
     primary_threshold: i32,
@@ -4713,8 +4736,6 @@ pub fn pick_auto_switch_target_if_needed() -> Result<Option<CodexAccount>, Strin
 
         let primary_threshold =
             normalize_auto_switch_threshold(cfg.codex_auto_switch_primary_threshold);
-        let secondary_threshold =
-            normalize_auto_switch_threshold(cfg.codex_auto_switch_secondary_threshold);
         let account_scope_mode =
             normalize_auto_switch_account_scope_mode(&cfg.codex_auto_switch_account_scope_mode);
 
@@ -4748,15 +4769,11 @@ pub fn pick_auto_switch_target_if_needed() -> Result<Option<CodexAccount>, Strin
             None => return Ok(None),
         };
 
-        let current_metrics = extract_quota_metrics(current);
-        if current_metrics.is_empty() {
+        let Some(current_primary_metric) = extract_primary_quota_metric(current) else {
             return Ok(None);
-        }
+        };
 
-        let should_switch = current_metrics
-            .iter()
-            .any(|metric| metric_crossed_threshold(metric, primary_threshold, secondary_threshold));
-        if !should_switch {
+        if current_primary_metric.percentage > primary_threshold {
             return Ok(None);
         }
 
@@ -4764,18 +4781,21 @@ pub fn pick_auto_switch_target_if_needed() -> Result<Option<CodexAccount>, Strin
             .iter()
             .filter(|account| monitored_account_ids.contains(&account.id))
             .filter(|account| account.id != current_id)
-            .filter_map(|account| {
-                build_switch_candidate(account, primary_threshold, secondary_threshold)
-            })
+            .filter_map(|account| build_primary_window_switch_candidate(account, primary_threshold))
             .collect();
 
         if candidates.is_empty() {
             logger::log_warn(&format!(
-                "[AutoSwitch][Codex] 当前账号命中阈值 (primary<={}%, secondary<={}%)，但没有可切换候选账号",
-                primary_threshold, secondary_threshold
+                "[AutoSwitch][Codex] 当前账号 5小时配额命中阈值 (primary_window={}%, threshold={}%)，但没有可切换候选账号",
+                current_primary_metric.percentage, primary_threshold
             ));
             return Ok(None);
         }
+
+        logger::log_info(&format!(
+            "[AutoSwitch][Codex] 当前账号 5小时配额低于阈值，准备无感切号: current_id={}, primary_window={}%, threshold={}% ",
+            current_id, current_primary_metric.percentage, primary_threshold
+        ));
 
         Ok(pick_best_candidate(candidates))
     })();

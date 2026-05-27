@@ -6,6 +6,14 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.28] - 2026-05-27
+### Added
+- Added Codex auto account switching controls in Codex settings, including an enable switch, account scope, and a default 10% 5-hour quota threshold.
+
+### Changed
+- Changed Codex auto switching to use the 5-hour quota window as the trigger and candidate ranking signal, avoiding weekly quota from blocking seamless switching.
+- Changed the Codex local API service to silently skip accounts whose 5-hour quota is at or below the auto-switch threshold and continue routing to healthier accounts.
+
 ## [0.0.27] - 2026-05-27
 ### Fixed
 - Improved Codex OAuth token exchange failures with clearer status, response length, and provider error-code details.
