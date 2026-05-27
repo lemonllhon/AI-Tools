@@ -347,6 +347,91 @@
   font-size: 12px;
 }
 
+.api-service-speed-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--primary) 14%, var(--border-light));
+  background: color-mix(in srgb, var(--bg-tertiary) 78%, transparent);
+}
+
+.api-service-speed-title {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.api-service-speed-title span {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.api-service-speed-title small {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.api-service-speed-options {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: color-mix(in srgb, var(--bg-card) 82%, transparent);
+}
+
+.api-service-speed-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 64px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.api-service-speed-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.api-service-speed-btn.is-active {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 28%, rgba(148, 163, 184, 0.18));
+  background: color-mix(in srgb, var(--primary) 10%, var(--bg-card));
+  box-shadow: 0 8px 16px -13px color-mix(in srgb, var(--primary) 52%, transparent);
+}
+
+.api-service-speed-btn.fast.is-active {
+  color: #b45309;
+  border-color: rgba(245, 158, 11, 0.28);
+  background: rgba(245, 158, 11, 0.13);
+}
+
+.api-service-speed-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
 .api-service-actions {
   display: flex;
   flex-wrap: wrap;

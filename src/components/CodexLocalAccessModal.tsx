@@ -17,10 +17,11 @@ import {
   Trash2,
   Wrench,
   X,
+  Zap,
 } from 'lucide-react';
 import { confirm as confirmDialog } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
-import type { CodexAccount } from '../types/codex';
+import type { CodexAccount, CodexAppSpeed } from '../types/codex';
 import type { CodexAccountGroup } from '../services/codexAccountGroupService';
 import type {
   CodexLocalAccessAddressKind,
@@ -99,6 +100,8 @@ interface CodexLocalAccessModalProps {
     | CodexLocalAccessPortCleanupResult
     | null;
   onTest: () => Promise<CodexLocalAccessTestResult> | CodexLocalAccessTestResult;
+  onApplyAllAccountSpeed?: (speed: CodexAppSpeed) => Promise<unknown> | unknown;
+  bulkSpeedSaving?: CodexAppSpeed | null;
   saving: boolean;
   testing: boolean;
   portCleanupBusy: boolean;
@@ -212,6 +215,8 @@ export function CodexLocalAccessModal({
   onRotateApiKey,
   onKillPort,
   onTest,
+  onApplyAllAccountSpeed,
+  bulkSpeedSaving = null,
   saving,
   testing,
   portCleanupBusy,
@@ -312,6 +317,23 @@ export function CodexLocalAccessModal({
       : 0;
   const testDialogBusy = testDialogRunning || testing;
   const actionBusy = saving || testing || portCleanupBusy;
+  const speedOptions: CodexAppSpeed[] = ['standard', 'fast'];
+  const speedSummary = useMemo(() => {
+    const total = accounts.length;
+    const standard = accounts.filter(
+      (account) => (account.app_speed ?? 'standard') === 'standard',
+    ).length;
+    const fast = accounts.filter(
+      (account) => (account.app_speed ?? 'standard') === 'fast',
+    ).length;
+    const active: CodexAppSpeed | null =
+      total > 0 && standard === total
+        ? 'standard'
+        : total > 0 && fast === total
+          ? 'fast'
+          : null;
+    return { active, fast, standard, total };
+  }, [accounts]);
   const summaryStats = useMemo(
     () => [
       {
@@ -1406,6 +1428,33 @@ export function CodexLocalAccessModal({
     }
   };
 
+  const handleApplyAllAccountSpeed = async (speed: CodexAppSpeed) => {
+    if (!onApplyAllAccountSpeed || actionBusy || bulkSpeedSaving) return;
+    const speedLabel =
+      speed === 'fast'
+        ? t('codex.speed.fast', '快速')
+        : t('codex.speed.standard', '标准');
+    setError('');
+    setNotice('');
+    try {
+      await onApplyAllAccountSpeed(speed);
+      setNotice(
+        t('codex.localAccess.bulkSpeedSuccess', {
+          count: speedSummary.total,
+          speed: speedLabel,
+          defaultValue: '已将 {{count}} 个 Codex 账号和 API 服务默认速度设置为{{speed}}',
+        }),
+      );
+    } catch (err) {
+      setError(
+        t('codex.localAccess.bulkSpeedFailed', {
+          defaultValue: 'Codex 速度批量设置失败：{{error}}',
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
+  };
+
   const closeTestDialog = () => {
     if (testDialogBusy) return;
     setTestDialogOpen(false);
@@ -1658,6 +1707,64 @@ export function CodexLocalAccessModal({
                   ))}
                 </div>
               )}
+            </section>
+          )}
+
+          {!isMembersMode && onApplyAllAccountSpeed && (
+            <section className="codex-local-access-section codex-local-access-section-surface codex-local-access-speed-section">
+              <div className="codex-local-access-section-head">
+                <div className="codex-local-access-section-title">
+                  <Gauge size={16} />
+                  <span>{t('codex.localAccess.bulkSpeedTitle', '全账号速度')}</span>
+                </div>
+                <span className="codex-local-access-speed-count">
+                  {t('codex.localAccess.bulkSpeedCount', {
+                    count: speedSummary.total,
+                    defaultValue: '{{count}} 个账号',
+                  })}
+                </span>
+              </div>
+              <div
+                className="codex-local-access-speed-control"
+                role="group"
+                aria-label={t('codex.localAccess.bulkSpeedTitle', '全账号速度')}
+              >
+                {speedOptions.map((speed) => {
+                  const speedLabel =
+                    speed === 'fast'
+                      ? t('codex.speed.fast', '快速')
+                      : t('codex.speed.standard', '标准');
+                  const isSaving = bulkSpeedSaving === speed;
+                  return (
+                    <button
+                      key={speed}
+                      type="button"
+                      className={`codex-local-access-speed-option ${speed} ${
+                        speedSummary.active === speed ? 'is-active' : ''
+                      }`}
+                      onClick={() => void handleApplyAllAccountSpeed(speed)}
+                      disabled={actionBusy || bulkSpeedSaving !== null || speedSummary.total === 0}
+                      title={t('codex.localAccess.bulkSpeedAction', {
+                        speed: speedLabel,
+                        defaultValue: '一键设置为{{speed}}',
+                      })}
+                      aria-label={t('codex.localAccess.bulkSpeedAction', {
+                        speed: speedLabel,
+                        defaultValue: '一键设置为{{speed}}',
+                      })}
+                    >
+                      {isSaving ? (
+                        <RefreshCw size={15} className="loading-spinner" />
+                      ) : speed === 'fast' ? (
+                        <Zap size={15} />
+                      ) : (
+                        <Gauge size={15} />
+                      )}
+                      <span>{speedLabel}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </section>
           )}
 

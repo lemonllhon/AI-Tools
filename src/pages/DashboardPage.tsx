@@ -23,7 +23,7 @@ import {
   usePlatformLayoutStore,
 } from '../stores/usePlatformLayoutStore';
 import { Page } from '../types/navigation';
-import { Users, CheckCircle2, Sparkles, RotateCw, Play, Github, Tag, ChevronDown, EyeOff, Server, Power, Settings2, FolderPlus } from 'lucide-react';
+import { Users, CheckCircle2, Sparkles, RotateCw, Play, Github, Tag, ChevronDown, EyeOff, Server, Power, Settings2, FolderPlus, Gauge, Zap } from 'lucide-react';
 import { TagEditModal } from '../components/TagEditModal';
 import { Account } from '../types/account';
 import {
@@ -45,7 +45,7 @@ import {
   WorkbuddyAccount,
   getWorkbuddyOfficialQuotaModel,
 } from '../types/workbuddy';
-import { CodexAccount } from '../types/codex';
+import { CodexAccount, CodexAppSpeed } from '../types/codex';
 import { GitHubCopilotAccount } from '../types/githubCopilot';
 import {
   WindsurfAccount,
@@ -101,6 +101,7 @@ import {
   UnifiedQuotaMetric,
 } from '../presentation/platformAccountPresentation';
 import * as codexLocalAccessService from '../services/codexLocalAccessService';
+import * as codexService from '../services/codexService';
 import type {
   CodexLocalAccessAddressKind,
   CodexLocalAccessCustomRoutingRule,
@@ -215,6 +216,7 @@ export function DashboardPage({
   const [apiServiceState, setApiServiceState] = React.useState<CodexLocalAccessState | null>(null);
   const [apiServiceBusy, setApiServiceBusy] = React.useState<'load' | 'toggle' | 'activate' | null>(null);
   const [apiServiceSaving, setApiServiceSaving] = React.useState(false);
+  const [apiServiceSpeedSaving, setApiServiceSpeedSaving] = React.useState<CodexAppSpeed | null>(null);
   const [apiServiceTesting, setApiServiceTesting] = React.useState(false);
   const [apiServicePortCleanupBusy, setApiServicePortCleanupBusy] = React.useState(false);
   const [apiServiceMessage, setApiServiceMessage] = React.useState<{ text: string; tone?: 'success' | 'error' } | null>(null);
@@ -862,6 +864,101 @@ export function DashboardPage({
   const codexAccountIdSignature = useMemo(
     () => codexAccounts.map((account) => account.id).sort().join('\n'),
     [codexAccounts],
+  );
+
+  const codexSpeedSummary = useMemo(() => {
+    const total = codexAccounts.length;
+    const standard = codexAccounts.filter(
+      (account) => (account.app_speed ?? 'standard') === 'standard',
+    ).length;
+    const fast = codexAccounts.filter(
+      (account) => (account.app_speed ?? 'standard') === 'fast',
+    ).length;
+    const active: CodexAppSpeed | null =
+      total > 0 && standard === total
+        ? 'standard'
+        : total > 0 && fast === total
+          ? 'fast'
+          : null;
+    return { active, fast, standard, total };
+  }, [codexAccounts]);
+
+  const applyCodexSpeedToAllAccounts = useCallback(
+    async (speed: CodexAppSpeed) => {
+      if (apiServiceSpeedSaving) {
+        return { total: codexSpeedSummary.total };
+      }
+
+      const targetAccounts = useCodexAccountStore.getState().accounts;
+      if (targetAccounts.length === 0) {
+        throw new Error(t('dashboard.apiServices.codexSpeedNoAccounts', '暂无 Codex 账号可设置速度'));
+      }
+
+      setApiServiceSpeedSaving(speed);
+      try {
+        let firstFailure: unknown = null;
+        let failureCount = 0;
+        for (const account of targetAccounts) {
+          if ((account.app_speed ?? 'standard') !== speed) {
+            try {
+              await codexService.updateCodexAccountAppSpeed(account.id, speed);
+            } catch (error) {
+              firstFailure = firstFailure ?? error;
+              failureCount += 1;
+            }
+          }
+        }
+        try {
+          await codexService.saveCodexApiServiceAppSpeed(speed);
+        } catch (error) {
+          firstFailure = firstFailure ?? error;
+          failureCount += 1;
+        }
+        await Promise.allSettled([fetchCodexAccounts(), fetchCodexCurrent()]);
+        if (firstFailure) {
+          throw new Error(
+            t('dashboard.apiServices.codexSpeedPartialFailed', {
+              count: failureCount,
+              error: firstFailure instanceof Error ? firstFailure.message : String(firstFailure),
+              defaultValue: '{{count}} 项速度设置失败：{{error}}',
+            }),
+          );
+        }
+        return { total: targetAccounts.length };
+      } finally {
+        setApiServiceSpeedSaving(null);
+      }
+    },
+    [apiServiceSpeedSaving, codexSpeedSummary.total, fetchCodexAccounts, fetchCodexCurrent, t],
+  );
+
+  const handleApplyCodexSpeedToAllAccounts = useCallback(
+    async (speed: CodexAppSpeed) => {
+      const speedLabel =
+        speed === 'fast'
+          ? t('codex.speed.fast', '快速')
+          : t('codex.speed.standard', '标准');
+      try {
+        const result = await applyCodexSpeedToAllAccounts(speed);
+        setApiServiceMessage({
+          text: t('dashboard.apiServices.codexSpeedApplied', {
+            count: result.total,
+            speed: speedLabel,
+            defaultValue: '已将 {{count}} 个 Codex 账号和 API 服务默认速度设置为{{speed}}',
+          }),
+          tone: 'success',
+        });
+      } catch (error) {
+        setApiServiceMessage({
+          text: t('dashboard.apiServices.codexSpeedFailed', {
+            defaultValue: 'Codex 速度批量设置失败：{{error}}',
+            error: error instanceof Error ? error.message : String(error),
+          }),
+          tone: 'error',
+        });
+      }
+    },
+    [applyCodexSpeedToAllAccounts, t],
   );
 
   React.useEffect(() => {
@@ -3290,6 +3387,12 @@ export function DashboardPage({
             const toggleButtonClass = codexCollection?.enabled
               ? 'btn btn-danger api-service-action-toggle is-stop'
               : 'btn btn-success api-service-action-toggle is-enable';
+            const speedButtonsDisabled =
+              apiServiceSpeedSaving !== null ||
+              apiServiceBusy !== null ||
+              apiServiceSaving ||
+              codexSpeedSummary.total === 0;
+            const speedOptions: CodexAppSpeed[] = ['standard', 'fast'];
 
             return (
               <article className={`api-service-card tone-${cardTone}`} key={platformId}>
@@ -3318,6 +3421,60 @@ export function DashboardPage({
                   <div className="api-service-endpoint" title={wsUrl}>
                     <span>{t('codex.localAccess.webSocketUrl', 'WebSocket')}</span>
                     <code>{wsUrl}</code>
+                  </div>
+                )}
+                {isCodex && (
+                  <div className="api-service-speed-panel">
+                    <div className="api-service-speed-title">
+                      <span>{t('dashboard.apiServices.codexSpeedTitle', '全账号速度')}</span>
+                      <small>
+                        {t('dashboard.apiServices.codexSpeedCount', {
+                          count: codexSpeedSummary.total,
+                          defaultValue: '{{count}} 个账号',
+                        })}
+                      </small>
+                    </div>
+                    <div
+                      className="api-service-speed-options"
+                      role="group"
+                      aria-label={t('dashboard.apiServices.codexSpeedTitle', '全账号速度')}
+                    >
+                      {speedOptions.map((speed) => {
+                        const speedLabel =
+                          speed === 'fast'
+                            ? t('codex.speed.fast', '快速')
+                            : t('codex.speed.standard', '标准');
+                        const isSaving = apiServiceSpeedSaving === speed;
+                        return (
+                          <button
+                            key={speed}
+                            type="button"
+                            className={`api-service-speed-btn ${speed} ${
+                              codexSpeedSummary.active === speed ? 'is-active' : ''
+                            }`}
+                            onClick={() => void handleApplyCodexSpeedToAllAccounts(speed)}
+                            disabled={speedButtonsDisabled}
+                            title={t('dashboard.apiServices.codexSpeedAction', {
+                              speed: speedLabel,
+                              defaultValue: '一键设置为{{speed}}',
+                            })}
+                            aria-label={t('dashboard.apiServices.codexSpeedAction', {
+                              speed: speedLabel,
+                              defaultValue: '一键设置为{{speed}}',
+                            })}
+                          >
+                            {isSaving ? (
+                              <RotateCw size={13} className="loading-spinner" />
+                            ) : speed === 'fast' ? (
+                              <Zap size={13} />
+                            ) : (
+                              <Gauge size={13} />
+                            )}
+                            <span>{speedLabel}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
                 <div className="api-service-actions">
@@ -3527,6 +3684,8 @@ export function DashboardPage({
         onRotateApiKey={handleRotateApiServiceKey}
         onKillPort={handleKillApiServicePort}
         onTest={handleTestApiService}
+        onApplyAllAccountSpeed={applyCodexSpeedToAllAccounts}
+        bulkSpeedSaving={apiServiceSpeedSaving}
         saving={apiServiceSaving}
         testing={apiServiceTesting}
         portCleanupBusy={apiServicePortCleanupBusy}

@@ -6,9 +6,14 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.26] - 2026-05-27
+### New addition
+- Added a one-click Codex speed control in the dashboard API Services console, allowing all Codex accounts to be set to Standard or Fast from one place.
+- Added the same all-account Codex speed control to the Codex API Service panel, and synchronized the API service default speed when applying it.
+
 ## [0.0.25] - 2026-05-24
 ### New addition
-Multilingual support.
+- Multilingual support.
 
 ## [0.0.24] - 2026-05-23
 ### Added
