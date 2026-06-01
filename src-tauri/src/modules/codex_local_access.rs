@@ -68,6 +68,7 @@ const CORS_ALLOW_HEADERS: &str = "Authorization, Content-Type, OpenAI-Beta, X-AP
 const DEFAULT_CODEX_MODELS: &[&str] = &[
     "gpt-5-codex",
     "gpt-5-codex-mini",
+    "gpt-5.5",
     "gpt-5.4",
     "gpt-5.4-mini",
     "gpt-5.3-codex",

@@ -11,6 +11,7 @@ export interface CodexApiProviderPreset {
 
 export const CODEX_API_PROVIDER_CUSTOM_ID = "custom";
 export const COCKPIT_API_PROVIDER_ID = "cockpit_api";
+export const NEW_API_PROVIDER_ID = "new_api";
 
 export const CODEX_API_PROVIDER_PRESETS: readonly CodexApiProviderPreset[] = [
   {
@@ -21,6 +22,17 @@ export const CODEX_API_PROVIDER_PRESETS: readonly CodexApiProviderPreset[] = [
     apiKeyUrl: "https://chongcodex.cn/console",
     isPartner: true,
     isService: true,
+  },
+  {
+    id: NEW_API_PROVIDER_ID,
+    name: "New API",
+    baseUrls: [
+      "http://127.0.0.1:3000/v1",
+      "http://localhost:3000/v1",
+      "https://YOUR_NEW_API_DOMAIN/v1",
+    ],
+    website: "http://127.0.0.1:3000",
+    apiKeyUrl: "http://127.0.0.1:3000/console/token",
   },
   {
     id: "openai_official",

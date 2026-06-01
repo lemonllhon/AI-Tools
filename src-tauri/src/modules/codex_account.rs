@@ -25,7 +25,9 @@ const CODEX_QUOTA_ALERT_COOLDOWN_SECONDS: i64 = 300;
 const ACCOUNT_CHECK_URL: &str = "https://chatgpt.com/backend-api/wham/accounts/check";
 const API_KEY_LOGIN_PLAN_TYPE: &str = "API_KEY";
 const COCKPIT_API_LOGIN_PLAN_TYPE: &str = "Cockpit Api";
+const NEW_API_LOGIN_PLAN_TYPE: &str = "NEW_API_EXCLUSIVE";
 const COCKPIT_API_DEFAULT_ACCOUNT_NAME: &str = "Codex API";
+const NEW_API_DEFAULT_ACCOUNT_NAME: &str = "New API";
 const API_KEY_EMAIL_PREFIX: &str = "api-key";
 const API_KEY_AUTH_MODE: &str = "apikey";
 const CODEX_CONFIG_FILE_NAME: &str = "config.toml";
@@ -38,6 +40,7 @@ const CODEX_CONFIG_MODEL_AUTO_COMPACT_TOKEN_LIMIT_KEY: &str = "model_auto_compac
 const CODEX_DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 const CODEX_COCKPIT_API_BASE_URL: &str = "https://chongcodex.cn/v1";
 const CODEX_COCKPIT_API_PROVIDER_ID: &str = "cockpit_api";
+const CODEX_NEW_API_PROVIDER_ID: &str = "new_api";
 const CODEX_OPENAI_PROVIDER_ID: &str = "openai";
 const CODEX_RUNTIME_MODEL_PROVIDER_ID: &str = "codex_local_access";
 const CODEX_LEGACY_API_KEY_OPENAI_PROVIDER_ID: &str = "openai_api_key";
@@ -319,29 +322,14 @@ fn apply_api_key_fields(
     api_key: &str,
     provider_config: ApiProviderConfig,
 ) {
-    let is_cockpit_api = provider_config
-        .provider_id
-        .as_deref()
-        .map(|value| value.eq_ignore_ascii_case(CODEX_COCKPIT_API_PROVIDER_ID))
-        .unwrap_or(false)
-        || is_cockpit_api_base_url(provider_config.base_url.as_deref());
-    let plan_type = if is_cockpit_api {
-        COCKPIT_API_LOGIN_PLAN_TYPE
-    } else {
-        API_KEY_LOGIN_PLAN_TYPE
-    };
-
     account.auth_mode = CodexAuthMode::Apikey;
     account.openai_api_key = Some(api_key.to_string());
-    account.api_base_url = provider_config.base_url;
-    account.api_provider_mode = provider_config.mode;
-    account.api_provider_id = provider_config.provider_id;
-    account.api_provider_name = provider_config.provider_name;
+    account.api_base_url = provider_config.base_url.clone();
+    account.api_provider_mode = provider_config.mode.clone();
+    account.api_provider_id = provider_config.provider_id.clone();
+    account.api_provider_name = provider_config.provider_name.clone();
     account.email = build_api_key_email(api_key);
-    if is_cockpit_api && normalize_optional_ref(account.account_name.as_deref()).is_none() {
-        account.account_name = Some(COCKPIT_API_DEFAULT_ACCOUNT_NAME.to_string());
-    }
-    account.plan_type = Some(plan_type.to_string());
+    apply_api_key_provider_metadata(account, &provider_config);
     account.tokens = CodexTokens {
         id_token: String::new(),
         access_token: String::new(),
@@ -354,6 +342,38 @@ fn apply_api_key_fields(
     account.account_structure = None;
     account.quota = None;
     account.quota_error = None;
+}
+
+fn apply_api_key_provider_metadata(
+    account: &mut CodexAccount,
+    provider_config: &ApiProviderConfig,
+) {
+    let is_cockpit_api = provider_config
+        .provider_id
+        .as_deref()
+        .map(|value| value.eq_ignore_ascii_case(CODEX_COCKPIT_API_PROVIDER_ID))
+        .unwrap_or(false)
+        || is_cockpit_api_base_url(provider_config.base_url.as_deref());
+    let is_new_api = provider_config
+        .provider_id
+        .as_deref()
+        .map(|value| value.eq_ignore_ascii_case(CODEX_NEW_API_PROVIDER_ID))
+        .unwrap_or(false);
+    let plan_type = if is_cockpit_api {
+        COCKPIT_API_LOGIN_PLAN_TYPE
+    } else if is_new_api {
+        NEW_API_LOGIN_PLAN_TYPE
+    } else {
+        API_KEY_LOGIN_PLAN_TYPE
+    };
+
+    if is_cockpit_api && normalize_optional_ref(account.account_name.as_deref()).is_none() {
+        account.account_name = Some(COCKPIT_API_DEFAULT_ACCOUNT_NAME.to_string());
+    }
+    if is_new_api && normalize_optional_ref(account.account_name.as_deref()).is_none() {
+        account.account_name = Some(NEW_API_DEFAULT_ACCOUNT_NAME.to_string());
+    }
+    account.plan_type = Some(plan_type.to_string());
 }
 
 fn extract_api_key_from_auth_file(auth_file: &CodexAuthFile) -> Option<String> {
@@ -1856,7 +1876,13 @@ fn parse_codex_account_compat(
             provider_config.provider_name,
         );
         apply_compat_account_metadata(&mut account, &value, summary);
-        account.plan_type = Some(API_KEY_LOGIN_PLAN_TYPE.to_string());
+        let provider_config = infer_api_provider_config(
+            account.api_base_url.as_deref(),
+            Some(account.api_provider_mode.clone()),
+            account.api_provider_id.as_deref(),
+            account.api_provider_name.as_deref(),
+        );
+        apply_api_key_provider_metadata(&mut account, &provider_config);
         return Ok(Some(account));
     }
 
@@ -2081,13 +2107,13 @@ pub fn upsert_api_key_account(
         let mut acc = CodexAccount::new_api_key(
             account_id.clone(),
             build_api_key_email(&api_key),
-            api_key,
+            api_key.clone(),
             provider_config.mode.clone(),
             provider_config.base_url.clone(),
             provider_config.provider_id.clone(),
             provider_config.provider_name.clone(),
         );
-        acc.plan_type = Some(API_KEY_LOGIN_PLAN_TYPE.to_string());
+        apply_api_key_fields(&mut acc, &api_key, provider_config.clone());
         index.accounts.push(CodexAccountSummary {
             id: account_id.clone(),
             email: acc.email.clone(),
@@ -5571,6 +5597,43 @@ requires_openai_auth = false
     }
 
     #[test]
+    fn config_toml_uses_model_provider_section_for_new_api_provider() {
+        let base_dir = make_temp_dir("codex-config-new-api-provider-test");
+        let provider_config = resolve_api_provider_config(
+            Some("http://127.0.0.1:3000/v1/"),
+            Some(CodexApiProviderMode::Custom),
+            Some("new_api"),
+            Some("New API"),
+        )
+        .expect("resolve provider config");
+
+        write_api_provider_to_config_toml(&base_dir, &provider_config).expect("write config");
+
+        let config_path = base_dir.join("config.toml");
+        let content = fs::read_to_string(&config_path).expect("read config");
+        assert!(content.contains("model_provider = \"new_api\""));
+        assert!(content.contains("[model_providers.new_api]"));
+        assert!(!content.contains("codex_local_access"));
+        assert!(content.contains("name = \"New API\""));
+        assert!(content.contains("base_url = \"http://127.0.0.1:3000/v1\""));
+        assert!(content.contains("wire_api = \"responses\""));
+        assert!(content.contains("requires_openai_auth = false"));
+        assert!(content.contains("supports_websockets = false"));
+        assert!(!content.contains("openai_base_url"));
+        assert_eq!(
+            read_api_provider_from_config_toml(&base_dir),
+            ApiProviderConfig {
+                mode: CodexApiProviderMode::Custom,
+                base_url: Some("http://127.0.0.1:3000/v1".to_string()),
+                provider_id: Some("new_api".to_string()),
+                provider_name: Some("New API".to_string()),
+            }
+        );
+
+        fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
+    }
+
+    #[test]
     fn api_key_config_toml_uses_fixed_provider_for_default_official_endpoint() {
         let base_dir = make_temp_dir("codex-api-key-config-openai-default-test");
         let provider_config = resolve_api_provider_config(
@@ -5641,6 +5704,45 @@ requires_openai_auth = false
                 base_url: Some("https://relay.example.com/v1".to_string()),
                 provider_id: Some("codex_local_access".to_string()),
                 provider_name: Some("Relay".to_string()),
+            }
+        );
+
+        fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn api_key_config_toml_uses_fixed_provider_for_new_api_provider() {
+        let base_dir = make_temp_dir("codex-api-key-config-new-api-provider-test");
+        let provider_config = resolve_api_provider_config(
+            Some("http://127.0.0.1:3000/v1/"),
+            Some(CodexApiProviderMode::Custom),
+            Some("new_api"),
+            Some("New API"),
+        )
+        .expect("resolve provider config");
+
+        write_api_key_provider_to_config_toml(&base_dir, &provider_config, "sk-test")
+            .expect("write config");
+
+        let config_path = base_dir.join("config.toml");
+        let content = fs::read_to_string(&config_path).expect("read config");
+        assert!(content.contains("model_provider = \"codex_local_access\""));
+        assert!(content.contains("[model_providers.codex_local_access]"));
+        assert!(!content.contains("[model_providers.new_api]"));
+        assert!(content.contains("name = \"New API\""));
+        assert!(content.contains("base_url = \"http://127.0.0.1:3000/v1\""));
+        assert!(content.contains("wire_api = \"responses\""));
+        assert!(content.contains("requires_openai_auth = true"));
+        assert!(content.contains("experimental_bearer_token = \"sk-test\""));
+        assert!(content.contains("supports_websockets = false"));
+        assert!(!content.contains("openai_base_url"));
+        assert_eq!(
+            read_api_provider_from_config_toml(&base_dir),
+            ApiProviderConfig {
+                mode: CodexApiProviderMode::Custom,
+                base_url: Some("http://127.0.0.1:3000/v1".to_string()),
+                provider_id: Some("codex_local_access".to_string()),
+                provider_name: Some("New API".to_string()),
             }
         );
 

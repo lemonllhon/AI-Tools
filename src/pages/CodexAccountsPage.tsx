@@ -154,6 +154,7 @@ import {
   COCKPIT_API_PROVIDER_ID,
   findCodexApiProviderPresetByBaseUrl,
   findCodexApiProviderPresetById,
+  NEW_API_PROVIDER_ID,
   resolveCodexApiProviderPresetId,
 } from "../utils/codexProviderPresets";
 import {
@@ -2001,7 +2002,10 @@ export function CodexAccountsPage() {
       }
       const matchedPresetByBaseUrl =
         findCodexApiProviderPresetByBaseUrl(normalizedBaseUrl);
-      if (matchedPresetByBaseUrl?.id === COCKPIT_API_PROVIDER_ID) {
+      if (
+        matchedPresetByBaseUrl?.id === COCKPIT_API_PROVIDER_ID ||
+        matchedPresetByBaseUrl?.id === NEW_API_PROVIDER_ID
+      ) {
         return {
           apiProviderMode: "custom",
           apiProviderId: matchedPresetByBaseUrl.id,

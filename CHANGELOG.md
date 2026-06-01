@@ -6,6 +6,16 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.29] - 2026-06-01
+### Added
+- Added a New API provider preset for Codex API key accounts, with local New API defaults and provider display names.
+- Added Codex New API quota retrieval through New API's token usage endpoint.
+- Added `gpt-5.5` to the Codex local API service model list and display-name mapping.
+
+### Changed
+- Changed Codex API key account metadata so New API accounts keep their dedicated provider, plan badge, default account name, and imported account identity.
+- Changed Codex provider config generation so New API writes a dedicated custom model provider while API-key runtime routing keeps using the fixed local access provider.
+
 ## [0.0.28] - 2026-05-27
 ### Added
 - Added Codex auto account switching controls in Codex settings, including an enable switch, account scope, and a default 10% 5-hour quota threshold.

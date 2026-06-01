@@ -6,6 +6,17 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.0.29] - 2026-06-01
+
+### 新增
+- Codex API Key 账号新增 New API 模型供应商预设，内置本地 New API 默认地址和供应商显示名称。
+- 新增 Codex New API 额度读取，使用 New API 的 Token Usage 接口获取 Key 剩余额度。
+- Codex 本地 API 服务模型列表和显示名映射新增 `gpt-5.5`。
+
+### 变更
+- 调整 Codex API Key 账号元数据，New API 账号会保留专属供应商、套餐标识、默认账号名和导入账号身份。
+- 调整 Codex 供应商配置生成，New API 会写入专属自定义模型供应商，API Key 运行时转发仍使用固定本地接入供应商。
+
 ## [0.0.28] - 2026-05-27
 
 ### 新增

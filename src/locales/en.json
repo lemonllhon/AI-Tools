@@ -2056,6 +2056,9 @@
         "cockpit_api": {
           "name": "Cockpit Api"
         },
+        "new_api": {
+          "name": "New API"
+        },
         "openai_official": {
           "name": "OpenAI Official"
         },

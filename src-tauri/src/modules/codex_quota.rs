@@ -11,6 +11,7 @@ const LEGACY_NEW_API_PROVIDER_ID: &str = "new_api";
 const COCKPIT_API_PLAN_TYPE: &str = "Cockpit Api";
 const LEGACY_NEW_API_EXCLUSIVE_PLAN_TYPE: &str = "NEW_API_EXCLUSIVE";
 const COCKPIT_API_BASE_URL: &str = "https://chongcodex.cn/v1";
+const NEW_API_USAGE_PATH: &str = "/api/usage/token/";
 
 fn get_header_value(headers: &HeaderMap, name: &str) -> String {
     headers
@@ -314,6 +315,14 @@ fn is_new_api_account(account: &CodexAccount) -> bool {
             .unwrap_or(false)
 }
 
+fn is_new_api_provider_account(account: &CodexAccount) -> bool {
+    account
+        .api_provider_id
+        .as_deref()
+        .map(|value| value.trim().eq_ignore_ascii_case(LEGACY_NEW_API_PROVIDER_ID))
+        .unwrap_or(false)
+}
+
 fn normalize_api_base_url_for_match(raw: Option<&str>) -> Option<String> {
     let parsed = reqwest::Url::parse(raw?.trim()).ok()?;
     if !matches!(parsed.scheme(), "http" | "https") {
@@ -356,6 +365,24 @@ fn build_new_api_profile_url(account: &CodexAccount) -> Result<String, String> {
     Ok(parsed.to_string())
 }
 
+fn build_new_api_usage_url(account: &CodexAccount) -> Result<String, String> {
+    let base_url = account
+        .api_base_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or("New API 账号缺少 Base URL")?;
+    let mut parsed =
+        reqwest::Url::parse(base_url).map_err(|err| format!("New API Base URL 无效: {}", err))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("New API Base URL 仅支持 http/https".to_string());
+    }
+    parsed.set_path(NEW_API_USAGE_PATH);
+    parsed.set_query(None);
+    parsed.set_fragment(None);
+    Ok(parsed.to_string())
+}
+
 fn read_i64(value: &serde_json::Value, key: &str) -> i64 {
     value
         .get(key)
@@ -385,6 +412,10 @@ fn new_api_percentage(available: i64, total: i64, unlimited: bool) -> i32 {
 }
 
 async fn fetch_new_api_quota(account: &CodexAccount) -> Result<FetchQuotaResult, String> {
+    if is_new_api_provider_account(account) {
+        return fetch_new_api_usage_quota(account).await;
+    }
+
     let api_key = account
         .openai_api_key
         .as_deref()
@@ -460,6 +491,84 @@ async fn fetch_new_api_quota(account: &CodexAccount) -> Result<FetchQuotaResult,
                 .filter(|value| !value.is_empty())
                 .unwrap_or_else(|| COCKPIT_API_PLAN_TYPE.to_string()),
         ),
+    })
+}
+
+async fn fetch_new_api_usage_quota(account: &CodexAccount) -> Result<FetchQuotaResult, String> {
+    let api_key = account
+        .openai_api_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or("New API 账号缺少 OPENAI_API_KEY")?;
+    let usage_url = build_new_api_usage_url(account)?;
+    let client = reqwest::Client::new();
+    let response = client
+        .get(&usage_url)
+        .bearer_auth(api_key)
+        .header(ACCEPT, "application/json")
+        .send()
+        .await
+        .map_err(|err| format!("请求 New API 额度失败: {}", err))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|err| format!("读取 New API 额度响应失败: {}", err))?;
+    if !status.is_success() {
+        return Err(format!("New API 额度接口返回 HTTP {}", status.as_u16()));
+    }
+
+    let root: serde_json::Value =
+        serde_json::from_str(&body).map_err(|err| format!("解析 New API 额度 JSON 失败: {}", err))?;
+    if root.get("success").and_then(|item| item.as_bool()) == Some(false)
+        || root.get("code").and_then(|item| item.as_bool()) == Some(false)
+    {
+        let message = root
+            .get("message")
+            .and_then(|item| item.as_str())
+            .unwrap_or("New API 额度接口返回失败");
+        return Err(message.to_string());
+    }
+    let data = root.get("data").unwrap_or(&root);
+    let total = read_i64(data, "total_granted");
+    let used = read_i64(data, "total_used");
+    let available = read_i64(data, "total_available");
+    let unlimited = read_bool(data, "unlimited_quota");
+    let percentage = new_api_percentage(available, total, unlimited);
+    let expires_at = read_i64(data, "expires_at");
+    let reset_time = if expires_at > 0 {
+        Some(expires_at)
+    } else {
+        None
+    };
+
+    Ok(FetchQuotaResult {
+        quota: CodexQuota {
+            hourly_percentage: percentage,
+            hourly_reset_time: reset_time,
+            hourly_window_minutes: None,
+            hourly_window_present: Some(true),
+            weekly_percentage: 0,
+            weekly_reset_time: None,
+            weekly_window_minutes: None,
+            weekly_window_present: Some(false),
+            raw_data: Some(json!({
+                "provider": "new-api",
+                "object": "codex_new_api_quota",
+                "usage": data,
+                "total_granted": total,
+                "total_used": used,
+                "total_available": available,
+                "unlimited_quota": unlimited,
+                "summary_display": if unlimited {
+                    "不限量".to_string()
+                } else {
+                    format!("{} / {}", available, total)
+                },
+            })),
+        },
+        plan_type: Some(LEGACY_NEW_API_EXCLUSIVE_PLAN_TYPE.to_string()),
     })
 }
 

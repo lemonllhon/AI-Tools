@@ -97,6 +97,7 @@ fn display_name_for_model(model_id: &str) -> String {
     match model_id {
         "gpt-5-codex" => "GPT-5 Codex".to_string(),
         "gpt-5-codex-mini" => "GPT-5 Codex Mini".to_string(),
+        "gpt-5.5" => "GPT-5.5".to_string(),
         "gpt-5.4" => "GPT-5.4".to_string(),
         "gpt-5.4-mini" => "GPT-5.4 Mini".to_string(),
         "gpt-5.3-codex" => "GPT-5.3 Codex".to_string(),

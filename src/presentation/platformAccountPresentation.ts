@@ -625,6 +625,14 @@ function buildCodexNewApiQuotaItems(
   ];
 }
 
+function getCodexApiKeyProviderDisplayName(account: CodexAccount): string {
+  const providerId = (account.api_provider_id || "").trim().toLowerCase();
+  if (providerId === "new_api") {
+    return account.api_provider_name?.trim() || "New API";
+  }
+  return "Codex API";
+}
+
 export function buildCodexAccountPresentation(
   account: CodexAccount,
   t: Translate,
@@ -634,7 +642,7 @@ export function buildCodexAccountPresentation(
     isCodexApiKeyAccount(account) && apiKeyDisplayName
       ? apiKeyDisplayName
       : isCodexNewApiAccount(account)
-        ? "Codex API"
+        ? getCodexApiKeyProviderDisplayName(account)
       : account.email;
   const effectiveQuota = getCodexEffectiveQuotaPercentages(account.quota);
   const weeklyBlocksHourlyHint = effectiveQuota.weeklyBlocksHourly
