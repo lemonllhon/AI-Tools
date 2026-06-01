@@ -133,6 +133,7 @@ import type {
   CodexLocalAccessCustomRoutingRule,
   CodexLocalAccessRoutingStrategy,
   CodexLocalAccessScope,
+  CodexLocalAccessSourceMode,
   CodexLocalAccessState,
   CodexLocalAccessTestResult,
   CodexLocalAccessUpstreamProxyMode,
@@ -4922,6 +4923,32 @@ export function CodexAccountsPage() {
         return nextState;
       } catch (error) {
         console.error("Failed to update local access upstream proxy mode:", error);
+        throw new Error(String(error).replace(/^Error:\s*/, ""));
+      } finally {
+        setLocalAccessSaving(false);
+      }
+    },
+    [setMessage, t],
+  );
+
+  const handleUpdateLocalAccessSourceMode = useCallback(
+    async (sourceMode: CodexLocalAccessSourceMode) => {
+      setLocalAccessSaving(true);
+      try {
+        const nextState =
+          await codexLocalAccessService.updateCodexLocalAccessSourceMode(
+            sourceMode,
+          );
+        setLocalAccessState(nextState);
+        setMessage({
+          text: t(
+            "codex.localAccess.sourceModeSaveSuccess",
+            "API 服务来源模式已更新",
+          ),
+        });
+        return nextState;
+      } catch (error) {
+        console.error("Failed to update local access source mode:", error);
         throw new Error(String(error).replace(/^Error:\s*/, ""));
       } finally {
         setLocalAccessSaving(false);
@@ -10371,6 +10398,7 @@ export function CodexAccountsPage() {
             onUpdateCustomRouting={handleUpdateLocalAccessCustomRouting}
             onUpdateAccessScope={handleUpdateLocalAccessAccessScope}
             onUpdateUpstreamProxyMode={handleUpdateLocalAccessUpstreamProxyMode}
+            onUpdateSourceMode={handleUpdateLocalAccessSourceMode}
             onRotateApiKey={handleRotateLocalAccessApiKey}
             onKillPort={handleKillLocalAccessPort}
             onTest={handleTestLocalAccess}

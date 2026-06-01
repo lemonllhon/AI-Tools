@@ -4,8 +4,8 @@ use crate::models::codex::{
 };
 use crate::models::codex_local_access::{
     CodexLocalAccessCustomRoutingRule, CodexLocalAccessPortCleanupResult,
-    CodexLocalAccessRoutingStrategy, CodexLocalAccessScope, CodexLocalAccessState,
-    CodexLocalAccessTestResult, CodexLocalAccessUpstreamProxyMode,
+    CodexLocalAccessRoutingStrategy, CodexLocalAccessScope, CodexLocalAccessSourceMode,
+    CodexLocalAccessState, CodexLocalAccessTestResult, CodexLocalAccessUpstreamProxyMode,
 };
 use crate::modules::{
     account, codex_account, codex_local_access, codex_oauth, codex_quota, codex_session_visibility,
@@ -960,6 +960,13 @@ pub async fn codex_local_access_update_upstream_proxy_mode(
     upstream_proxy_mode: CodexLocalAccessUpstreamProxyMode,
 ) -> Result<CodexLocalAccessState, String> {
     codex_local_access::update_local_access_upstream_proxy_mode(upstream_proxy_mode).await
+}
+
+#[tauri::command]
+pub async fn codex_local_access_update_source_mode(
+    source_mode: CodexLocalAccessSourceMode,
+) -> Result<CodexLocalAccessState, String> {
+    codex_local_access::update_local_access_source_mode(source_mode).await
 }
 
 #[tauri::command]

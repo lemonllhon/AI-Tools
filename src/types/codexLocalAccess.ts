@@ -4,6 +4,11 @@ export type CodexLocalAccessUpstreamProxyMode =
   | 'follow_global_proxy'
   | 'direct';
 
+export type CodexLocalAccessSourceMode =
+  | 'provider_first'
+  | 'account_pool'
+  | 'hybrid';
+
 export type CodexLocalAccessRoutingStrategy =
   | 'auto'
   | 'quota_high_first'
@@ -25,6 +30,7 @@ export interface CodexLocalAccessCollection {
   apiKey: string;
   accessScope: CodexLocalAccessScope;
   upstreamProxyMode: CodexLocalAccessUpstreamProxyMode;
+  sourceMode: CodexLocalAccessSourceMode;
   routingStrategy: CodexLocalAccessRoutingStrategy;
   customRoutingRules: CodexLocalAccessCustomRoutingRule[];
   restrictFreeAccounts: boolean;

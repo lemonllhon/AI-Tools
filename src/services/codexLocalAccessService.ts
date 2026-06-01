@@ -4,6 +4,7 @@ import type {
   CodexLocalAccessPortCleanupResult,
   CodexLocalAccessRoutingStrategy,
   CodexLocalAccessScope,
+  CodexLocalAccessSourceMode,
   CodexLocalAccessState,
   CodexLocalAccessTestResult,
   CodexLocalAccessUpstreamProxyMode,
@@ -100,6 +101,14 @@ export async function updateCodexLocalAccessUpstreamProxyMode(
 ): Promise<CodexLocalAccessState> {
   return await invokeCodexLocalAccessStateMutation('codex_local_access_update_upstream_proxy_mode', {
     upstreamProxyMode,
+  });
+}
+
+export async function updateCodexLocalAccessSourceMode(
+  sourceMode: CodexLocalAccessSourceMode,
+): Promise<CodexLocalAccessState> {
+  return await invokeCodexLocalAccessStateMutation('codex_local_access_update_source_mode', {
+    sourceMode,
   });
 }
 

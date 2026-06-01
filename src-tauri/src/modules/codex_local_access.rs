@@ -2,9 +2,9 @@ use crate::models::codex::{CodexAccount, CodexApiProviderMode};
 use crate::models::codex_local_access::{
     CodexLocalAccessAccountStats, CodexLocalAccessCollection, CodexLocalAccessCustomRoutingRule,
     CodexLocalAccessPortCleanupResult, CodexLocalAccessRoutingStrategy, CodexLocalAccessScope,
-    CodexLocalAccessState, CodexLocalAccessStats, CodexLocalAccessStatsWindow,
-    CodexLocalAccessTestFailure, CodexLocalAccessTestResult, CodexLocalAccessUpstreamProxyMode,
-    CodexLocalAccessUsageEvent, CodexLocalAccessUsageStats,
+    CodexLocalAccessSourceMode, CodexLocalAccessState, CodexLocalAccessStats,
+    CodexLocalAccessStatsWindow, CodexLocalAccessTestFailure, CodexLocalAccessTestResult,
+    CodexLocalAccessUpstreamProxyMode, CodexLocalAccessUsageEvent, CodexLocalAccessUsageStats,
 };
 use crate::modules::atomic_write::write_string_atomic;
 use crate::modules::{codex_account, codex_oauth, codex_protocol, codex_wakeup, logger, process};
@@ -2495,6 +2495,34 @@ fn build_ordered_account_ids(
     ordered
 }
 
+fn partition_account_ids_for_source_mode(
+    account_ids: &[String],
+    source_mode: CodexLocalAccessSourceMode,
+) -> (Vec<String>, Vec<String>) {
+    let mut provider_account_ids = Vec::new();
+    let mut pool_account_ids = Vec::new();
+
+    for account_id in account_ids {
+        let account = try_get_cached_account_for_routing(account_id)
+            .or_else(|| codex_account::load_account(account_id));
+        if account
+            .as_ref()
+            .map(is_new_api_provider_account)
+            .unwrap_or(false)
+        {
+            provider_account_ids.push(account_id.clone());
+        } else {
+            pool_account_ids.push(account_id.clone());
+        }
+    }
+
+    match source_mode {
+        CodexLocalAccessSourceMode::ProviderFirst => (provider_account_ids, Vec::new()),
+        CodexLocalAccessSourceMode::AccountPool => (pool_account_ids, Vec::new()),
+        CodexLocalAccessSourceMode::Hybrid => (provider_account_ids, pool_account_ids),
+    }
+}
+
 fn normalize_plan_key(plan_type: Option<&str>) -> String {
     let normalized = plan_type.unwrap_or("").trim().to_ascii_lowercase();
     if normalized.is_empty() {
@@ -3766,6 +3794,7 @@ async fn ensure_runtime_loaded_without_start() -> Result<(), String> {
             api_key: generate_local_api_key(),
             access_scope: CodexLocalAccessScope::Localhost,
             upstream_proxy_mode: CodexLocalAccessUpstreamProxyMode::default(),
+            source_mode: CodexLocalAccessSourceMode::default(),
             routing_strategy: CodexLocalAccessRoutingStrategy::default(),
             custom_routing_rules: Vec::new(),
             restrict_free_accounts: true,
@@ -4667,6 +4696,7 @@ pub async fn save_local_access_accounts(
                 api_key: generate_local_api_key(),
                 access_scope: CodexLocalAccessScope::Localhost,
                 upstream_proxy_mode: CodexLocalAccessUpstreamProxyMode::default(),
+                source_mode: CodexLocalAccessSourceMode::default(),
                 routing_strategy: CodexLocalAccessRoutingStrategy::default(),
                 custom_routing_rules: Vec::new(),
                 restrict_free_accounts: true,
@@ -4791,6 +4821,36 @@ pub async fn update_local_access_upstream_proxy_mode(
     }
 
     collection.upstream_proxy_mode = upstream_proxy_mode;
+    collection.updated_at = now_ms();
+    save_collection_to_disk(&collection)?;
+
+    {
+        let mut runtime = gateway_runtime().lock().await;
+        sync_runtime_collection(&mut runtime, collection);
+    }
+
+    snapshot_state().await
+}
+
+pub async fn update_local_access_source_mode(
+    source_mode: CodexLocalAccessSourceMode,
+) -> Result<CodexLocalAccessState, String> {
+    ensure_runtime_loaded().await?;
+
+    let maybe_collection = {
+        let runtime = gateway_runtime().lock().await;
+        runtime.collection.clone()
+    };
+
+    let Some(mut collection) = maybe_collection else {
+        return Err("本地接入集合尚未创建".to_string());
+    };
+
+    if collection.source_mode == source_mode {
+        return snapshot_state().await;
+    }
+
+    collection.source_mode = source_mode;
     collection.updated_at = now_ms();
     save_collection_to_disk(&collection)?;
 
@@ -7306,7 +7366,35 @@ async fn proxy_request_with_account_pool(
             account_email: None,
         })?;
     let routing_hint = build_request_routing_hint(request);
-    let total = collection.account_ids.len();
+    let (primary_account_ids, fallback_account_ids) =
+        partition_account_ids_for_source_mode(&collection.account_ids, collection.source_mode);
+    if primary_account_ids.is_empty() && fallback_account_ids.is_empty() {
+        let message = match collection.source_mode {
+            CodexLocalAccessSourceMode::ProviderFirst => {
+                "供应商优先模式下暂无可用 New API 供应商账号".to_string()
+            }
+            CodexLocalAccessSourceMode::AccountPool => {
+                "账号池模式下暂无可用 OAuth 账号".to_string()
+            }
+            CodexLocalAccessSourceMode::Hybrid => "本地接入集合暂无可用账号".to_string(),
+        };
+        return Err(ProxyDispatchError {
+            status: 503,
+            message,
+            account_id: None,
+            account_email: None,
+        });
+    }
+    let source_mode_account_ids = if primary_account_ids.is_empty() {
+        fallback_account_ids
+    } else if fallback_account_ids.is_empty() {
+        primary_account_ids
+    } else {
+        let mut merged = primary_account_ids;
+        merged.extend(fallback_account_ids);
+        merged
+    };
+    let total = source_mode_account_ids.len();
     let max_credential_attempts = total.min(MAX_RETRY_CREDENTIALS_PER_REQUEST).max(1);
     let affinity_account_id = match routing_hint.previous_response_id.as_deref() {
         Some(previous_response_id) => resolve_affinity_account(previous_response_id).await,
@@ -7324,10 +7412,10 @@ async fn proxy_request_with_account_pool(
         let start = GATEWAY_ROUND_ROBIN_CURSOR.fetch_add(1, Ordering::Relaxed);
         let ordered_account_ids =
             if collection.routing_strategy == CodexLocalAccessRoutingStrategy::Custom {
-                collection.account_ids.clone()
+                source_mode_account_ids.clone()
             } else {
                 build_ordered_account_ids(
-                    &collection.account_ids,
+                    &source_mode_account_ids,
                     start,
                     affinity_account_id.as_deref(),
                 )

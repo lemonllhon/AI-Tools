@@ -29,6 +29,7 @@ import type {
   CodexLocalAccessPortCleanupResult,
   CodexLocalAccessRoutingStrategy,
   CodexLocalAccessScope,
+  CodexLocalAccessSourceMode,
   CodexLocalAccessState,
   CodexLocalAccessStatsWindow,
   CodexLocalAccessTestResult,
@@ -91,6 +92,9 @@ interface CodexLocalAccessModalProps {
   ) => Promise<unknown> | unknown;
   onUpdateUpstreamProxyMode: (
     upstreamProxyMode: CodexLocalAccessUpstreamProxyMode,
+  ) => Promise<unknown> | unknown;
+  onUpdateSourceMode: (
+    sourceMode: CodexLocalAccessSourceMode,
   ) => Promise<unknown> | unknown;
   onUpdateBoundOAuthAccount?: (
     accountId: string | null,
@@ -216,6 +220,7 @@ export function CodexLocalAccessModal({
   onUpdateCustomRouting,
   onUpdateAccessScope,
   onUpdateUpstreamProxyMode,
+  onUpdateSourceMode,
   onUpdateBoundOAuthAccount,
   onRotateApiKey,
   onKillPort,
@@ -300,6 +305,7 @@ export function CodexLocalAccessModal({
   }, [stats, statsRange]);
   const selectedTotals = selectedStatsWindow?.totals;
   const routingStrategy = collection?.routingStrategy ?? 'auto';
+  const sourceMode = collection?.sourceMode ?? 'hybrid';
   const accessScope = collection?.accessScope ?? 'localhost';
   const upstreamProxyMode = collection?.upstreamProxyMode ?? 'follow_global_proxy';
   const accessScopeAddress =
@@ -802,6 +808,23 @@ export function CodexLocalAccessModal({
         label: t('codex.localAccess.routingStrategy.custom', '自定义'),
       },
     ] satisfies Array<{ value: CodexLocalAccessRoutingStrategy; label: string }>,
+    [t],
+  );
+  const sourceModeOptions = useMemo(
+    () => [
+      {
+        value: 'provider_first',
+        label: t('codex.localAccess.sourceMode.providerFirst', '供应商优先'),
+      },
+      {
+        value: 'account_pool',
+        label: t('codex.localAccess.sourceMode.accountPool', '账号池'),
+      },
+      {
+        value: 'hybrid',
+        label: t('codex.localAccess.sourceMode.hybrid', '融合'),
+      },
+    ] satisfies Array<{ value: CodexLocalAccessSourceMode; label: string }>,
     [t],
   );
   const accessScopeOptions = useMemo(
@@ -1352,6 +1375,22 @@ export function CodexLocalAccessModal({
     );
   };
 
+  const handleChangeSourceMode = async (nextValue: string) => {
+    if (!collection) return;
+    const nextMode: CodexLocalAccessSourceMode =
+      nextValue === 'provider_first' || nextValue === 'account_pool'
+        ? nextValue
+        : 'hybrid';
+    if (nextMode === sourceMode) return;
+
+    await runAction(
+      async () => {
+        await onUpdateSourceMode(nextMode);
+      },
+      t('codex.localAccess.sourceModeSaveSuccess', 'API 服务来源模式已更新'),
+    );
+  };
+
   const handleResetKey = async () => {
     const confirmed = await confirmDialog(
       t(
@@ -1545,6 +1584,18 @@ export function CodexLocalAccessModal({
                     <ShieldCheck size={13} className={testDialogBusy ? 'loading-spinner' : ''} />
                     <span>{t('codex.localAccess.testAction', '测试')}</span>
                   </button>
+                  {collection && (
+                    <div className="codex-local-access-header-source-mode">
+                      <SingleSelectDropdown
+                        value={sourceMode}
+                        options={sourceModeOptions}
+                        onChange={(value) => void handleChangeSourceMode(value)}
+                        disabled={saving || testing}
+                        ariaLabel={t('codex.localAccess.sourceModeLabel', '来源模式')}
+                        menuWidth={150}
+                      />
+                    </div>
+                  )}
                   {collection && (
                     <div className="codex-local-access-header-upstream-proxy">
                       <SingleSelectDropdown

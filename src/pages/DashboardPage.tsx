@@ -107,6 +107,7 @@ import type {
   CodexLocalAccessCustomRoutingRule,
   CodexLocalAccessRoutingStrategy,
   CodexLocalAccessScope,
+  CodexLocalAccessSourceMode,
   CodexLocalAccessState,
   CodexLocalAccessTestResult,
   CodexLocalAccessUpstreamProxyMode,
@@ -557,6 +558,16 @@ export function DashboardPage({
       await runApiServiceStateMutation(
         () => codexLocalAccessService.updateCodexLocalAccessUpstreamProxyMode(upstreamProxyMode),
         t('codex.localAccess.upstreamProxySaveSuccess', 'API 服务上游连接方式已更新'),
+      );
+    },
+    [runApiServiceStateMutation, t],
+  );
+
+  const handleUpdateApiServiceSourceMode = useCallback(
+    async (sourceMode: CodexLocalAccessSourceMode) => {
+      await runApiServiceStateMutation(
+        () => codexLocalAccessService.updateCodexLocalAccessSourceMode(sourceMode),
+        t('codex.localAccess.sourceModeSaveSuccess', 'API 服务来源模式已更新'),
       );
     },
     [runApiServiceStateMutation, t],
@@ -3680,6 +3691,7 @@ export function DashboardPage({
         onUpdateCustomRouting={handleUpdateApiServiceCustomRouting}
         onUpdateAccessScope={handleUpdateApiServiceAccessScope}
         onUpdateUpstreamProxyMode={handleUpdateApiServiceUpstreamProxyMode}
+        onUpdateSourceMode={handleUpdateApiServiceSourceMode}
         onUpdateBoundOAuthAccount={handleUpdateApiServiceBoundOAuthAccount}
         onRotateApiKey={handleRotateApiServiceKey}
         onKillPort={handleKillApiServicePort}
