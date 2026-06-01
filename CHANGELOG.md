@@ -6,6 +6,10 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.31] - 2026-06-01
+### Changed
+- Changed the New API provider preset to show only an external-domain placeholder endpoint, avoiding localhost defaults in the provider picker.
+
 ## [0.0.30] - 2026-06-01
 ### Added
 - Added Codex local API service support for New API API-key accounts, forwarding requests to the configured New API `/v1` Base URL with the account API key.

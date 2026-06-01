@@ -26,13 +26,9 @@ export const CODEX_API_PROVIDER_PRESETS: readonly CodexApiProviderPreset[] = [
   {
     id: NEW_API_PROVIDER_ID,
     name: "New API",
-    baseUrls: [
-      "http://127.0.0.1:3000/v1",
-      "http://localhost:3000/v1",
-      "https://YOUR_NEW_API_DOMAIN/v1",
-    ],
-    website: "http://127.0.0.1:3000",
-    apiKeyUrl: "http://127.0.0.1:3000/console/token",
+    baseUrls: ["https://YOUR_NEW_API_DOMAIN/v1"],
+    website: "https://YOUR_NEW_API_DOMAIN",
+    apiKeyUrl: "https://YOUR_NEW_API_DOMAIN/console/token",
   },
   {
     id: "openai_official",
