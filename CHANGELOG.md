@@ -6,6 +6,13 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.32] - 2026-06-02
+### Added
+- Added a Codex API service source mode selector with Provider First, Account Pool, and Hybrid modes.
+
+### Changed
+- Changed Codex API service routing so Hybrid mode tries New API provider accounts first and falls back to the OAuth account pool when the provider route is unavailable, while the dedicated modes can force either source.
+
 ## [0.0.31] - 2026-06-01
 ### Changed
 - Changed the New API provider preset to show only an external-domain placeholder endpoint, avoiding localhost defaults in the provider picker.
