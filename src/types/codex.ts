@@ -429,6 +429,7 @@ export function isCodexNewApiAccount(account: CodexAccount): boolean {
     isCodexApiKeyAccount(account) &&
     (providerId === "cockpit_api" ||
       providerId === "new_api" ||
+      providerId === "newapi" ||
       isCodexCockpitApiBaseUrl(account.api_base_url) ||
       planType === "COCKPIT API" ||
       planType === "NEW_API_EXCLUSIVE")
@@ -496,7 +497,7 @@ function normalizeCodexAuthFilePlanType(
 export function getCodexPlanBadgeLabel(account: CodexAccount): string {
   if (isCodexNewApiAccount(account)) {
     const providerId = (account.api_provider_id || "").trim().toLowerCase();
-    if (providerId === "new_api") {
+    if (providerId === "new_api" || providerId === "newapi") {
       return account.api_provider_name?.trim() || "New API";
     }
     return account.plan_type?.trim() || "Cockpit Api";

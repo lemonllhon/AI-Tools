@@ -38,6 +38,7 @@ import {
   getCodexPlanFilterKey,
   isCodexApiKeyAccount,
   isCodexExplicitFreePlanType,
+  isCodexNewApiAccount,
 } from '../types/codex';
 import {
   buildCodexAccountPresentation,
@@ -143,6 +144,10 @@ function normalizeCustomRoutingPriority(value: number): number {
 
 function normalizeCustomRoutingWeight(value: number): number {
   return clampInteger(value, CUSTOM_ROUTING_WEIGHT_MIN, CUSTOM_ROUTING_WEIGHT_MAX);
+}
+
+function isLocalAccessEligibleAccount(account: CodexAccount): boolean {
+  return !isCodexApiKeyAccount(account) || isCodexNewApiAccount(account);
 }
 
 function readStoredStatsRange(): StatsRangeKey {
@@ -381,6 +386,10 @@ export function CodexLocalAccessModal({
     [avgLatencyMs, selectedTotals, successRate, t],
   );
 
+  const localAccessAccounts = useMemo(
+    () => accounts.filter(isLocalAccessEligibleAccount),
+    [accounts],
+  );
   const oauthAccounts = useMemo(
     () => accounts.filter((account) => !isCodexApiKeyAccount(account)),
     [accounts],
@@ -412,20 +421,22 @@ export function CodexLocalAccessModal({
     ? maskAccountText(buildCodexAccountPresentation(boundOAuthAccount, t).displayName)
     : t('codex.api.oauthBinding.unbound', '未绑定');
   const quotaPoolSummary = useMemo(
-    () => summarizeCodexQuotaPool(oauthAccounts),
-    [oauthAccounts],
+    () => summarizeCodexQuotaPool(localAccessAccounts),
+    [localAccessAccounts],
   );
   const currentQuotaPoolSummary = useMemo(() => {
     const accountIds = new Set(collection?.accountIds ?? []);
-    return summarizeCodexQuotaPool(oauthAccounts.filter((account) => accountIds.has(account.id)));
-  }, [collection?.accountIds, oauthAccounts]);
-  const oauthAccountIdSet = useMemo(
-    () => new Set(oauthAccounts.map((account) => account.id)),
-    [oauthAccounts],
+    return summarizeCodexQuotaPool(
+      localAccessAccounts.filter((account) => accountIds.has(account.id)),
+    );
+  }, [collection?.accountIds, localAccessAccounts]);
+  const localAccessAccountIdSet = useMemo(
+    () => new Set(localAccessAccounts.map((account) => account.id)),
+    [localAccessAccounts],
   );
   const normalizedInitialSelectedIds = useMemo(
-    () => initialSelectedIds.filter((accountId) => oauthAccountIdSet.has(accountId)),
-    [initialSelectedIds, oauthAccountIdSet],
+    () => initialSelectedIds.filter((accountId) => localAccessAccountIdSet.has(accountId)),
+    [initialSelectedIds, localAccessAccountIdSet],
   );
 
   useEffect(() => {
@@ -505,14 +516,14 @@ export function CodexLocalAccessModal({
 
   const availableTags = useMemo(() => {
     const next = new Set<string>();
-    oauthAccounts.forEach((account) => {
+    localAccessAccounts.forEach((account) => {
       (account.tags || []).forEach((tag) => {
         const trimmed = tag.trim();
         if (trimmed) next.add(trimmed);
       });
     });
     return Array.from(next).sort((left, right) => left.localeCompare(right));
-  }, [oauthAccounts]);
+  }, [localAccessAccounts]);
 
   const groupIdsByAccountId = useMemo(() => {
     const next = new Map<string, Set<string>>();
@@ -550,8 +561,8 @@ export function CodexLocalAccessModal({
   );
 
   const tierCounts = useMemo(() => {
-    const counts = { all: oauthAccounts.length, VALID: 0, FREE: 0, PLUS: 0, PRO: 0, TEAM: 0, ENTERPRISE: 0, ERROR: 0 };
-    oauthAccounts.forEach((account) => {
+    const counts = { all: localAccessAccounts.length, VALID: 0, FREE: 0, PLUS: 0, PRO: 0, TEAM: 0, ENTERPRISE: 0, ERROR: 0 };
+    localAccessAccounts.forEach((account) => {
       if (!account.quota_error) {
         counts.VALID += 1;
       }
@@ -564,7 +575,7 @@ export function CodexLocalAccessModal({
       }
     });
     return counts;
-  }, [oauthAccounts]);
+  }, [localAccessAccounts]);
 
   const allTierFilterLabel = useMemo(
     () =>
@@ -632,7 +643,7 @@ export function CodexLocalAccessModal({
 
   const visibleAccounts = useMemo(() => {
     const queryText = query.trim().toLowerCase();
-    const sorted = [...oauthAccounts].sort((a, b) => {
+    const sorted = [...localAccessAccounts].sort((a, b) => {
       const aName = buildCodexAccountPresentation(a, t).displayName.toLowerCase();
       const bName = buildCodexAccountPresentation(b, t).displayName.toLowerCase();
       return aName.localeCompare(bName);
@@ -680,7 +691,7 @@ export function CodexLocalAccessModal({
 
       return true;
     });
-  }, [filterTypes, groupFilter, groupIdsByAccountId, groupNameByAccountId, oauthAccounts, query, t, tagFilter]);
+  }, [filterTypes, groupFilter, groupIdsByAccountId, groupNameByAccountId, localAccessAccounts, query, t, tagFilter]);
 
   const visibleSelectableAccounts = useMemo(
     () =>
@@ -742,7 +753,7 @@ export function CodexLocalAccessModal({
     const currentIds = collection?.accountIds ?? [];
     return currentIds
       .map((accountId) => {
-        const account = oauthAccounts.find((item) => item.id === accountId);
+        const account = localAccessAccounts.find((item) => item.id === accountId);
         if (!account) return null;
         const presentation = buildCodexAccountPresentation(account, t);
         const accountStats = windowStatsByAccountId.get(account.id);
@@ -758,7 +769,7 @@ export function CodexLocalAccessModal({
         const leftCount = left.stats?.requestCount ?? 0;
         return rightCount - leftCount;
       });
-  }, [collection?.accountIds, oauthAccounts, t, windowStatsByAccountId]);
+  }, [collection?.accountIds, localAccessAccounts, t, windowStatsByAccountId]);
 
   const routingStrategyOptions = useMemo(
     () => [
@@ -845,9 +856,9 @@ export function CodexLocalAccessModal({
     );
   };
 
-  const oauthAccountById = useMemo(
-    () => new Map(oauthAccounts.map((account) => [account.id, account])),
-    [oauthAccounts],
+  const localAccessAccountById = useMemo(
+    () => new Map(localAccessAccounts.map((account) => [account.id, account])),
+    [localAccessAccounts],
   );
 
   const customRoutingRuleByAccountId = useMemo(() => {
@@ -864,9 +875,9 @@ export function CodexLocalAccessModal({
   const customRoutingAccounts = useMemo(() => {
     const currentIds = collection?.accountIds ?? [];
     return currentIds
-      .map((accountId) => oauthAccountById.get(accountId))
+      .map((accountId) => localAccessAccountById.get(accountId))
       .filter((account): account is CodexAccount => Boolean(account));
-  }, [collection?.accountIds, oauthAccountById]);
+  }, [collection?.accountIds, localAccessAccountById]);
 
   const customRoutingAvailableTags = useMemo(() => {
     const next = new Set<string>();
@@ -1112,7 +1123,7 @@ export function CodexLocalAccessModal({
 
   const toggleSelect = (accountId: string) => {
     if (actionBusy) return;
-    const account = oauthAccountById.get(accountId);
+    const account = localAccessAccountById.get(accountId);
     if (!account) return;
     setSelected((prev) => {
       const isFreeAccount = isCodexExplicitFreePlanType(account.plan_type);
@@ -1134,7 +1145,7 @@ export function CodexLocalAccessModal({
     setNotice('');
     try {
       const filtered = Array.from(selected).filter((accountId) => {
-        const account = oauthAccountById.get(accountId);
+        const account = localAccessAccountById.get(accountId);
         if (!account) return false;
         if (restrictFreeAccounts && isCodexExplicitFreePlanType(account.plan_type)) {
           return false;
@@ -2222,9 +2233,9 @@ export function CodexLocalAccessModal({
               </div>
 
               <div className="group-account-list codex-local-access-member-list">
-                {oauthAccounts.length === 0 ? (
+                {localAccessAccounts.length === 0 ? (
                   <div className="group-account-empty">
-                    {t('codex.localAccess.modal.empty', '暂无可加入的 OAuth 账号')}
+                    {t('codex.localAccess.modal.empty', '暂无可加入的 OAuth 或 New API 账号')}
                   </div>
                 ) : visibleAccounts.length === 0 ? (
                   <div className="group-account-empty">

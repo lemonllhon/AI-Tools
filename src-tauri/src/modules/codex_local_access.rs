@@ -65,6 +65,7 @@ const DEFAULT_CODEX_USER_AGENT: &str =
     "codex-tui/0.118.0 (Mac OS 26.3.1; arm64) iTerm.app/3.6.9 (codex-tui; 0.118.0)";
 const DEFAULT_CODEX_ORIGINATOR: &str = "codex-tui";
 const CORS_ALLOW_HEADERS: &str = "Authorization, Content-Type, OpenAI-Beta, X-API-Key, X-Codex-Beta-Features, X-Client-Request-Id, Originator, Session_id, ChatGPT-Account-Id";
+const NEW_API_PROVIDER_ID: &str = "new_api";
 const DEFAULT_CODEX_MODELS: &[&str] = &[
     "gpt-5-codex",
     "gpt-5-codex-mini",
@@ -241,6 +242,7 @@ struct RequestRoutingHint {
 #[derive(Debug, Clone)]
 struct RoutingCandidate {
     account_id: String,
+    new_api_priority: i32,
     plan_rank: Option<i32>,
     remaining_quota: Option<i32>,
     subscription_expiry_ms: Option<i64>,
@@ -2619,6 +2621,11 @@ fn build_routing_candidates(ordered_account_ids: &[String]) -> Vec<RoutingCandid
                 .or_else(|| codex_account::load_account(account_id));
             RoutingCandidate {
                 account_id: account_id.clone(),
+                new_api_priority: account
+                    .as_ref()
+                    .filter(|account| is_new_api_provider_account(account))
+                    .map(|_| 1)
+                    .unwrap_or(0),
                 plan_rank: account.as_ref().and_then(resolve_plan_rank),
                 remaining_quota: account.as_ref().and_then(resolve_remaining_quota),
                 subscription_expiry_ms: account.as_ref().and_then(resolve_subscription_expiry_ms),
@@ -2656,27 +2663,45 @@ fn compare_routing_candidates(
 
     let ordering = match strategy {
         CodexLocalAccessRoutingStrategy::Auto => {
-            compare_option_desc(left.plan_rank, right.plan_rank)
+            right
+                .new_api_priority
+                .cmp(&left.new_api_priority)
+                .then_with(|| compare_option_desc(left.plan_rank, right.plan_rank))
                 .then_with(|| compare_option_desc(left.remaining_quota, right.remaining_quota))
         }
         CodexLocalAccessRoutingStrategy::QuotaHighFirst => {
-            compare_option_desc(left.remaining_quota, right.remaining_quota)
+            right
+                .new_api_priority
+                .cmp(&left.new_api_priority)
+                .then_with(|| compare_option_desc(left.remaining_quota, right.remaining_quota))
                 .then_with(|| compare_option_desc(left.plan_rank, right.plan_rank))
         }
         CodexLocalAccessRoutingStrategy::QuotaLowFirst => {
-            compare_option_asc(left.remaining_quota, right.remaining_quota)
+            right
+                .new_api_priority
+                .cmp(&left.new_api_priority)
+                .then_with(|| compare_option_asc(left.remaining_quota, right.remaining_quota))
                 .then_with(|| compare_option_desc(left.plan_rank, right.plan_rank))
         }
         CodexLocalAccessRoutingStrategy::PlanHighFirst => {
-            compare_option_desc(left.plan_rank, right.plan_rank)
+            right
+                .new_api_priority
+                .cmp(&left.new_api_priority)
+                .then_with(|| compare_option_desc(left.plan_rank, right.plan_rank))
                 .then_with(|| compare_option_desc(left.remaining_quota, right.remaining_quota))
         }
         CodexLocalAccessRoutingStrategy::PlanLowFirst => {
-            compare_option_asc(left.plan_rank, right.plan_rank)
+            right
+                .new_api_priority
+                .cmp(&left.new_api_priority)
+                .then_with(|| compare_option_asc(left.plan_rank, right.plan_rank))
                 .then_with(|| compare_option_desc(left.remaining_quota, right.remaining_quota))
         }
         CodexLocalAccessRoutingStrategy::ExpirySoonFirst => {
-            compare_option_i64_asc(left.subscription_expiry_ms, right.subscription_expiry_ms)
+            right
+                .new_api_priority
+                .cmp(&left.new_api_priority)
+                .then_with(|| compare_option_i64_asc(left.subscription_expiry_ms, right.subscription_expiry_ms))
                 .then_with(|| compare_option_desc(left.plan_rank, right.plan_rank))
                 .then_with(|| compare_option_desc(left.remaining_quota, right.remaining_quota))
         }
@@ -3583,9 +3608,20 @@ fn is_free_plan_type(plan_type: Option<&str>) -> bool {
     !normalized.is_empty() && normalized.contains("free")
 }
 
+fn is_new_api_provider_account(account: &CodexAccount) -> bool {
+    account
+        .api_provider_id
+        .as_deref()
+        .map(|value| {
+            let normalized = value.trim().to_ascii_lowercase();
+            normalized == NEW_API_PROVIDER_ID || normalized == "newapi"
+        })
+        .unwrap_or(false)
+}
+
 fn is_local_access_eligible_account(account: &CodexAccount, restrict_free_accounts: bool) -> bool {
     if account.is_api_key_auth() {
-        return false;
+        return is_new_api_provider_account(account);
     }
     if restrict_free_accounts && is_free_plan_type(account.plan_type.as_deref()) {
         return false;
@@ -5593,6 +5629,27 @@ fn resolve_upstream_target(target: &str) -> Result<String, String> {
     }
 }
 
+fn build_openai_compatible_upstream_url(base_url: &str, target: &str) -> Result<String, String> {
+    let mut parsed =
+        Url::parse(base_url.trim()).map_err(|err| format!("供应商 Base URL 无效: {}", err))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("供应商 Base URL 仅支持 http/https".to_string());
+    }
+    let base_path = parsed.path().trim_end_matches('/');
+    let target_path = target.trim_start_matches('/');
+    let next_path = if target_path.is_empty() {
+        base_path.to_string()
+    } else if base_path.is_empty() {
+        format!("/{}", target_path)
+    } else {
+        format!("{}/{}", base_path, target_path)
+    };
+    parsed.set_path(&next_path);
+    parsed.set_query(None);
+    parsed.set_fragment(None);
+    Ok(parsed.to_string())
+}
+
 fn is_stream_request(headers: &HashMap<String, String>, body: &[u8]) -> bool {
     if let Some(accept) = headers.get("accept") {
         if accept.to_ascii_lowercase().contains("text/event-stream") {
@@ -7136,7 +7193,29 @@ async fn send_upstream_request(
 ) -> Result<reqwest::Response, String> {
     let method =
         Method::from_bytes(method.as_bytes()).map_err(|e| format!("不支持的请求方法: {}", e))?;
-    let url = format!("{}{}", UPSTREAM_CODEX_BASE_URL, target);
+    let (url, authorization_token) = if account.is_api_key_auth() {
+        let base_url = account
+            .api_base_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or("API Key 账号缺少供应商 Base URL")?;
+        let api_key = account
+            .openai_api_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or("API Key 账号缺少 OPENAI_API_KEY")?;
+        (
+            build_openai_compatible_upstream_url(base_url, target)?,
+            api_key.to_string(),
+        )
+    } else {
+        (
+            format!("{}{}", UPSTREAM_CODEX_BASE_URL, target),
+            account.tokens.access_token.trim().to_string(),
+        )
+    };
     let client = upstream_http_client(upstream_proxy_mode)?;
     for retry_attempt in 0..=UPSTREAM_SEND_RETRY_ATTEMPTS {
         let mut request = client.request(method.clone(), &url);
@@ -7160,18 +7239,17 @@ async fn send_upstream_request(
             request = request.header(header_name, header_value);
         }
 
-        request = request.header(
-            AUTHORIZATION,
-            format!("Bearer {}", account.tokens.access_token.trim()),
-        );
+        request = request.header(AUTHORIZATION, format!("Bearer {}", authorization_token));
         if !headers.contains_key("user-agent") {
             request = request.header(USER_AGENT, DEFAULT_CODEX_USER_AGENT);
         }
         if !headers.contains_key("originator") {
             request = request.header("Originator", DEFAULT_CODEX_ORIGINATOR);
         }
-        if let Some(account_id) = resolve_upstream_account_id(account) {
-            request = request.header("ChatGPT-Account-Id", account_id);
+        if !account.is_api_key_auth() {
+            if let Some(account_id) = resolve_upstream_account_id(account) {
+                request = request.header("ChatGPT-Account-Id", account_id);
+            }
         }
         if !headers.contains_key("accept") {
             request = request.header(
@@ -7301,7 +7379,7 @@ async fn proxy_request_with_account_pool(
                 }
             };
 
-            if account.is_api_key_auth() {
+            if account.is_api_key_auth() && !is_new_api_provider_account(&account) {
                 log_codex_api_failure(
                     None,
                     Some(request),
@@ -7309,9 +7387,9 @@ async fn proxy_request_with_account_pool(
                     Some(account.id.as_str()),
                     Some(account.email.as_str()),
                     None,
-                    "API Key 账号不支持加入本地接入",
+                    "仅 New API API Key 账号支持加入本地接入",
                 );
-                last_error = "API Key 账号不支持加入本地接入".to_string();
+                last_error = "仅 New API API Key 账号支持加入本地接入".to_string();
                 continue;
             }
             if let Some(primary_remaining) = should_skip_account_for_codex_auto_switch(&account) {
@@ -7798,13 +7876,14 @@ mod tests {
         build_codex_client_models_response, build_images_api_payload, build_local_models_response,
         build_ordered_account_ids, build_request_routing_hint, extract_usage_capture,
         is_responses_completion_event, is_websocket_upgrade_request,
-        normalize_custom_routing_rules, parse_codex_retry_after,
+        compare_routing_candidates, normalize_custom_routing_rules, parse_codex_retry_after,
         parse_responses_payload_from_upstream, prepare_gateway_request,
         prepare_responses_websocket_request,
-        resolve_supported_model_alias, should_retry_single_account_upstream_status,
-        should_treat_response_as_stream, should_try_next_account, websocket_accept_key,
-        GatewayResponseAdapter, ParsedRequest, ResponseUsageCollector, ResponsesWebSocketRequest,
-        ResponsesWebSocketSessionState,
+        resolve_supported_model_alias, build_openai_compatible_upstream_url,
+        should_retry_single_account_upstream_status, should_treat_response_as_stream,
+        should_try_next_account, websocket_accept_key, GatewayResponseAdapter, ParsedRequest,
+        ResponseUsageCollector, ResponsesWebSocketRequest, ResponsesWebSocketSessionState,
+        RoutingCandidate,
     };
     use crate::models::codex_local_access::{
         CodexLocalAccessCustomRoutingRule, CodexLocalAccessRoutingStrategy,
@@ -7835,6 +7914,15 @@ mod tests {
         let accept = websocket_accept_key("dGhlIHNhbXBsZSBub25jZQ==");
 
         assert_eq!(accept, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
+    }
+
+    #[test]
+    fn builds_openai_compatible_upstream_url_from_v1_base_url() {
+        let url =
+            build_openai_compatible_upstream_url("http://127.0.0.1:3000/v1/", "/responses")
+                .expect("build upstream url");
+
+        assert_eq!(url, "http://127.0.0.1:3000/v1/responses");
     }
 
     #[test]
@@ -8122,6 +8210,37 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
         );
 
         assert_eq!(ordered, vec!["acc-high-a", "acc-high-b", "acc-low"]);
+    }
+
+    #[test]
+    fn auto_routing_prefers_new_api_accounts_before_oauth_accounts() {
+        let original_index = HashMap::from([
+            ("acc-oauth".to_string(), 0usize),
+            ("acc-newapi".to_string(), 1usize),
+        ]);
+        let oauth_candidate = RoutingCandidate {
+            account_id: "acc-oauth".to_string(),
+            new_api_priority: 0,
+            plan_rank: Some(700),
+            remaining_quota: Some(100),
+            subscription_expiry_ms: None,
+        };
+        let new_api_candidate = RoutingCandidate {
+            account_id: "acc-newapi".to_string(),
+            new_api_priority: 1,
+            plan_rank: None,
+            remaining_quota: None,
+            subscription_expiry_ms: None,
+        };
+
+        let ordering = compare_routing_candidates(
+            &new_api_candidate,
+            &oauth_candidate,
+            CodexLocalAccessRoutingStrategy::Auto,
+            &original_index,
+        );
+
+        assert_eq!(ordering, std::cmp::Ordering::Less);
     }
 
     #[test]

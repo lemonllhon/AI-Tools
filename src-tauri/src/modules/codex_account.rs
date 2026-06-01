@@ -357,7 +357,10 @@ fn apply_api_key_provider_metadata(
     let is_new_api = provider_config
         .provider_id
         .as_deref()
-        .map(|value| value.eq_ignore_ascii_case(CODEX_NEW_API_PROVIDER_ID))
+        .map(|value| {
+            let normalized = value.trim().to_ascii_lowercase();
+            normalized == CODEX_NEW_API_PROVIDER_ID || normalized == "newapi"
+        })
         .unwrap_or(false);
     let plan_type = if is_cockpit_api {
         COCKPIT_API_LOGIN_PLAN_TYPE

@@ -312,6 +312,10 @@ function getCodexLaunchCredentialKind(
   return isCodexApiKeyAccount(account) ? "api-key" : "account";
 }
 
+function isCodexLocalAccessEligibleAccount(account: CodexAccount): boolean {
+  return !isCodexApiKeyAccount(account) || isCodexNewApiAccount(account);
+}
+
 function getCodexLaunchCredentialType(
   kind: CodexLaunchCredentialKind,
 ): CodexLaunchCredentialType {
@@ -4313,8 +4317,9 @@ export function CodexAccountsPage() {
         const filteredAccountIds = accountIds.filter((accountId) => {
           const account = accountById.get(accountId);
           if (!account) return false;
-          if (isCodexApiKeyAccount(account)) return false;
+          if (!isCodexLocalAccessEligibleAccount(account)) return false;
           if (
+            !isCodexApiKeyAccount(account) &&
             restrictFreeAccounts &&
             isCodexExplicitFreePlanType(account.plan_type)
           ) {
@@ -4974,7 +4979,7 @@ export function CodexAccountsPage() {
     if (!localAccessCollection) return;
     const targetIds = localAccessCollection.accountIds.filter((accountId) => {
       const account = accounts.find((item) => item.id === accountId);
-      return Boolean(account && !isCodexApiKeyAccount(account));
+      return Boolean(account && isCodexLocalAccessEligibleAccount(account));
     });
 
     if (targetIds.length === 0) {

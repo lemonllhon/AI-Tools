@@ -6,6 +6,16 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.0.30] - 2026-06-01
+
+### 新增
+- Codex 本地 API 服务支持 New API API Key 账号加入账号池，请求会携带该账号 API Key 转发到配置的 New API `/v1` Base URL。
+- New API 供应商 ID 兼容 `newapi` 写法，与 `new_api` 一样用于供应商元数据、额度展示、徽标和本地 API 服务准入判断。
+
+### 变更
+- Codex 本地 API 服务自动路由策略会优先尝试 New API 账号，再尝试 OAuth 账号，从而让 New API 自身的渠道池优先接管调用。
+- API 服务账号选择与健康检测现在允许 OAuth 账号和 New API API Key 账号，其他 API Key 供应商仍不会加入本地账号池。
+
 ## [0.0.29] - 2026-06-01
 
 ### 新增

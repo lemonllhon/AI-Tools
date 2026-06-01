@@ -6,6 +6,15 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.30] - 2026-06-01
+### Added
+- Added Codex local API service support for New API API-key accounts, forwarding requests to the configured New API `/v1` Base URL with the account API key.
+- Added `newapi` as an alias for the New API provider id alongside `new_api`, covering provider metadata, quota display, badges, and local API service eligibility.
+
+### Changed
+- Changed Codex local API service routing so New API accounts are tried before OAuth accounts in automatic routing strategies, letting New API's own channel pool take priority when present.
+- Changed the API service member picker and health test to allow OAuth accounts plus New API API-key accounts while continuing to block other API-key providers from local pooling.
+
 ## [0.0.29] - 2026-06-01
 ### Added
 - Added a New API provider preset for Codex API key accounts, with local New API defaults and provider display names.

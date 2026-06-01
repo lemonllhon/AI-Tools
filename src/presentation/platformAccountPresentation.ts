@@ -627,7 +627,7 @@ function buildCodexNewApiQuotaItems(
 
 function getCodexApiKeyProviderDisplayName(account: CodexAccount): string {
   const providerId = (account.api_provider_id || "").trim().toLowerCase();
-  if (providerId === "new_api") {
+  if (providerId === "new_api" || providerId === "newapi") {
     return account.api_provider_name?.trim() || "New API";
   }
   return "Codex API";

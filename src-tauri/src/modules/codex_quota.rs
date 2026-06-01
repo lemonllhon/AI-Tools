@@ -319,7 +319,10 @@ fn is_new_api_provider_account(account: &CodexAccount) -> bool {
     account
         .api_provider_id
         .as_deref()
-        .map(|value| value.trim().eq_ignore_ascii_case(LEGACY_NEW_API_PROVIDER_ID))
+        .map(|value| {
+            let normalized = value.trim().to_ascii_lowercase();
+            normalized == LEGACY_NEW_API_PROVIDER_ID || normalized == "newapi"
+        })
         .unwrap_or(false)
 }
 
