@@ -220,7 +220,9 @@ export function DashboardPage({
     workbuddy: false,
   });
   const [apiServiceState, setApiServiceState] = React.useState<CodexLocalAccessState | null>(null);
-  const [apiServiceBusy, setApiServiceBusy] = React.useState<'load' | 'toggle' | 'activate' | null>(null);
+  const [apiServiceBusy, setApiServiceBusy] = React.useState<
+    'load' | 'toggle' | 'activate' | 'refreshConfig' | null
+  >(null);
   const [apiServiceSaving, setApiServiceSaving] = React.useState(false);
   const [apiServiceSpeedSaving, setApiServiceSpeedSaving] = React.useState<CodexAppSpeed | null>(null);
   const [apiServiceTesting, setApiServiceTesting] = React.useState(false);
@@ -463,6 +465,31 @@ export function DashboardPage({
       setApiServiceBusy(null);
     }
   }, [apiServiceState, openCodexApiServiceModal, scheduleApiServiceStateRefresh, t]);
+
+  const handleRefreshCodexApiServiceConfig = useCallback(async () => {
+    const collection = apiServiceState?.collection;
+    if (!collection) {
+      setApiServiceMessage({
+        text: t('dashboard.apiServices.needCodexAccounts', '请先在仪表盘服务控制台添加 Codex API 服务账号集合。'),
+        tone: 'error',
+      });
+      openCodexApiServiceModal('members');
+      return;
+    }
+
+    setApiServiceBusy('refreshConfig');
+    try {
+      await runApiServiceStateMutation(
+        () => codexLocalAccessService.refreshCodexLocalAccessConfig(),
+        t('codex.localAccess.refreshConfigSuccess', 'API 服务配置已更新'),
+      );
+    } catch (error) {
+      console.error('Failed to refresh Codex API service config:', error);
+      throw error instanceof Error ? error : new Error(String(error));
+    } finally {
+      setApiServiceBusy(null);
+    }
+  }, [apiServiceState?.collection, openCodexApiServiceModal, runApiServiceStateMutation, t]);
 
   const handleApiServiceAddressKindChange = useCallback((value: string) => {
     const next = normalizeDashboardLocalAccessAddressKind(value);
@@ -3548,6 +3575,23 @@ export function DashboardPage({
                           : t('dashboard.apiServices.activate', '启动服务')}
                       </button>
                       <button
+                        className="btn btn-secondary"
+                        onClick={() => void handleRefreshCodexApiServiceConfig().catch(() => undefined)}
+                        disabled={apiServiceBusy !== null || apiServiceSaving || !codexCollection}
+                        title={t(
+                          'codex.localAccess.refreshConfigHint',
+                          '重新写入当前 Codex config.toml/auth.json，不重启 API 服务。已运行的 Codex 客户端是否立即生效取决于客户端是否热读取配置。',
+                        )}
+                      >
+                        <RotateCw
+                          size={14}
+                          className={apiServiceBusy === 'refreshConfig' ? 'loading-spinner' : ''}
+                        />
+                        {apiServiceBusy === 'refreshConfig'
+                          ? t('common.loading', '加载中...')
+                          : t('codex.localAccess.refreshConfig', '更新配置')}
+                      </button>
+                      <button
                         className={toggleButtonClass}
                         onClick={() => void handleToggleCodexApiService()}
                         disabled={apiServiceBusy !== null || apiServiceSaving}
@@ -3746,6 +3790,7 @@ export function DashboardPage({
         }
         onClearStats={handleClearApiServiceStats}
         onRefreshStats={reloadApiServiceState}
+        onRefreshConfig={handleRefreshCodexApiServiceConfig}
         onUpdatePort={handleUpdateApiServicePort}
         onUpdateRoutingStrategy={handleUpdateApiServiceRoutingStrategy}
         onUpdateCustomRouting={handleUpdateApiServiceCustomRouting}

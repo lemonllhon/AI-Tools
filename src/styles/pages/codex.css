@@ -1086,6 +1086,20 @@
   box-shadow: 0 14px 34px rgba(15, 118, 110, 0.12);
 }
 
+.codex-account-card.local-access-active,
+.codex-provider-card.local-access-active {
+  border-color: color-mix(in srgb, var(--primary) 48%, rgba(20, 184, 166, 0.38));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--primary) 18%, transparent),
+    0 16px 34px -22px color-mix(in srgb, var(--primary) 60%, transparent);
+  animation: codexLocalAccessBreath 2.4s ease-in-out infinite;
+}
+
+.codex-account-card.local-access-active::before,
+.codex-provider-card.local-access-active::before {
+  opacity: 1;
+}
+
 .codex-accounts-page .account-table tr.new-api-exclusive td:first-child {
   border-left: 3px solid rgba(20, 184, 166, 0.72);
 }
@@ -1670,6 +1684,12 @@
   border-color: var(--accent);
 }
 
+.codex-accounts-page .codex-compact-row.local-access-active {
+  border-color: color-mix(in srgb, var(--primary) 46%, rgba(20, 184, 166, 0.34));
+  background: color-mix(in srgb, var(--primary) 8%, var(--bg-card));
+  animation: codexLocalAccessBreath 2.4s ease-in-out infinite;
+}
+
 .codex-accounts-page .codex-compact-select {
   flex-shrink: 0;
   display: inline-flex;
@@ -2226,6 +2246,15 @@
 
 .codex-accounts-page .account-table tr.current {
   background: rgba(29, 78, 216, 0.08);
+}
+
+.codex-accounts-page .account-table tr.local-access-active {
+  background: color-mix(in srgb, var(--primary) 7%, var(--bg-card));
+  animation: codexLocalAccessBreath 2.4s ease-in-out infinite;
+}
+
+.codex-accounts-page .account-table tr.local-access-active td:first-child {
+  border-left: 3px solid color-mix(in srgb, var(--primary) 64%, rgba(20, 184, 166, 0.7));
 }
 
 .codex-accounts-page .account-table .quota-item {
@@ -5109,6 +5138,20 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes codexLocalAccessBreath {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--primary) 16%, transparent),
+      0 14px 30px -24px color-mix(in srgb, var(--primary) 45%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent),
+      0 20px 38px -20px color-mix(in srgb, var(--primary) 58%, transparent);
   }
 }
 

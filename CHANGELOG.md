@@ -6,6 +6,17 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.36] - 2026-06-02
+### Added
+- Added an Update Config action for the Codex API service in the dashboard console, Codex overview card, and API service panel. It rewrites the current Codex `config.toml`/auth provider bundle without restarting the API service.
+- Added active-source breathing highlights so the Codex overview marks API service account-pool members when Account Pool or Hybrid mode is running, while New API provider cards are highlighted when Provider or Hybrid mode is running.
+
+### Changed
+- New API model-provider cards no longer show the zero-account reference badge; the reference count is only shown when accounts actually reference the provider.
+
+### Notes
+- Update Config can refresh the written local-access endpoint, API key, and WebSocket support metadata immediately. Already-running Codex clients still need to reread their config for the new values to take effect without a client restart.
+
 ## [0.0.35] - 2026-06-02
 ### Added
 - Added model-provider usage statistics to the Codex API service panel, including request totals, success and failure counts, token usage, average latency, endpoint, and key count.

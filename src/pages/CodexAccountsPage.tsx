@@ -576,6 +576,8 @@ export function CodexAccountsPage() {
   const [localAccessSaving, setLocalAccessSaving] = useState(false);
   const [localAccessTesting, setLocalAccessTesting] = useState(false);
   const [localAccessRefreshing, setLocalAccessRefreshing] = useState(false);
+  const [localAccessConfigRefreshing, setLocalAccessConfigRefreshing] =
+    useState(false);
   const [localAccessPortKilling, setLocalAccessPortKilling] = useState(false);
   const [showLocalAccessHideConfirm, setShowLocalAccessHideConfirm] =
     useState(false);
@@ -4133,6 +4135,20 @@ export function CodexAccountsPage() {
     () => new Set(localAccessCollection?.accountIds ?? []),
     [localAccessCollection?.accountIds],
   );
+  const localAccessProviderIds = useMemo(
+    () => [...(localAccessCollection?.providerIds ?? [])],
+    [localAccessCollection?.providerIds],
+  );
+  const shouldHighlightLocalAccessAccounts =
+    Boolean(localAccessState?.running) &&
+    (localAccessCollection?.sourceMode === "account_pool" ||
+      localAccessCollection?.sourceMode === "hybrid");
+  const isLocalAccessActiveAccount = useCallback(
+    (accountId: string) =>
+      shouldHighlightLocalAccessAccounts &&
+      localAccessAccountIdSet.has(accountId),
+    [localAccessAccountIdSet, shouldHighlightLocalAccessAccounts],
+  );
   const localAccessAccounts = useMemo(
     () =>
       (localAccessCollection?.accountIds ?? [])
@@ -4173,6 +4189,7 @@ export function CodexAccountsPage() {
     localAccessSaving ||
     localAccessTesting ||
     localAccessRefreshing ||
+    localAccessConfigRefreshing ||
     localAccessPortKilling;
   const selectedLocalAccessAddressKind: CodexLocalAccessAddressKind =
     localAccessAddressKind === "lan" && localAccessState?.lanBaseUrl
@@ -4817,6 +4834,40 @@ export function CodexAccountsPage() {
       setLocalAccessSaving(false);
     }
   }, [setMessage, t]);
+
+  const handleRefreshLocalAccessConfig = useCallback(async () => {
+    if (!localAccessCollection) {
+      setMessage({
+        text: t("codex.localAccess.configEmpty", "先把账号保存到 API 服务集合，随后会自动生成地址、密钥和端口。"),
+        tone: "error",
+      });
+      return null;
+    }
+
+    setLocalAccessConfigRefreshing(true);
+    try {
+      const nextState =
+        await codexLocalAccessService.refreshCodexLocalAccessConfig();
+      setLocalAccessState(nextState);
+      setMessage({
+        text: t("codex.localAccess.refreshConfigSuccess", "API 服务配置已更新"),
+      });
+      return nextState;
+    } catch (error) {
+      console.error("Failed to refresh local access config:", error);
+      const message = String(error).replace(/^Error:\s*/, "");
+      setMessage({
+        text: t("messages.actionFailed", {
+          action: t("codex.localAccess.refreshConfig", "更新配置"),
+          error: message,
+        }),
+        tone: "error",
+      });
+      throw new Error(message);
+    } finally {
+      setLocalAccessConfigRefreshing(false);
+    }
+  }, [localAccessCollection, setMessage, t]);
 
   const handleKillLocalAccessPort = useCallback(async () => {
     if (!localAccessCollection) {
@@ -5511,6 +5562,7 @@ export function CodexAccountsPage() {
       const isCurrent = overviewCurrentAccountId === account.id;
       const isSelected = selected.has(account.id);
       const isApiKeyAccount = isCodexApiKeyAccount(account);
+      const isLocalAccessUsingAccount = isLocalAccessActiveAccount(account.id);
       const compactQuotaItems = resolveCompactQuotaItems(presentation);
       const subscriptionInfo = resolveSubscriptionPresentation(account);
       const showCompactExpiry =
@@ -5518,7 +5570,7 @@ export function CodexAccountsPage() {
       return (
         <div
           key={groupKey ? `${groupKey}-${account.id}` : account.id}
-          className={`codex-compact-row ${isCurrent ? "current" : ""} ${isSelected ? "selected" : ""}`}
+          className={`codex-compact-row ${isCurrent ? "current" : ""} ${isSelected ? "selected" : ""} ${isLocalAccessUsingAccount ? "local-access-active" : ""}`}
         >
           <div className="codex-compact-select">
             <input
@@ -5651,12 +5703,13 @@ export function CodexAccountsPage() {
       const isInLocalAccess =
         CODEX_LOCAL_ACCESS_ACCOUNT_PAGE_ENTRY_ENABLED &&
         localAccessAccountIdSet.has(account.id);
+      const isLocalAccessUsingAccount = isLocalAccessActiveAccount(account.id);
       const subscriptionInfo = resolveSubscriptionPresentation(account);
       const isSubscriptionInfoMissing = subscriptionInfo.bucket === "missing";
       return (
         <div
           key={groupKey ? `${groupKey}-${account.id}` : account.id}
-          className={`codex-account-card ${isCurrent ? "current" : ""} ${isSelected ? "selected" : ""} ${isNewApiAccount ? "new-api-exclusive" : ""}`}
+          className={`codex-account-card ${isCurrent ? "current" : ""} ${isSelected ? "selected" : ""} ${isNewApiAccount ? "new-api-exclusive" : ""} ${isLocalAccessUsingAccount ? "local-access-active" : ""}`}
         >
           <div className="card-top">
             <div className="card-select">
@@ -6504,6 +6557,22 @@ export function CodexAccountsPage() {
                   </button>
                   <button
                     className="card-action-btn"
+                    onClick={() => void handleRefreshLocalAccessConfig().catch(() => undefined)}
+                    title={t(
+                      "codex.localAccess.refreshConfigHint",
+                      "重新写入当前 Codex config.toml/auth.json，不重启 API 服务。已运行的 Codex 客户端是否立即生效取决于客户端是否热读取配置。",
+                    )}
+                    disabled={localAccessBusy || !localAccessCollection}
+                  >
+                    <RotateCw
+                      size={14}
+                      className={
+                        localAccessConfigRefreshing ? "loading-spinner" : ""
+                      }
+                    />
+                  </button>
+                  <button
+                    className="card-action-btn"
                     onClick={() => void handleQuickRefreshLocalAccessQuota()}
                     title={t("common.shared.refreshQuota", "刷新配额")}
                     disabled={localAccessBusy || !localAccessCollection}
@@ -6705,11 +6774,12 @@ export function CodexAccountsPage() {
       const isInLocalAccess =
         CODEX_LOCAL_ACCESS_ACCOUNT_PAGE_ENTRY_ENABLED &&
         localAccessAccountIdSet.has(account.id);
+      const isLocalAccessUsingAccount = isLocalAccessActiveAccount(account.id);
       const subscriptionInfo = resolveSubscriptionPresentation(account);
       return (
         <tr
           key={groupKey ? `${groupKey}-${account.id}` : account.id}
-          className={`${isCurrent ? "current" : ""} ${isNewApiAccount ? "new-api-exclusive" : ""}`}
+          className={`${isCurrent ? "current" : ""} ${isNewApiAccount ? "new-api-exclusive" : ""} ${isLocalAccessUsingAccount ? "local-access-active" : ""}`}
         >
           <td>
             <input
@@ -10480,6 +10550,7 @@ export function CodexAccountsPage() {
             }
             onClearStats={handleClearLocalAccessStats}
             onRefreshStats={reloadLocalAccessState}
+            onRefreshConfig={handleRefreshLocalAccessConfig}
             onUpdatePort={handleUpdateLocalAccessPort}
             onUpdateRoutingStrategy={handleUpdateLocalAccessRoutingStrategy}
             onUpdateCustomRouting={handleUpdateLocalAccessCustomRouting}
@@ -10490,7 +10561,7 @@ export function CodexAccountsPage() {
             onRotateApiKey={handleRotateLocalAccessApiKey}
             onKillPort={handleKillLocalAccessPort}
             onTest={handleTestLocalAccess}
-            saving={localAccessSaving}
+            saving={localAccessSaving || localAccessConfigRefreshing}
             testing={localAccessTesting}
             portCleanupBusy={localAccessPortKilling}
           />
@@ -10525,6 +10596,9 @@ export function CodexAccountsPage() {
       {activeTab === "providers" && (
         <CodexModelProviderManager
           accounts={accounts}
+          localAccessProviderIds={localAccessProviderIds}
+          localAccessSourceMode={localAccessCollection?.sourceMode ?? null}
+          localAccessRunning={localAccessState?.running ?? false}
           onProvidersChanged={setManagedProviders}
           onManageModelPresets={() => {
             setActiveTab("wakeup");

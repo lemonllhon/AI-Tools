@@ -4913,6 +4913,33 @@ pub async fn activate_local_access_for_dir(
     Ok(state)
 }
 
+pub async fn refresh_local_access_config_for_dir(
+    profile_dir: &Path,
+) -> Result<CodexLocalAccessState, String> {
+    ensure_runtime_loaded_without_start().await?;
+    refresh_runtime_collection_members_from_accounts().await?;
+    let state = {
+        let runtime = gateway_runtime().lock().await;
+        build_state_snapshot(&runtime)
+    };
+    let collection = state
+        .collection
+        .clone()
+        .ok_or_else(|| "API 服务集合尚未创建".to_string())?;
+    let base_url = state
+        .base_url
+        .clone()
+        .unwrap_or_else(|| build_base_url(collection.port));
+    let bound_oauth_account_id =
+        normalize_optional_account_ref(collection.bound_oauth_account_id.as_deref());
+    if let Some(bound_id) = bound_oauth_account_id.as_deref() {
+        let _ = validate_local_access_bound_oauth_account(bound_id)?;
+        let _ = codex_account::ensure_managed_account_fresh(bound_id).await?;
+    }
+    write_local_access_account_bundle_for_collection(profile_dir, &collection, base_url)?;
+    Ok(state)
+}
+
 #[derive(Debug, Clone)]
 struct LocalAccessGatewayProbeFailure {
     status: Option<u16>,

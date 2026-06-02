@@ -10,6 +10,7 @@ import {
   Gauge,
   KeyRound,
   RefreshCw,
+  RotateCw,
   Search,
   Server,
   ShieldCheck,
@@ -87,6 +88,7 @@ interface CodexLocalAccessModalProps {
   }) => Promise<unknown> | unknown;
   onClearStats: () => Promise<unknown> | unknown;
   onRefreshStats: () => Promise<unknown> | unknown;
+  onRefreshConfig?: () => Promise<unknown> | unknown;
   onUpdatePort: (port: number) => Promise<unknown> | unknown;
   onUpdateRoutingStrategy: (
     strategy: CodexLocalAccessRoutingStrategy,
@@ -235,6 +237,7 @@ export function CodexLocalAccessModal({
   onSaveProviders,
   onClearStats,
   onRefreshStats,
+  onRefreshConfig,
   onUpdatePort,
   onUpdateRoutingStrategy,
   onUpdateCustomRouting,
@@ -1666,6 +1669,16 @@ export function CodexLocalAccessModal({
     }
   };
 
+  const handleRefreshConfig = async () => {
+    if (!onRefreshConfig) return;
+    await runAction(
+      async () => {
+        await onRefreshConfig();
+      },
+      t('codex.localAccess.refreshConfigSuccess', 'API 服务配置已更新'),
+    );
+  };
+
   const handleApplyAllAccountSpeed = async (speed: CodexAppSpeed) => {
     if (!onApplyAllAccountSpeed || actionBusy || bulkSpeedSaving) return;
     const speedLabel =
@@ -1830,6 +1843,21 @@ export function CodexLocalAccessModal({
                   >
                     <RefreshCw size={14} className={saving ? 'loading-spinner' : ''} />
                   </button>
+                  {onRefreshConfig && (
+                    <button
+                      type="button"
+                      className="folder-icon-btn codex-local-access-toolbar-btn is-primary"
+                      onClick={() => void handleRefreshConfig()}
+                      disabled={!collection || actionBusy}
+                      title={t(
+                        'codex.localAccess.refreshConfigHint',
+                        '重新写入当前 Codex config.toml/auth.json，不重启 API 服务。已运行的 Codex 客户端是否立即生效取决于客户端是否热读取配置。',
+                      )}
+                      aria-label={t('codex.localAccess.refreshConfig', '更新配置')}
+                    >
+                      <RotateCw size={14} className={saving ? 'loading-spinner' : ''} />
+                    </button>
+                  )}
                   {collection && (
                     <>
                       <div className="codex-local-access-header-routing">

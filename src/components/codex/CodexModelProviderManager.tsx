@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useEscClose } from "../../hooks/useEscClose";
 import type { CodexAccount } from "../../types/codex";
+import type { CodexLocalAccessSourceMode } from "../../types/codexLocalAccess";
 import {
   addApiKeyToCodexModelProvider,
   countCodexModelProviderReferences,
@@ -38,6 +39,9 @@ import { CodexQuickConfigCard } from "./CodexQuickConfigCard";
 
 interface CodexModelProviderManagerProps {
   accounts: CodexAccount[];
+  localAccessProviderIds?: string[];
+  localAccessSourceMode?: CodexLocalAccessSourceMode | null;
+  localAccessRunning?: boolean;
   onProvidersChanged?: (providers: CodexModelProvider[]) => void;
   onManageModelPresets?: () => void;
 }
@@ -81,8 +85,19 @@ const DEFAULT_PROVIDER_PREVIEW_PATHS: ProviderPreviewPaths = {
   codexAuthPath: "~/.codex/auth.json",
 };
 
+function isNewApiModelProvider(provider: CodexModelProvider): boolean {
+  return `${provider.id} ${provider.name}`
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "")
+    .includes("newapi");
+}
+
 export function CodexModelProviderManager({
   accounts,
+  localAccessProviderIds = [],
+  localAccessSourceMode = null,
+  localAccessRunning = false,
   onProvidersChanged,
   onManageModelPresets,
 }: CodexModelProviderManagerProps) {
@@ -184,6 +199,16 @@ export function CodexModelProviderManager({
     });
     return map;
   }, [accounts, providers]);
+
+  const localAccessProviderIdSet = useMemo(
+    () => new Set(localAccessProviderIds),
+    [localAccessProviderIds],
+  );
+
+  const shouldHighlightLocalAccessProviders =
+    localAccessRunning &&
+    (localAccessSourceMode === "provider_first" ||
+      localAccessSourceMode === "hybrid");
 
   const currentEditingProvider = useMemo(
     () =>
@@ -531,8 +556,18 @@ export function CodexModelProviderManager({
         <div className="codex-provider-grid">
           {filteredProviders.map((provider) => {
             const referenceCount = providerReferenceMap.get(provider.id) ?? 0;
+            const showReferenceBadge =
+              referenceCount > 0 || !isNewApiModelProvider(provider);
+            const isLocalAccessActiveProvider =
+              shouldHighlightLocalAccessProviders &&
+              localAccessProviderIdSet.has(provider.id);
             return (
-              <div className="codex-provider-card" key={provider.id}>
+              <div
+                className={`codex-provider-card ${
+                  isLocalAccessActiveProvider ? "local-access-active" : ""
+                }`}
+                key={provider.id}
+              >
                 <div className="codex-provider-card-header">
                   <div className="codex-provider-title">{provider.name}</div>
                   <div className="codex-provider-actions">
@@ -589,14 +624,16 @@ export function CodexModelProviderManager({
                       count: provider.apiKeys.length,
                     })}
                   </span>
-                  <span
-                    className={`provider-badge ${referenceCount > 0 ? "danger" : ""}`}
-                  >
-                    {t("codex.modelProviders.referencesCount", {
-                      defaultValue: "引用账号 {{count}} 个",
-                      count: referenceCount,
-                    })}
-                  </span>
+                  {showReferenceBadge && (
+                    <span
+                      className={`provider-badge ${referenceCount > 0 ? "danger" : ""}`}
+                    >
+                      {t("codex.modelProviders.referencesCount", {
+                        defaultValue: "引用账号 {{count}} 个",
+                        count: referenceCount,
+                      })}
+                    </span>
+                  )}
                 </div>
                 {provider.apiKeys.length > 0 && (
                   <div className="codex-provider-key-list">

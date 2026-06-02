@@ -1004,6 +1004,12 @@ pub async fn codex_local_access_set_enabled(
 }
 
 #[tauri::command]
+pub async fn codex_local_access_refresh_config() -> Result<CodexLocalAccessState, String> {
+    let codex_home = codex_account::get_codex_home();
+    codex_local_access::refresh_local_access_config_for_dir(&codex_home).await
+}
+
+#[tauri::command]
 pub async fn codex_local_access_activate(app: AppHandle) -> Result<CodexLocalAccessState, String> {
     let previous_history_provider = read_default_codex_history_provider_for_switch();
     let codex_home = codex_account::get_codex_home();

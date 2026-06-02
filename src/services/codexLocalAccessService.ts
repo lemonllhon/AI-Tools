@@ -145,6 +145,10 @@ export async function setCodexLocalAccessEnabled(
   return await invokeCodexLocalAccessStateMutation('codex_local_access_set_enabled', { enabled });
 }
 
+export async function refreshCodexLocalAccessConfig(): Promise<CodexLocalAccessState> {
+  return await invokeCodexLocalAccessStateMutation('codex_local_access_refresh_config');
+}
+
 export async function activateCodexLocalAccess(): Promise<CodexLocalAccessState> {
   return await invokeCodexLocalAccessStateMutation('codex_local_access_activate');
 }
