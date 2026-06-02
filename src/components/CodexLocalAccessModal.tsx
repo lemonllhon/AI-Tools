@@ -57,18 +57,20 @@ import {
   type MultiSelectFilterOption,
 } from './MultiSelectFilterDropdown';
 import { SingleSelectDropdown } from './SingleSelectDropdown';
+import type { CodexModelProvider } from '../services/codexModelProviderService';
 import { useEscClose } from '../hooks/useEscClose';
 import './GroupAccountPickerModal.css';
 import './CodexLocalAccessModal.css';
 
 interface CodexLocalAccessModalProps {
   isOpen: boolean;
-  mode: 'panel' | 'members';
+  mode: 'panel' | 'members' | 'providers';
   state: CodexLocalAccessState | null;
   addressKind: CodexLocalAccessAddressKind;
   addressOptions: Array<{ value: string; label: string }>;
   onAddressKindChange: (value: string) => void;
   accounts: CodexAccount[];
+  modelProviders?: CodexModelProvider[];
   accountGroups: CodexAccountGroup[];
   initialSelectedIds: string[];
   maskAccountText: (value?: string | null) => string;
@@ -77,6 +79,10 @@ interface CodexLocalAccessModalProps {
     accountIds: string[];
     restrictFreeAccounts: boolean;
     autoIncludeNewAccounts: boolean;
+  }) => Promise<unknown> | unknown;
+  onSaveProviders?: (payload: {
+    providerIds: string[];
+    autoIncludeNewProviders: boolean;
   }) => Promise<unknown> | unknown;
   onClearStats: () => Promise<unknown> | unknown;
   onRefreshStats: () => Promise<unknown> | unknown;
@@ -154,6 +160,14 @@ function isLocalAccessEligibleAccount(account: CodexAccount): boolean {
   return !isCodexApiKeyAccount(account) || isCodexNewApiAccount(account);
 }
 
+function isNewApiModelProvider(provider: CodexModelProvider): boolean {
+  const normalized = `${provider.id} ${provider.name}`
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
+  return normalized.includes('newapi');
+}
+
 function readStoredStatsRange(): StatsRangeKey {
   try {
     return normalizeStatsRangeKey(localStorage.getItem(CODEX_LOCAL_ACCESS_STATS_RANGE_STORAGE_KEY));
@@ -208,11 +222,13 @@ export function CodexLocalAccessModal({
   addressOptions,
   onAddressKindChange,
   accounts,
+  modelProviders = [],
   accountGroups,
   initialSelectedIds,
   maskAccountText,
   onClose,
   onSaveAccounts,
+  onSaveProviders,
   onClearStats,
   onRefreshStats,
   onUpdatePort,
@@ -240,6 +256,9 @@ export function CodexLocalAccessModal({
   const [groupFilter, setGroupFilter] = useState<string[]>([]);
   const [restrictFreeAccounts, setRestrictFreeAccounts] = useState(true);
   const [autoIncludeNewAccounts, setAutoIncludeNewAccounts] = useState(false);
+  const [providerQuery, setProviderQuery] = useState('');
+  const [selectedProviders, setSelectedProviders] = useState<Set<string>>(new Set());
+  const [autoIncludeNewProviders, setAutoIncludeNewProviders] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [testDialogOpen, setTestDialogOpen] = useState(false);
@@ -262,8 +281,10 @@ export function CodexLocalAccessModal({
   const [customRoutingBulkPriority, setCustomRoutingBulkPriority] = useState('10');
   const [customRoutingBulkWeight, setCustomRoutingBulkWeight] = useState('1');
   const selectAllCheckboxRef = useRef<HTMLInputElement | null>(null);
+  const providerSelectAllCheckboxRef = useRef<HTMLInputElement | null>(null);
   const customRoutingSelectAllRef = useRef<HTMLInputElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const providerSearchInputRef = useRef<HTMLInputElement | null>(null);
 
   const collection = state?.collection ?? null;
   const apiPortUrl = state?.apiPortUrl ?? '';
@@ -436,6 +457,30 @@ export function CodexLocalAccessModal({
       localAccessAccounts.filter((account) => accountIds.has(account.id)),
     );
   }, [collection?.accountIds, localAccessAccounts]);
+  const localAccessProviders = useMemo(
+    () =>
+      modelProviders
+        .filter(isNewApiModelProvider)
+        .filter((provider) => provider.apiKeys.length > 0),
+    [modelProviders],
+  );
+  const localAccessProviderIdSet = useMemo(
+    () => new Set(localAccessProviders.map((provider) => provider.id)),
+    [localAccessProviders],
+  );
+  const normalizedInitialProviderIds = useMemo(
+    () =>
+      (collection?.providerIds ?? []).filter((providerId) =>
+        localAccessProviderIdSet.has(providerId),
+      ),
+    [collection?.providerIds, localAccessProviderIdSet],
+  );
+  const currentProviderKeyCount = useMemo(() => {
+    const providerIds = new Set(collection?.providerIds ?? []);
+    return localAccessProviders
+      .filter((provider) => providerIds.has(provider.id))
+      .reduce((count, provider) => count + provider.apiKeys.length, 0);
+  }, [collection?.providerIds, localAccessProviders]);
   const localAccessAccountIdSet = useMemo(
     () => new Set(localAccessAccounts.map((account) => account.id)),
     [localAccessAccounts],
@@ -454,6 +499,9 @@ export function CodexLocalAccessModal({
     setGroupFilter([]);
     setRestrictFreeAccounts(collection?.restrictFreeAccounts ?? true);
     setAutoIncludeNewAccounts(collection?.autoIncludeNewAccounts ?? false);
+    setProviderQuery('');
+    setSelectedProviders(new Set(normalizedInitialProviderIds));
+    setAutoIncludeNewProviders(collection?.autoIncludeNewProviders ?? false);
     setError('');
     setNotice('');
     setTestDialogOpen(false);
@@ -495,14 +543,22 @@ export function CodexLocalAccessModal({
         searchInputRef.current?.focus();
       }, 0);
     }
+    if (mode === 'providers') {
+      window.setTimeout(() => {
+        providerSearchInputRef.current?.focus();
+      }, 0);
+    }
   }, [
     collection?.accountIds,
     collection?.autoIncludeNewAccounts,
+    collection?.autoIncludeNewProviders,
     collection?.customRoutingRules,
     collection?.port,
+    collection?.providerIds,
     collection?.restrictFreeAccounts,
     isOpen,
     mode,
+    normalizedInitialProviderIds,
     normalizedInitialSelectedIds,
   ]);
 
@@ -699,6 +755,19 @@ export function CodexLocalAccessModal({
     });
   }, [filterTypes, groupFilter, groupIdsByAccountId, groupNameByAccountId, localAccessAccounts, query, t, tagFilter]);
 
+  const visibleProviders = useMemo(() => {
+    const queryText = providerQuery.trim().toLowerCase();
+    return [...localAccessProviders]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .filter((provider) => {
+        if (!queryText) return true;
+        const haystack = [provider.name, provider.baseUrl]
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(queryText);
+      });
+  }, [localAccessProviders, providerQuery]);
+
   const visibleSelectableAccounts = useMemo(
     () =>
       visibleAccounts.filter((account) => {
@@ -728,6 +797,25 @@ export function CodexLocalAccessModal({
       selectedVisibleCount > 0 && !allVisibleSelected;
   }, [allVisibleSelected, selectedVisibleCount]);
 
+  const selectedVisibleProviderCount = useMemo(
+    () =>
+      visibleProviders.reduce(
+        (count, provider) => count + (selectedProviders.has(provider.id) ? 1 : 0),
+        0,
+      ),
+    [selectedProviders, visibleProviders],
+  );
+
+  const allVisibleProvidersSelected =
+    visibleProviders.length > 0 &&
+    selectedVisibleProviderCount === visibleProviders.length;
+
+  useEffect(() => {
+    if (!providerSelectAllCheckboxRef.current) return;
+    providerSelectAllCheckboxRef.current.indeterminate =
+      selectedVisibleProviderCount > 0 && !allVisibleProvidersSelected;
+  }, [allVisibleProvidersSelected, selectedVisibleProviderCount]);
+
   const selectionDirty = useMemo(
     () =>
       !areSetsEqual(selected, new Set(normalizedInitialSelectedIds)) ||
@@ -740,6 +828,18 @@ export function CodexLocalAccessModal({
       normalizedInitialSelectedIds,
       restrictFreeAccounts,
       selected,
+    ],
+  );
+
+  const providerSelectionDirty = useMemo(
+    () =>
+      !areSetsEqual(selectedProviders, new Set(normalizedInitialProviderIds)) ||
+      autoIncludeNewProviders !== (collection?.autoIncludeNewProviders ?? false),
+    [
+      autoIncludeNewProviders,
+      collection?.autoIncludeNewProviders,
+      normalizedInitialProviderIds,
+      selectedProviders,
     ],
   );
 
@@ -814,7 +914,7 @@ export function CodexLocalAccessModal({
     () => [
       {
         value: 'provider_first',
-        label: t('codex.localAccess.sourceMode.providerFirst', '供应商优先'),
+        label: t('codex.localAccess.sourceMode.providerFirst', '供应商'),
       },
       {
         value: 'account_pool',
@@ -1134,6 +1234,32 @@ export function CodexLocalAccessModal({
     });
   };
 
+  const toggleProviderSelect = (providerId: string) => {
+    if (actionBusy) return;
+    setSelectedProviders((prev) => {
+      const next = new Set(prev);
+      if (next.has(providerId)) {
+        next.delete(providerId);
+      } else {
+        next.add(providerId);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAllVisibleProviders = () => {
+    if (actionBusy || visibleProviders.length === 0) return;
+    setSelectedProviders((prev) => {
+      const next = new Set(prev);
+      if (allVisibleProvidersSelected) {
+        visibleProviders.forEach((provider) => next.delete(provider.id));
+      } else {
+        visibleProviders.forEach((provider) => next.add(provider.id));
+      }
+      return next;
+    });
+  };
+
   const handleToggleRestrictFreeAccounts = async () => {
     if (actionBusy) return;
     setRestrictFreeAccounts((prev) => !prev);
@@ -1375,6 +1501,24 @@ export function CodexLocalAccessModal({
     );
   };
 
+  const handleSaveProviders = async () => {
+    if (!onSaveProviders) return;
+    setError('');
+    setNotice('');
+    try {
+      const filtered = Array.from(selectedProviders).filter((providerId) =>
+        localAccessProviderIdSet.has(providerId),
+      );
+      await onSaveProviders({
+        providerIds: filtered,
+        autoIncludeNewProviders,
+      });
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const handleChangeSourceMode = async (nextValue: string) => {
     if (!collection) return;
     const nextMode: CodexLocalAccessSourceMode =
@@ -1529,18 +1673,20 @@ export function CodexLocalAccessModal({
   const testFailure = testDialogResult?.failure ?? null;
   const testSuccessResult = testDialogResult && !testFailure ? testDialogResult : null;
   const isMembersMode = mode === 'members';
+  const isProvidersMode = mode === 'providers';
+  const isPickerMode = isMembersMode || isProvidersMode;
 
   return (
     <>
       <div
         className={`modal-overlay codex-local-access-modal-overlay${
-          isMembersMode ? '' : ' codex-local-access-modal-overlay-panel'
+          isPickerMode ? '' : ' codex-local-access-modal-overlay-panel'
         }`}
         onClick={onClose}
       >
       <div
         className={`modal codex-local-access-modal${
-          isMembersMode
+          isPickerMode
             ? ' codex-local-access-modal-members group-account-picker-modal'
             : ' codex-local-access-modal-panel'
         }`}
@@ -1553,10 +1699,12 @@ export function CodexLocalAccessModal({
               <span>
                 {isMembersMode
                   ? t('codex.localAccess.entryAction', '添加至 API 服务')
+                  : isProvidersMode
+                    ? t('codex.localAccess.modal.manageProviders', '管理供应商')
                   : t('codex.localAccess.title', 'API 服务')}
               </span>
             </h2>
-            {!isMembersMode && (
+            {!isPickerMode && (
               <div className="codex-local-access-header-meta">
                 <div className="codex-local-access-header-badges">
                   <span
@@ -1572,6 +1720,12 @@ export function CodexLocalAccessModal({
                   </span>
                   <span className="codex-local-access-subtle-badge">
                     {accessScopeBadge}
+                  </span>
+                  <span className="codex-local-access-subtle-badge">
+                    {t('codex.localAccess.providerKeyCount', {
+                      count: currentProviderKeyCount,
+                      defaultValue: '{{count}} 个供应商 Key',
+                    })}
                   </span>
                   <button
                     type="button"
@@ -1695,7 +1849,7 @@ export function CodexLocalAccessModal({
             </div>
           )}
 
-          {!isMembersMode && (
+          {!isPickerMode && (
             <section className="codex-local-access-section codex-local-access-section-surface codex-local-access-summary-block">
               <div className="codex-local-access-summary-head">
                 <div className="codex-local-access-section-title">
@@ -1772,7 +1926,7 @@ export function CodexLocalAccessModal({
             </section>
           )}
 
-          {!isMembersMode && onApplyAllAccountSpeed && (
+          {!isPickerMode && onApplyAllAccountSpeed && (
             <section className="codex-local-access-section codex-local-access-section-surface codex-local-access-speed-section">
               <div className="codex-local-access-section-head">
                 <div className="codex-local-access-section-title">
@@ -1830,7 +1984,7 @@ export function CodexLocalAccessModal({
             </section>
           )}
 
-          {!isMembersMode && (
+          {!isPickerMode && (
             <div className="codex-local-access-panel-grid">
               <section className="codex-local-access-section codex-local-access-section-surface codex-local-access-config-section">
                 <div className="codex-local-access-section-title">
@@ -2341,6 +2495,108 @@ export function CodexLocalAccessModal({
               </div>
             </section>
           )}
+
+          {isProvidersMode && (
+            <section className="codex-local-access-section codex-local-access-section-surface codex-local-access-member-section">
+              <div className="codex-local-access-section-head">
+                <div className="codex-local-access-section-title">
+                  <Server size={16} />
+                  <span>{t('codex.localAccess.providerTitle', '供应商')}</span>
+                </div>
+                <div className="codex-local-access-member-toggles">
+                  <label
+                    className="codex-local-access-free-toggle"
+                    title={t(
+                      'codex.localAccess.modal.autoIncludeNewProvidersDesc',
+                      '开启后，刷新 API 服务状态时会检查新的 New API 供应商，并自动加入供应商号池。',
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={autoIncludeNewProviders}
+                      onChange={(event) => setAutoIncludeNewProviders(event.target.checked)}
+                      disabled={actionBusy}
+                    />
+                    <span>
+                      {t(
+                        'codex.localAccess.modal.autoIncludeNewProvidersToggle',
+                        '自动加入供应商',
+                      )}
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="group-account-toolbar">
+                <div className="group-account-search">
+                  <Search size={16} className="group-account-search-icon" />
+                  <input
+                    ref={providerSearchInputRef}
+                    type="text"
+                    value={providerQuery}
+                    onChange={(event) => setProviderQuery(event.target.value)}
+                    placeholder={t('codex.localAccess.modal.providerSearch', '搜索供应商或 Base URL')}
+                  />
+                </div>
+              </div>
+
+              <div className="group-account-item group-account-item-header">
+                <input
+                  ref={providerSelectAllCheckboxRef}
+                  type="checkbox"
+                  checked={allVisibleProvidersSelected}
+                  onChange={toggleSelectAllVisibleProviders}
+                  disabled={actionBusy || visibleProviders.length === 0}
+                />
+                <div className="group-account-main" />
+              </div>
+
+              <div className="group-account-list codex-local-access-member-list">
+                {localAccessProviders.length === 0 ? (
+                  <div className="group-account-empty">
+                    {t('codex.localAccess.modal.providerEmpty', '暂无可加入的 New API 供应商')}
+                  </div>
+                ) : visibleProviders.length === 0 ? (
+                  <div className="group-account-empty">
+                    {t('common.shared.noMatch.title', '没有匹配的账号')}
+                  </div>
+                ) : (
+                  visibleProviders.map((provider) => {
+                    const isChecked = selectedProviders.has(provider.id);
+                    return (
+                      <label
+                        key={provider.id}
+                        className={`group-account-item${isChecked ? ' is-current' : ''}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          disabled={actionBusy}
+                          onChange={() => toggleProviderSelect(provider.id)}
+                        />
+                        <div className="group-account-main">
+                          <div className="codex-local-access-member-mainline">
+                            <span className="group-account-email" title={provider.name}>
+                              {provider.name}
+                            </span>
+                            <span className="tier-badge api-key">
+                              {t('codex.localAccess.modal.providerApiKeyCount', {
+                                count: provider.apiKeys.length,
+                                defaultValue: '{{count}} 个 Key',
+                              })}
+                            </span>
+                            <span className="codex-local-access-member-metric" title={provider.baseUrl}>
+                              {provider.baseUrl}
+                            </span>
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+          )}
         </div>
 
         <div className="modal-footer group-account-picker-footer codex-local-access-modal-footer">
@@ -2355,6 +2611,19 @@ export function CodexLocalAccessModal({
                 disabled={actionBusy || !selectionDirty}
               >
                 {saving ? t('common.saving') : t('codex.localAccess.modal.save', '保存集合')}
+              </button>
+            </>
+          ) : isProvidersMode ? (
+            <>
+              <button className="btn btn-secondary" onClick={onClose} disabled={actionBusy}>
+                {t('common.cancel')}
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => void handleSaveProviders()}
+                disabled={actionBusy || !onSaveProviders || !providerSelectionDirty}
+              >
+                {saving ? t('common.saving') : t('codex.localAccess.modal.saveProviders', '保存供应商')}
               </button>
             </>
           ) : (

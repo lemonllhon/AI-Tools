@@ -6,10 +6,22 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.0.33] - 2026-06-02
+
+### 新增
+- Codex API 服务新增“管理供应商”，可将已保存的 New API 模型供应商加入供应商号池，并支持自动加入新的 New API 供应商。
+
+### 变更
+- Codex API 服务独立供应商来源模式文案统一为“供应商”，减少与融合模式的歧义。
+- 供应商模式和融合模式现在可直接使用模型供应商里的 New API Key，不再要求先把供应商 Key 添加成 Codex 账号。
+
+### 修复
+- 修复 New API 供应商流式响应只返回 `response.done` 或提前结束时，Codex 客户端可能报 `stream disconnected before completion` 的问题。
+
 ## [0.0.32] - 2026-06-02
 
 ### 新增
-- Codex API 服务新增来源模式切换，可选择“供应商优先”“账号池”或“融合模式”。
+- Codex API 服务新增来源模式切换，可选择“供应商”“账号池”或“融合模式”。
 
 ### 变更
 - 调整 Codex API 服务路由逻辑：融合模式会优先使用 New API 供应商账号，供应商不可用时自动回退到 OAuth 账号池；独立模式可强制只使用供应商或只使用账号池。

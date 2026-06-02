@@ -576,6 +576,7 @@ pub fn run() {
             commands::codex::save_codex_model_providers,
             commands::codex::codex_local_access_get_state,
             commands::codex::codex_local_access_save_accounts,
+            commands::codex::codex_local_access_save_providers,
             commands::codex::codex_local_access_remove_account,
             commands::codex::codex_local_access_rotate_api_key,
             commands::codex::codex_local_access_update_bound_oauth_account,

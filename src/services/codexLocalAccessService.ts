@@ -46,6 +46,16 @@ export async function saveCodexLocalAccessAccounts(
   });
 }
 
+export async function saveCodexLocalAccessProviders(
+  providerIds: string[],
+  autoIncludeNewProviders: boolean,
+): Promise<CodexLocalAccessState> {
+  return await invokeCodexLocalAccessStateMutation('codex_local_access_save_providers', {
+    providerIds,
+    autoIncludeNewProviders,
+  });
+}
+
 export async function removeCodexLocalAccessAccount(
   accountId: string,
 ): Promise<CodexLocalAccessState> {

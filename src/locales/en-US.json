@@ -1996,7 +1996,14 @@
         "manageMembers": "Manage Members",
         "save": "Save Collection",
         "autoIncludeNewAccountsToggle": "Auto-add",
-        "autoIncludeNewAccountsDesc": "When enabled, refreshing the dashboard or API service state checks for new Codex OAuth accounts and adds them to the collection automatically. Free accounts still follow the Free-account limit."
+        "autoIncludeNewAccountsDesc": "When enabled, refreshing the dashboard or API service state checks for new Codex OAuth accounts and adds them to the collection automatically. Free accounts still follow the Free-account limit.",
+        "manageProviders": "Manage Providers",
+        "saveProviders": "Save Providers",
+        "providerSearch": "Search provider or Base URL",
+        "providerEmpty": "No New API providers available",
+        "providerApiKeyCount": "{{count}} key(s)",
+        "autoIncludeNewProvidersToggle": "Auto-add providers",
+        "autoIncludeNewProvidersDesc": "When enabled, refreshing API service state checks for new New API providers and adds them to the provider pool automatically."
       },
       "oauthBinding": {
         "desc": "Optional. Without a link, the API service keeps the original API-key flow; after linking, sign-in uses the OAuth account and Provider uses the API service config.",
@@ -2030,7 +2037,17 @@
       "webSocketStatusReady": "Ready",
       "webSocketStatusStopped": "Waiting for service",
       "webSocketStatusDisabled": "Disabled with service",
-      "webSocketManagedDesc": "Codex Responses WebSocket follows the API service switch, port, key, and access scope."
+      "webSocketManagedDesc": "Codex Responses WebSocket follows the API service switch, port, key, and access scope.",
+      "providerTitle": "Providers",
+      "providerKeyCount": "{{count}} provider key(s)",
+      "providerSaveSuccess": "API service providers updated",
+      "sourceModeLabel": "Source mode",
+      "sourceModeSaveSuccess": "API service source mode updated",
+      "sourceMode": {
+        "providerFirst": "Provider",
+        "accountPool": "Account Pool",
+        "hybrid": "Hybrid"
+      }
     },
     "api": {
       "baseUrl": "Base URL",

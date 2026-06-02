@@ -2001,7 +2001,14 @@
         "manageMembers": "管理成员",
         "save": "保存集合",
         "autoIncludeNewAccountsToggle": "自动加入",
-        "autoIncludeNewAccountsDesc": "开启后，刷新仪表盘或 API 服务状态时会检查新的 Codex OAuth 账号，并自动加入集合。Free 账号仍受限制开关影响。"
+        "autoIncludeNewAccountsDesc": "开启后，刷新仪表盘或 API 服务状态时会检查新的 Codex OAuth 账号，并自动加入集合。Free 账号仍受限制开关影响。",
+        "manageProviders": "管理供应商",
+        "saveProviders": "保存供应商",
+        "providerSearch": "搜索供应商或 Base URL",
+        "providerEmpty": "暂无可加入的 New API 供应商",
+        "providerApiKeyCount": "{{count}} 个 Key",
+        "autoIncludeNewProvidersToggle": "自动加入供应商",
+        "autoIncludeNewProvidersDesc": "开启后，刷新 API 服务状态时会检查新的 New API 供应商，并自动加入供应商号池。"
       },
       "oauthBinding": {
         "desc": "可选绑定。未绑定时 API 服务按原 API Key 逻辑运行；绑定后登录态使用 OAuth 账号，Provider 使用当前 API 服务配置。",
@@ -2030,6 +2037,16 @@
       "upstreamProxyMode": {
         "followGlobalProxy": "跟随全局代理",
         "direct": "直连上游"
+      },
+      "providerTitle": "供应商",
+      "providerKeyCount": "{{count}} 个供应商 Key",
+      "providerSaveSuccess": "API 服务供应商已更新",
+      "sourceModeLabel": "来源模式",
+      "sourceModeSaveSuccess": "API 服务来源模式已更新",
+      "sourceMode": {
+        "providerFirst": "供应商",
+        "accountPool": "账号池",
+        "hybrid": "融合"
       }
     },
     "api": {

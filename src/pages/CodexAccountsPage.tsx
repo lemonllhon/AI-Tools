@@ -570,7 +570,7 @@ export function CodexAccountsPage() {
     useState<CodexLocalAccessState | null>(null);
   const [showLocalAccessModal, setShowLocalAccessModal] = useState(false);
   const [localAccessModalMode, setLocalAccessModalMode] = useState<
-    "panel" | "members"
+    "panel" | "members" | "providers"
   >("panel");
   const [localAccessSaving, setLocalAccessSaving] = useState(false);
   const [localAccessTesting, setLocalAccessTesting] = useState(false);
@@ -4251,6 +4251,11 @@ export function CodexAccountsPage() {
     setShowLocalAccessModal(true);
   }, []);
 
+  const openLocalAccessProviderPicker = useCallback(() => {
+    setLocalAccessModalMode("providers");
+    setShowLocalAccessModal(true);
+  }, []);
+
   const handleHideLocalAccessEntry = useCallback(() => {
     setShowLocalAccessHideConfirm(true);
   }, []);
@@ -4347,6 +4352,37 @@ export function CodexAccountsPage() {
       }
     },
     [accounts, localAccessCollection?.autoIncludeNewAccounts, setMessage, t],
+  );
+
+  const handleSaveLocalAccessProviders = useCallback(
+    async (
+      providerIds: string[],
+      options?: {
+        autoIncludeNewProviders?: boolean;
+      },
+    ) => {
+      setLocalAccessSaving(true);
+      try {
+        const nextState =
+          await codexLocalAccessService.saveCodexLocalAccessProviders(
+            providerIds,
+            options?.autoIncludeNewProviders ??
+              localAccessCollection?.autoIncludeNewProviders ??
+              false,
+          );
+        setLocalAccessState(nextState);
+        setMessage({
+          text: t("codex.localAccess.providerSaveSuccess", "API 服务供应商已更新"),
+        });
+        return nextState;
+      } catch (error) {
+        console.error("Failed to save local access providers:", error);
+        throw error;
+      } finally {
+        setLocalAccessSaving(false);
+      }
+    },
+    [localAccessCollection?.autoIncludeNewProviders, setMessage, t],
   );
 
   const handleRemoveLocalAccessAccount = useCallback(
@@ -6237,6 +6273,16 @@ export function CodexAccountsPage() {
                     <FolderPlus size={14} />
                     <span>{t("common.shared.addAccount", "添加账号")}</span>
                   </button>
+                  <button
+                    type="button"
+                    className="codex-local-access-empty-action"
+                    onClick={openLocalAccessProviderPicker}
+                    title={t("codex.localAccess.modal.manageProviders", "管理供应商")}
+                    disabled={localAccessBusy}
+                  >
+                    <Server size={14} />
+                    <span>{t("codex.localAccess.modal.manageProviders", "管理供应商")}</span>
+                  </button>
                 </div>
               ) : (
                 <>
@@ -6396,6 +6442,14 @@ export function CodexAccountsPage() {
                     disabled={localAccessBusy}
                   >
                     <FolderPlus size={14} />
+                  </button>
+                  <button
+                    className="card-action-btn"
+                    onClick={openLocalAccessProviderPicker}
+                    title={t("codex.localAccess.modal.manageProviders", "管理供应商")}
+                    disabled={localAccessBusy}
+                  >
+                    <Server size={14} />
                   </button>
                   <button
                     className="card-action-btn"
@@ -10381,6 +10435,7 @@ export function CodexAccountsPage() {
             addressOptions={localAccessAddressOptions}
             onAddressKindChange={handleLocalAccessAddressKindChange}
             accounts={accounts}
+            modelProviders={managedProviders}
             accountGroups={codexGroups}
             initialSelectedIds={localAccessModalSelectedIds}
             maskAccountText={maskAccountText}
@@ -10389,6 +10444,11 @@ export function CodexAccountsPage() {
               handleSaveLocalAccessAccounts(accountIds, {
                 restrictFreeAccounts,
                 autoIncludeNewAccounts,
+              })
+            }
+            onSaveProviders={({ providerIds, autoIncludeNewProviders }) =>
+              handleSaveLocalAccessProviders(providerIds, {
+                autoIncludeNewProviders,
               })
             }
             onClearStats={handleClearLocalAccessStats}

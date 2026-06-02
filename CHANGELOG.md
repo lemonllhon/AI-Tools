@@ -6,9 +6,20 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.33] - 2026-06-02
+### Added
+- Added Codex API service provider management, allowing saved New API model providers to join the provider pool with optional auto-add for new New API providers.
+
+### Changed
+- Standardized the dedicated provider source mode label as Provider to reduce ambiguity with Hybrid mode.
+- Provider and Hybrid modes can now use New API keys directly from model providers without first adding those keys as Codex accounts.
+
+### Fixed
+- Fixed Codex client `stream disconnected before completion` errors when New API provider streams return `response.done` or close before sending `response.completed`.
+
 ## [0.0.32] - 2026-06-02
 ### Added
-- Added a Codex API service source mode selector with Provider First, Account Pool, and Hybrid modes.
+- Added a Codex API service source mode selector with Provider, Account Pool, and Hybrid modes.
 
 ### Changed
 - Changed Codex API service routing so Hybrid mode tries New API provider accounts first and falls back to the OAuth account pool when the provider route is unavailable, while the dedicated modes can force either source.

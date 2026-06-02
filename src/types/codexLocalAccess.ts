@@ -35,6 +35,8 @@ export interface CodexLocalAccessCollection {
   customRoutingRules: CodexLocalAccessCustomRoutingRule[];
   restrictFreeAccounts: boolean;
   autoIncludeNewAccounts: boolean;
+  autoIncludeNewProviders: boolean;
+  providerIds: string[];
   boundOauthAccountId?: string | null;
   accountIds: string[];
   createdAt: number;

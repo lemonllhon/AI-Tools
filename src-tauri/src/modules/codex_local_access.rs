@@ -13,6 +13,7 @@ use futures_util::{SinkExt, StreamExt};
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::header::{HeaderName, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
 use reqwest::{Client, Method, NoProxy, Proxy, StatusCode, Url};
+use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use sha1::{Digest, Sha1};
 use std::collections::{HashMap, HashSet};
@@ -32,6 +33,7 @@ use tokio_tungstenite::WebSocketStream;
 
 const CODEX_LOCAL_ACCESS_FILE: &str = "codex_local_access.json";
 const CODEX_LOCAL_ACCESS_STATS_FILE: &str = "codex_local_access_stats.json";
+const CODEX_MODEL_PROVIDERS_FILE: &str = "codex_model_providers.json";
 const CODEX_LOCAL_ACCESS_LOCALHOST_BIND_HOST: &str = "127.0.0.1";
 const CODEX_LOCAL_ACCESS_LAN_BIND_HOST: &str = "0.0.0.0";
 const CODEX_LOCAL_ACCESS_URL_HOST: &str = "127.0.0.1";
@@ -66,6 +68,7 @@ const DEFAULT_CODEX_USER_AGENT: &str =
 const DEFAULT_CODEX_ORIGINATOR: &str = "codex-tui";
 const CORS_ALLOW_HEADERS: &str = "Authorization, Content-Type, OpenAI-Beta, X-API-Key, X-Codex-Beta-Features, X-Client-Request-Id, Originator, Session_id, ChatGPT-Account-Id";
 const NEW_API_PROVIDER_ID: &str = "new_api";
+const NEW_API_PROVIDER_NAME: &str = "New API";
 const DEFAULT_CODEX_MODELS: &[&str] = &[
     "gpt-5-codex",
     "gpt-5-codex-mini",
@@ -171,6 +174,24 @@ struct CachedPreparedAccount {
     cached_at_ms: i64,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CodexModelProviderApiKeyEntry {
+    id: String,
+    name: String,
+    api_key: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CodexModelProviderEntry {
+    id: String,
+    name: String,
+    base_url: String,
+    #[serde(default)]
+    api_keys: Vec<CodexModelProviderApiKeyEntry>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct UpstreamHttpClientSignature {
     proxy_mode: CodexLocalAccessUpstreamProxyMode,
@@ -206,6 +227,13 @@ struct ResponseUsageCollector {
     usage: Option<UsageCapture>,
     response_id: Option<String>,
     output_items: Vec<Value>,
+}
+
+#[derive(Debug, Clone)]
+struct SseFramePayload {
+    event_name: Option<String>,
+    data: String,
+    done: bool,
 }
 
 #[derive(Debug)]
@@ -389,22 +417,36 @@ fn local_access_stats_file_path() -> Result<PathBuf, String> {
     Ok(crate::modules::account::get_data_dir()?.join(CODEX_LOCAL_ACCESS_STATS_FILE))
 }
 
+fn model_providers_file_path() -> Result<PathBuf, String> {
+    Ok(crate::modules::account::get_data_dir()?.join(CODEX_MODEL_PROVIDERS_FILE))
+}
+
 fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
 fn is_prepared_account_cache_valid(entry: &CachedPreparedAccount, now: i64) -> bool {
-    now.saturating_sub(entry.cached_at_ms) <= PREPARED_ACCOUNT_CACHE_TTL_MS
-        && !codex_oauth::is_token_expired(&entry.account.tokens.access_token)
+    let within_ttl = now.saturating_sub(entry.cached_at_ms) <= PREPARED_ACCOUNT_CACHE_TTL_MS;
+    within_ttl
+        && (entry.account.is_api_key_auth()
+            || !codex_oauth::is_token_expired(&entry.account.tokens.access_token))
 }
 
 fn prune_prepared_account_cache(runtime: &mut GatewayRuntime, now: i64) {
     let allowed_account_ids = runtime.collection.as_ref().map(|collection| {
-        collection
+        let mut ids = collection
             .account_ids
             .iter()
-            .map(String::as_str)
-            .collect::<HashSet<&str>>()
+            .cloned()
+            .collect::<HashSet<String>>();
+        ids.extend(
+            runtime
+                .prepared_accounts
+                .keys()
+                .filter(|account_id| is_provider_runtime_account_id(account_id))
+                .cloned(),
+        );
+        ids
     });
 
     runtime.prepared_accounts.retain(|account_id, entry| {
@@ -2523,6 +2565,35 @@ fn partition_account_ids_for_source_mode(
     }
 }
 
+async fn resolve_route_account_ids_for_source_mode(
+    collection: &CodexLocalAccessCollection,
+) -> Result<(Vec<String>, Vec<String>), String> {
+    let provider_runtime_accounts = build_provider_runtime_accounts(&collection.provider_ids)?;
+    let mut provider_account_ids = provider_runtime_accounts
+        .iter()
+        .map(|account| account.id.clone())
+        .collect::<Vec<_>>();
+    cache_provider_runtime_accounts(&provider_runtime_accounts).await;
+
+    let (mut account_provider_ids, account_pool_ids) =
+        partition_account_ids_for_source_mode(&collection.account_ids, CodexLocalAccessSourceMode::Hybrid);
+    provider_account_ids.append(&mut account_provider_ids);
+
+    let mut deduped_provider_ids = Vec::new();
+    let mut seen_provider_ids = HashSet::new();
+    for account_id in provider_account_ids {
+        if seen_provider_ids.insert(account_id.clone()) {
+            deduped_provider_ids.push(account_id);
+        }
+    }
+
+    Ok(match collection.source_mode {
+        CodexLocalAccessSourceMode::ProviderFirst => (deduped_provider_ids, Vec::new()),
+        CodexLocalAccessSourceMode::AccountPool => (account_pool_ids, Vec::new()),
+        CodexLocalAccessSourceMode::Hybrid => (deduped_provider_ids, account_pool_ids),
+    })
+}
+
 fn normalize_plan_key(plan_type: Option<&str>) -> String {
     let normalized = plan_type.unwrap_or("").trim().to_ascii_lowercase();
     if normalized.is_empty() {
@@ -3637,19 +3708,175 @@ fn is_free_plan_type(plan_type: Option<&str>) -> bool {
 }
 
 fn is_new_api_provider_account(account: &CodexAccount) -> bool {
-    account
+    let matched_id = account
         .api_provider_id
         .as_deref()
         .map(|value| {
             let normalized = value.trim().to_ascii_lowercase();
             normalized == NEW_API_PROVIDER_ID || normalized == "newapi"
         })
-        .unwrap_or(false)
+        .unwrap_or(false);
+    matched_id
+        || is_new_api_provider_identity(
+            account.api_provider_id.as_deref(),
+            account.api_provider_name.as_deref(),
+        )
+}
+
+fn normalize_provider_identity(value: &str) -> String {
+    value
+        .trim()
+        .to_ascii_lowercase()
+        .replace([' ', '-', '_'], "")
+}
+
+fn is_new_api_provider_identity(provider_id: Option<&str>, provider_name: Option<&str>) -> bool {
+    provider_id
+        .map(normalize_provider_identity)
+        .filter(|value| value == "newapi")
+        .is_some()
+        || provider_name
+            .map(normalize_provider_identity)
+            .filter(|value| value == "newapi")
+            .is_some()
+}
+
+fn is_new_api_provider_entry(provider: &CodexModelProviderEntry) -> bool {
+    is_new_api_provider_identity(Some(provider.id.as_str()), Some(provider.name.as_str()))
+}
+
+fn normalize_provider_api_key(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn normalize_provider_base_url(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let parsed = Url::parse(trimmed).ok()?;
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        return None;
+    }
+    Some(trimmed.trim_end_matches('/').to_string())
+}
+
+fn load_model_providers() -> Result<Vec<CodexModelProviderEntry>, String> {
+    let path = model_providers_file_path()?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("读取模型供应商失败: {}", e))?;
+    let providers = serde_json::from_str::<Vec<CodexModelProviderEntry>>(&content)
+        .map_err(|e| format!("解析模型供应商失败: {}", e))?;
+    Ok(providers)
+}
+
+fn load_new_api_model_providers() -> Result<Vec<CodexModelProviderEntry>, String> {
+    Ok(load_model_providers()?
+        .into_iter()
+        .filter(is_new_api_provider_entry)
+        .filter(|provider| normalize_provider_base_url(&provider.base_url).is_some())
+        .filter(|provider| {
+            provider
+                .api_keys
+                .iter()
+                .any(|api_key| normalize_provider_api_key(&api_key.api_key).is_some())
+        })
+        .collect())
+}
+
+fn provider_runtime_account_id(provider_id: &str, api_key_id: &str) -> String {
+    format!("provider:{}:{}", provider_id, api_key_id)
+}
+
+fn is_provider_runtime_account_id(account_id: &str) -> bool {
+    account_id.starts_with("provider:")
+}
+
+fn build_provider_runtime_account(
+    provider: &CodexModelProviderEntry,
+    api_key: &CodexModelProviderApiKeyEntry,
+) -> Option<CodexAccount> {
+    let base_url = normalize_provider_base_url(&provider.base_url)?;
+    let normalized_api_key = normalize_provider_api_key(&api_key.api_key)?;
+    let account_id = provider_runtime_account_id(&provider.id, &api_key.id);
+    let display_key_name = api_key.name.trim();
+    let email = if display_key_name.is_empty() {
+        format!("{} · {}", provider.name, api_key.id)
+    } else {
+        format!("{} · {}", provider.name, display_key_name)
+    };
+    let mut account = CodexAccount::new_api_key(
+        account_id,
+        email,
+        normalized_api_key,
+        CodexApiProviderMode::Custom,
+        Some(base_url),
+        Some(NEW_API_PROVIDER_ID.to_string()),
+        Some(NEW_API_PROVIDER_NAME.to_string()),
+    );
+    account.account_name = Some(provider.name.clone());
+    Some(account)
+}
+
+fn build_provider_runtime_accounts(
+    provider_ids: &[String],
+) -> Result<Vec<CodexAccount>, String> {
+    let selected_provider_ids: HashSet<&str> = provider_ids
+        .iter()
+        .map(String::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .collect();
+    if selected_provider_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let providers = load_new_api_model_providers()?;
+    let mut accounts = Vec::new();
+    for provider in providers {
+        if !selected_provider_ids.contains(provider.id.as_str()) {
+            continue;
+        }
+        for api_key in &provider.api_keys {
+            if let Some(account) = build_provider_runtime_account(&provider, api_key) {
+                accounts.push(account);
+            }
+        }
+    }
+    Ok(accounts)
+}
+
+async fn cache_provider_runtime_accounts(accounts: &[CodexAccount]) {
+    if accounts.is_empty() {
+        return;
+    }
+    let mut runtime = gateway_runtime().lock().await;
+    let now = now_ms();
+    prune_prepared_account_cache(&mut runtime, now);
+    for account in accounts {
+        runtime.prepared_accounts.insert(
+            account.id.clone(),
+            CachedPreparedAccount {
+                account: account.clone(),
+                cached_at_ms: now,
+            },
+        );
+    }
 }
 
 fn is_local_access_eligible_account(account: &CodexAccount, restrict_free_accounts: bool) -> bool {
     if account.is_api_key_auth() {
-        return is_new_api_provider_account(account);
+        return is_new_api_provider_account(account)
+            || is_new_api_provider_identity(
+                account.api_provider_id.as_deref(),
+                account.api_provider_name.as_deref(),
+            );
     }
     if restrict_free_accounts && is_free_plan_type(account.plan_type.as_deref()) {
         return false;
@@ -3693,6 +3920,12 @@ fn sanitize_collection(
         .map(|account| account.id.clone())
         .collect();
     let valid_account_ids: HashSet<String> = eligible_account_ids.iter().cloned().collect();
+    let eligible_provider_ids: Vec<String> = load_new_api_model_providers()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|provider| provider.id)
+        .collect();
+    let valid_provider_ids: HashSet<String> = eligible_provider_ids.iter().cloned().collect();
 
     let normalized_bound_oauth_account_id =
         normalize_optional_account_ref(collection.bound_oauth_account_id.as_deref());
@@ -3732,6 +3965,34 @@ fn sanitize_collection(
 
     if deduped != collection.account_ids {
         collection.account_ids = deduped;
+        changed = true;
+    }
+
+    let mut deduped_provider_ids = Vec::new();
+    let mut seen_provider_ids = HashSet::new();
+    for provider_id in &collection.provider_ids {
+        if !valid_provider_ids.contains(provider_id) {
+            changed = true;
+            continue;
+        }
+        if !seen_provider_ids.insert(provider_id.clone()) {
+            changed = true;
+            continue;
+        }
+        deduped_provider_ids.push(provider_id.clone());
+    }
+
+    if collection.auto_include_new_providers {
+        for provider_id in eligible_provider_ids {
+            if seen_provider_ids.insert(provider_id.clone()) {
+                deduped_provider_ids.push(provider_id);
+                changed = true;
+            }
+        }
+    }
+
+    if deduped_provider_ids != collection.provider_ids {
+        collection.provider_ids = deduped_provider_ids;
         changed = true;
     }
 
@@ -3799,6 +4060,8 @@ async fn ensure_runtime_loaded_without_start() -> Result<(), String> {
             custom_routing_rules: Vec::new(),
             restrict_free_accounts: true,
             auto_include_new_accounts: false,
+            auto_include_new_providers: false,
+            provider_ids: Vec::new(),
             bound_oauth_account_id: None,
             account_ids: Vec::new(),
             created_at: now_ms(),
@@ -4701,6 +4964,8 @@ pub async fn save_local_access_accounts(
                 custom_routing_rules: Vec::new(),
                 restrict_free_accounts: true,
                 auto_include_new_accounts: false,
+                auto_include_new_providers: false,
+                provider_ids: Vec::new(),
                 bound_oauth_account_id: None,
                 account_ids: Vec::new(),
                 created_at: now_ms(),
@@ -4728,6 +4993,71 @@ pub async fn save_local_access_accounts(
     collection.restrict_free_accounts = restrict_free_accounts;
     collection.auto_include_new_accounts = auto_include_new_accounts;
     collection.account_ids = next_account_ids;
+    collection.updated_at = now_ms();
+    let (changed, _) = sanitize_collection(&mut collection)?;
+    if changed {
+        collection.updated_at = now_ms();
+    }
+    save_collection_to_disk(&collection)?;
+
+    {
+        let mut runtime = gateway_runtime().lock().await;
+        sync_runtime_collection(&mut runtime, collection);
+    }
+
+    ensure_gateway_matches_runtime().await?;
+    snapshot_state().await
+}
+
+pub async fn save_local_access_providers(
+    provider_ids: Vec<String>,
+    auto_include_new_providers: bool,
+) -> Result<CodexLocalAccessState, String> {
+    ensure_runtime_loaded().await?;
+
+    let mut collection = {
+        let runtime = gateway_runtime().lock().await;
+        runtime
+            .collection
+            .clone()
+            .unwrap_or(CodexLocalAccessCollection {
+                enabled: false,
+                port: allocate_random_local_port(CODEX_LOCAL_ACCESS_LOCALHOST_BIND_HOST)?,
+                api_key: generate_local_api_key(),
+                access_scope: CodexLocalAccessScope::Localhost,
+                upstream_proxy_mode: CodexLocalAccessUpstreamProxyMode::default(),
+                source_mode: CodexLocalAccessSourceMode::default(),
+                routing_strategy: CodexLocalAccessRoutingStrategy::default(),
+                custom_routing_rules: Vec::new(),
+                restrict_free_accounts: true,
+                auto_include_new_accounts: false,
+                auto_include_new_providers: false,
+                provider_ids: Vec::new(),
+                bound_oauth_account_id: None,
+                account_ids: Vec::new(),
+                created_at: now_ms(),
+                updated_at: now_ms(),
+            })
+    };
+
+    let valid_provider_ids: HashSet<String> = load_new_api_model_providers()?
+        .into_iter()
+        .map(|provider| provider.id)
+        .collect();
+
+    let mut next_provider_ids = Vec::new();
+    let mut seen = HashSet::new();
+    for provider_id in provider_ids {
+        if !valid_provider_ids.contains(&provider_id) {
+            continue;
+        }
+        if seen.insert(provider_id.clone()) {
+            next_provider_ids.push(provider_id);
+        }
+    }
+
+    collection.auto_include_new_providers = auto_include_new_providers;
+    collection.provider_ids = next_provider_ids;
     collection.updated_at = now_ms();
     let (changed, _) = sanitize_collection(&mut collection)?;
     if changed {
@@ -5520,6 +5850,58 @@ fn extract_response_id(value: &Value) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+fn extract_response_model(value: &Value) -> Option<String> {
+    non_null_child(value, "model")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            value
+                .get("response")
+                .and_then(|item| non_null_child(item, "model"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            value
+                .get("response")
+                .and_then(|item| item.get("response"))
+                .and_then(|item| non_null_child(item, "model"))
+                .and_then(Value::as_str)
+        })
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn normalize_response_completion_payload(mut value: Value) -> String {
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert(
+            "type".to_string(),
+            Value::String("response.completed".to_string()),
+        );
+        if let Some(response) = obj.get_mut("response").and_then(Value::as_object_mut) {
+            response.insert("status".to_string(), Value::String("completed".to_string()));
+            return serde_json::to_string(&value).unwrap_or_else(|_| {
+                json!({
+                    "type": "response.completed",
+                    "response": {
+                        "id": format!("resp_local_{}", now_ms()),
+                        "object": "response",
+                        "created_at": now_ms() / 1000,
+                        "status": "completed",
+                        "output": [],
+                    },
+                })
+                .to_string()
+            });
+        }
+    }
+
+    json!({
+        "type": "response.completed",
+        "response": value,
+    })
+    .to_string()
 }
 
 fn extract_completed_response_output_items(value: &Value) -> Vec<Value> {
@@ -6655,29 +7037,75 @@ async fn write_upstream_response(
     write_chunked_response_headers(stream, status, status_text, content_type, &headers).await?;
 
     let mut usage_collector = ResponseUsageCollector::new(is_stream);
+    let mut stream_forwarder = if is_stream {
+        Some(SseWebSocketForwarder::default())
+    } else {
+        None
+    };
     let mut body_stream = upstream.bytes_stream();
     while let Some(chunk_result) = body_stream.next().await {
         let chunk = chunk_result.map_err(|e| format!("读取上游响应失败: {}", e))?;
         if chunk.is_empty() {
             continue;
         }
-        write_chunked_response_chunk(stream, &chunk).await?;
         usage_collector.feed(&chunk);
+        if let Some(forwarder) = stream_forwarder.as_mut() {
+            for payload in forwarder.feed(&chunk) {
+                let frame = sse_response_frame_from_payload(&payload);
+                write_chunked_response_chunk(stream, frame.as_bytes()).await?;
+            }
+        } else {
+            write_chunked_response_chunk(stream, &chunk).await?;
+        }
+    }
+
+    if let Some(forwarder) = stream_forwarder.as_mut() {
+        for payload in forwarder.finish() {
+            let frame = sse_response_frame_from_payload(&payload);
+            write_chunked_response_chunk(stream, frame.as_bytes()).await?;
+        }
+        write_chunked_response_chunk(stream, b"data: [DONE]\n\n").await?;
     }
 
     finish_chunked_response(stream).await?;
     Ok(usage_collector.finish())
 }
 
-fn sse_frame_data_payload(frame: &[u8]) -> Option<String> {
+fn sse_response_frame_from_payload(payload: &str) -> String {
+    let event_name = serde_json::from_str::<Value>(payload)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("type")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(str::to_string)
+        });
+    if let Some(event_name) = event_name {
+        format!("event: {}\ndata: {}\n\n", event_name, payload)
+    } else {
+        format!("data: {}\n\n", payload)
+    }
+}
+
+fn parse_sse_frame_payload(frame: &[u8]) -> Option<SseFramePayload> {
     if frame.is_empty() {
         return None;
     }
 
     let text = String::from_utf8_lossy(frame);
+    let mut event_name: Option<String> = None;
     let mut data_lines = Vec::new();
     for raw_line in text.lines() {
         let line = raw_line.trim();
+        if let Some(rest) = line.strip_prefix("event:") {
+            let value = rest.trim();
+            if !value.is_empty() {
+                event_name = Some(value.to_string());
+            }
+            continue;
+        }
         if let Some(rest) = line.strip_prefix("data:") {
             let payload = rest.trim();
             if !payload.is_empty() {
@@ -6691,16 +7119,78 @@ fn sse_frame_data_payload(frame: &[u8]) -> Option<String> {
     } else {
         data_lines.join("\n")
     };
-    if payload.is_empty() || payload == "[DONE]" {
-        None
-    } else {
-        Some(payload)
+    if payload.is_empty() {
+        return None;
     }
+    Some(SseFramePayload {
+        event_name,
+        done: payload == "[DONE]",
+        data: payload,
+    })
+}
+
+fn usage_capture_to_response_usage(usage: &UsageCapture) -> Value {
+    json!({
+        "input_tokens": usage.input_tokens,
+        "input_tokens_details": {
+            "cached_tokens": usage.cached_tokens,
+        },
+        "output_tokens": usage.output_tokens,
+        "output_tokens_details": {
+            "reasoning_tokens": usage.reasoning_tokens,
+        },
+        "total_tokens": usage.total_tokens,
+    })
+}
+
+fn build_fallback_response_completed_payload(
+    response_id: Option<&str>,
+    model: Option<&str>,
+    usage: Option<&UsageCapture>,
+    output_items: &[Value],
+) -> String {
+    let mut response = Map::new();
+    response.insert(
+        "id".to_string(),
+        Value::String(
+            response_id
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("resp_local_{}", now_ms())),
+        ),
+    );
+    response.insert("object".to_string(), Value::String("response".to_string()));
+    response.insert(
+        "created_at".to_string(),
+        Value::Number(serde_json::Number::from(now_ms() / 1000)),
+    );
+    response.insert("status".to_string(), Value::String("completed".to_string()));
+    if let Some(model) = model
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        response.insert("model".to_string(), Value::String(model.to_string()));
+    }
+    response.insert("output".to_string(), Value::Array(output_items.to_vec()));
+    if let Some(usage) = usage {
+        response.insert("usage".to_string(), usage_capture_to_response_usage(usage));
+    }
+    json!({
+        "type": "response.completed",
+        "response": Value::Object(response),
+    })
+    .to_string()
 }
 
 #[derive(Default)]
 struct SseWebSocketForwarder {
     stream_buffer: Vec<u8>,
+    saw_completed: bool,
+    response_id: Option<String>,
+    model: Option<String>,
+    usage: Option<UsageCapture>,
+    output_items: Vec<Value>,
 }
 
 impl SseWebSocketForwarder {
@@ -6713,7 +7203,17 @@ impl SseWebSocketForwarder {
     }
 
     fn finish(&mut self) -> Vec<String> {
-        self.process(true)
+        let mut payloads = self.process(true);
+        if !self.saw_completed {
+            payloads.push(build_fallback_response_completed_payload(
+                self.response_id.as_deref(),
+                self.model.as_deref(),
+                self.usage.as_ref(),
+                &self.output_items,
+            ));
+            self.saw_completed = true;
+        }
+        payloads
     }
 
     fn process(&mut self, flush_tail: bool) -> Vec<String> {
@@ -6726,19 +7226,63 @@ impl SseWebSocketForwarder {
             };
             let frame = self.stream_buffer[..boundary_index].to_vec();
             self.stream_buffer.drain(..boundary_index + separator_len);
-            if let Some(payload) = sse_frame_data_payload(&frame) {
+            if let Some(payload) = self.normalize_frame_payload(&frame) {
                 payloads.push(payload);
             }
         }
 
         if flush_tail && !self.stream_buffer.is_empty() {
             let frame = std::mem::take(&mut self.stream_buffer);
-            if let Some(payload) = sse_frame_data_payload(&frame) {
+            if let Some(payload) = self.normalize_frame_payload(&frame) {
                 payloads.push(payload);
             }
         }
 
         payloads
+    }
+
+    fn normalize_frame_payload(&mut self, frame: &[u8]) -> Option<String> {
+        let parsed = parse_sse_frame_payload(frame)?;
+        if parsed.done {
+            return None;
+        }
+
+        let mut value = serde_json::from_str::<Value>(&parsed.data).ok()?;
+        let event_type = value
+            .get("type")
+            .and_then(Value::as_str)
+            .or(parsed.event_name.as_deref())
+            .unwrap_or("")
+            .to_string();
+
+        if let Some(usage) = extract_usage_capture(&value) {
+            self.usage = Some(usage);
+        }
+        if self.response_id.is_none() {
+            self.response_id = extract_response_id(&value);
+        }
+        if self.model.is_none() {
+            self.model = extract_response_model(&value);
+        }
+        if let Some(item) = extract_stream_output_done_item(&value) {
+            self.output_items.push(item);
+        }
+
+        if is_responses_completion_event(&event_type) {
+            self.saw_completed = true;
+            return Some(normalize_response_completion_payload(value));
+        }
+
+        if value.get("type").and_then(Value::as_str).is_none()
+            && !event_type.trim().is_empty()
+            && event_type.starts_with("response.")
+        {
+            if let Some(obj) = value.as_object_mut() {
+                obj.insert("type".to_string(), Value::String(event_type));
+            }
+        }
+
+        serde_json::to_string(&value).ok()
     }
 }
 
@@ -7349,15 +7893,6 @@ async fn proxy_request_with_account_pool(
     request: &ParsedRequest,
     collection: &CodexLocalAccessCollection,
 ) -> Result<ProxyDispatchSuccess, ProxyDispatchError> {
-    if collection.account_ids.is_empty() {
-        return Err(ProxyDispatchError {
-            status: 503,
-            message: "本地接入集合暂无账号".to_string(),
-            account_id: None,
-            account_email: None,
-        });
-    }
-
     let upstream_target =
         resolve_upstream_target(&request.target).map_err(|err| ProxyDispatchError {
             status: 400,
@@ -7367,11 +7902,18 @@ async fn proxy_request_with_account_pool(
         })?;
     let routing_hint = build_request_routing_hint(request);
     let (primary_account_ids, fallback_account_ids) =
-        partition_account_ids_for_source_mode(&collection.account_ids, collection.source_mode);
+        resolve_route_account_ids_for_source_mode(collection)
+            .await
+            .map_err(|err| ProxyDispatchError {
+                status: 503,
+                message: err,
+                account_id: None,
+                account_email: None,
+            })?;
     if primary_account_ids.is_empty() && fallback_account_ids.is_empty() {
         let message = match collection.source_mode {
             CodexLocalAccessSourceMode::ProviderFirst => {
-                "供应商优先模式下暂无可用 New API 供应商账号".to_string()
+                "供应商模式下暂无可用 New API 供应商".to_string()
             }
             CodexLocalAccessSourceMode::AccountPool => {
                 "账号池模式下暂无可用 OAuth 账号".to_string()
@@ -7547,6 +8089,21 @@ async fn proxy_request_with_account_pool(
                         break;
                     }
                 };
+
+                if response.status() == StatusCode::UNAUTHORIZED && account.is_api_key_auth() {
+                    last_status = StatusCode::UNAUTHORIZED.as_u16();
+                    log_codex_api_failure(
+                        None,
+                        Some(request),
+                        Some(last_status),
+                        Some(account.id.as_str()),
+                        Some(account.email.as_str()),
+                        None,
+                        format!("供应商 {} API Key 鉴权失败", account.email).as_str(),
+                    );
+                    last_error = format!("供应商 {} API Key 鉴权失败", account.email);
+                    break;
+                }
 
                 if response.status() == StatusCode::UNAUTHORIZED {
                     match force_refresh_gateway_account(&account_id).await {
@@ -7971,7 +8528,7 @@ mod tests {
         should_retry_single_account_upstream_status, should_treat_response_as_stream,
         should_try_next_account, websocket_accept_key, GatewayResponseAdapter, ParsedRequest,
         ResponseUsageCollector, ResponsesWebSocketRequest, ResponsesWebSocketSessionState,
-        RoutingCandidate,
+        RoutingCandidate, SseWebSocketForwarder,
     };
     use crate::models::codex_local_access::{
         CodexLocalAccessCustomRoutingRule, CodexLocalAccessRoutingStrategy,
@@ -9254,6 +9811,62 @@ data: {"response":{"id":"resp_done","model":"gpt-5.4","status":"completed","usag
                 .and_then(|value| value.get("cached_tokens"))
                 .and_then(Value::as_u64),
             Some(2)
+        );
+    }
+
+    #[test]
+    fn websocket_forwarder_normalizes_response_done_to_completed() {
+        let mut forwarder = SseWebSocketForwarder::default();
+        let payloads = forwarder.feed(
+            br#"event: response.done
+data: {"response":{"id":"resp_done","model":"gpt-5.4","status":"completed","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}
+
+"#,
+        );
+        let mut all_payloads = payloads;
+        all_payloads.extend(forwarder.finish());
+
+        assert_eq!(all_payloads.len(), 1);
+        let value = serde_json::from_str::<Value>(&all_payloads[0]).expect("valid json");
+        assert_eq!(value.get("type").and_then(Value::as_str), Some("response.completed"));
+        assert_eq!(
+            value
+                .get("response")
+                .and_then(|response| response.get("id"))
+                .and_then(Value::as_str),
+            Some("resp_done")
+        );
+    }
+
+    #[test]
+    fn websocket_forwarder_adds_completion_when_stream_ends_without_one() {
+        let mut forwarder = SseWebSocketForwarder::default();
+        let payloads = forwarder.feed(
+            br#"data: {"type":"response.created","response":{"id":"resp_missing","model":"gpt-5.4"}}
+
+data: {"type":"response.output_text.delta","delta":"partial"}
+
+data: [DONE]
+
+"#,
+        );
+        let mut all_payloads = payloads;
+        all_payloads.extend(forwarder.finish());
+
+        assert!(all_payloads
+            .iter()
+            .any(|payload| payload.contains(r#""type":"response.output_text.delta""#)));
+        let completed = all_payloads
+            .iter()
+            .filter_map(|payload| serde_json::from_str::<Value>(payload).ok())
+            .find(|value| value.get("type").and_then(Value::as_str) == Some("response.completed"))
+            .expect("fallback completion should be present");
+        assert_eq!(
+            completed
+                .get("response")
+                .and_then(|response| response.get("id"))
+                .and_then(Value::as_str),
+            Some("resp_missing")
         );
     }
 }

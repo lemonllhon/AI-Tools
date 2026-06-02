@@ -64,6 +64,10 @@ fn default_auto_include_new_accounts() -> bool {
     false
 }
 
+fn default_auto_include_new_providers() -> bool {
+    false
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexLocalAccessCustomRoutingRule {
@@ -98,6 +102,10 @@ pub struct CodexLocalAccessCollection {
     pub restrict_free_accounts: bool,
     #[serde(default = "default_auto_include_new_accounts")]
     pub auto_include_new_accounts: bool,
+    #[serde(default = "default_auto_include_new_providers")]
+    pub auto_include_new_providers: bool,
+    #[serde(default)]
+    pub provider_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bound_oauth_account_id: Option<String>,
     pub account_ids: Vec<String>,

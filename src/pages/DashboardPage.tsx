@@ -102,6 +102,10 @@ import {
 } from '../presentation/platformAccountPresentation';
 import * as codexLocalAccessService from '../services/codexLocalAccessService';
 import * as codexService from '../services/codexService';
+import {
+  listCodexModelProviders,
+  type CodexModelProvider,
+} from '../services/codexModelProviderService';
 import type {
   CodexLocalAccessAddressKind,
   CodexLocalAccessCustomRoutingRule,
@@ -221,9 +225,10 @@ export function DashboardPage({
   const [apiServiceTesting, setApiServiceTesting] = React.useState(false);
   const [apiServicePortCleanupBusy, setApiServicePortCleanupBusy] = React.useState(false);
   const [apiServiceMessage, setApiServiceMessage] = React.useState<{ text: string; tone?: 'success' | 'error' } | null>(null);
-  const [apiServiceModalMode, setApiServiceModalMode] = React.useState<'panel' | 'members'>('panel');
+  const [apiServiceModalMode, setApiServiceModalMode] = React.useState<'panel' | 'members' | 'providers'>('panel');
   const [showApiServiceModal, setShowApiServiceModal] = React.useState(false);
   const [apiServiceAccountGroups, setApiServiceAccountGroups] = React.useState<CodexAccountGroup[]>([]);
+  const [apiServiceModelProviders, setApiServiceModelProviders] = React.useState<CodexModelProvider[]>([]);
   const [apiServiceAddressKind, setApiServiceAddressKind] = React.useState<CodexLocalAccessAddressKind>(() =>
     readDashboardLocalAccessAddressKind(),
   );
@@ -332,19 +337,30 @@ export function DashboardPage({
     }
   }, []);
 
+  const reloadApiServiceModelProviders = useCallback(async () => {
+    try {
+      const providers = await listCodexModelProviders();
+      setApiServiceModelProviders(providers);
+    } catch (error) {
+      console.error('Failed to load Codex API service model providers:', error);
+    }
+  }, []);
+
   React.useEffect(() => {
     if (!isMenuVisiblePlatform('codex')) return;
     void reloadApiServiceAccountGroups();
-  }, [reloadApiServiceAccountGroups]);
+    void reloadApiServiceModelProviders();
+  }, [reloadApiServiceAccountGroups, reloadApiServiceModelProviders]);
 
   const openCodexApiServiceModal = useCallback(
-    (mode: 'panel' | 'members') => {
+    (mode: 'panel' | 'members' | 'providers') => {
       setApiServiceModalMode(mode);
       setShowApiServiceModal(true);
       void reloadApiServiceState();
       void reloadApiServiceAccountGroups();
+      void reloadApiServiceModelProviders();
     },
-    [reloadApiServiceAccountGroups, reloadApiServiceState],
+    [reloadApiServiceAccountGroups, reloadApiServiceModelProviders, reloadApiServiceState],
   );
 
   const runApiServiceStateMutation = useCallback(
@@ -494,6 +510,25 @@ export function DashboardPage({
           options.autoIncludeNewAccounts,
         ),
         t('codex.localAccess.saveSuccess', 'API 服务集合已更新'),
+      );
+    },
+    [runApiServiceStateMutation, t],
+  );
+
+  const handleSaveApiServiceProviders = useCallback(
+    async (
+      providerIds: string[],
+      options: {
+        autoIncludeNewProviders: boolean;
+      },
+    ) => {
+      await runApiServiceStateMutation(
+        () =>
+          codexLocalAccessService.saveCodexLocalAccessProviders(
+            providerIds,
+            options.autoIncludeNewProviders,
+          ),
+        t('codex.localAccess.providerSaveSuccess', 'API 服务供应商已更新'),
       );
     },
     [runApiServiceStateMutation, t],
@@ -3527,6 +3562,14 @@ export function DashboardPage({
                         <FolderPlus size={14} />
                         {t('codex.localAccess.modal.manageMembers', '管理成员')}
                       </button>
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() => openCodexApiServiceModal('providers')}
+                        disabled={apiServiceBusy !== null || apiServiceSaving}
+                      >
+                        <Server size={14} />
+                        {t('codex.localAccess.modal.manageProviders', '管理供应商')}
+                      </button>
                     </>
                   ) : (
                     <button className="btn btn-secondary" disabled>
@@ -3674,6 +3717,7 @@ export function DashboardPage({
         addressOptions={apiServiceAddressOptions}
         onAddressKindChange={handleApiServiceAddressKindChange}
         accounts={codexAccounts}
+        modelProviders={apiServiceModelProviders}
         accountGroups={apiServiceAccountGroups}
         initialSelectedIds={apiServiceModalSelectedIds}
         maskAccountText={maskAccountText}
@@ -3682,6 +3726,11 @@ export function DashboardPage({
           handleSaveApiServiceAccounts(accountIds, {
             restrictFreeAccounts,
             autoIncludeNewAccounts,
+          })
+        }
+        onSaveProviders={({ providerIds, autoIncludeNewProviders }) =>
+          handleSaveApiServiceProviders(providerIds, {
+            autoIncludeNewProviders,
           })
         }
         onClearStats={handleClearApiServiceStats}

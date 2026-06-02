@@ -903,6 +903,18 @@ pub async fn codex_local_access_save_accounts(
 }
 
 #[tauri::command]
+pub async fn codex_local_access_save_providers(
+    provider_ids: Vec<String>,
+    auto_include_new_providers: Option<bool>,
+) -> Result<CodexLocalAccessState, String> {
+    codex_local_access::save_local_access_providers(
+        provider_ids,
+        auto_include_new_providers.unwrap_or(false),
+    )
+    .await
+}
+
+#[tauri::command]
 pub async fn codex_local_access_remove_account(
     account_id: String,
 ) -> Result<CodexLocalAccessState, String> {
