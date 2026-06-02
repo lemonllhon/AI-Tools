@@ -6,6 +6,18 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.0.34] - 2026-06-02
+
+### 新增
+- Codex API 服务新增 WS 协议模式切换，可选择“自动”“启用”或“禁用”。
+
+### 变更
+- 自动模式会在供应商来源下关闭 Codex Responses WebSocket 偏好，让旧版 New API 上游可回退到普通 HTTP/SSE 调用。
+
+### 修复
+- 当 API 服务 WS 协议模式解析为禁用时，会拒绝 WebSocket upgrade 请求，避免客户端继续使用不受支持的 WS 路径。
+- 修复 API 服务只有供应商号池、没有 OAuth 账号池成员时，Codex 客户端模型列表可能不可用的问题。
+
 ## [0.0.33] - 2026-06-02
 
 ### 新增

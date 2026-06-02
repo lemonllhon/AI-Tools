@@ -42,10 +42,10 @@ pub fn is_codex_client_models_request(target: &str) -> bool {
     })
 }
 
-pub fn build_codex_client_models_response(model_ids: &[String]) -> Value {
+pub fn build_codex_client_models_response(model_ids: &[String], prefer_websockets: bool) -> Value {
     let models = model_ids
         .iter()
-        .map(|model_id| build_codex_client_model(model_id))
+        .map(|model_id| build_codex_client_model(model_id, prefer_websockets))
         .collect::<Vec<_>>();
 
     json!({ "models": models })
@@ -69,7 +69,7 @@ pub fn normalize_responses_body_for_codex(body: &mut Value) -> bool {
     changed
 }
 
-fn build_codex_client_model(model_id: &str) -> Value {
+fn build_codex_client_model(model_id: &str, prefer_websockets: bool) -> Value {
     let display_name = display_name_for_model(model_id);
     let visibility = if matches!(
         model_id,
@@ -88,7 +88,7 @@ fn build_codex_client_model(model_id: &str) -> Value {
         "max_context_window": DEFAULT_MAX_CONTEXT_WINDOW,
         "default_reasoning_level": "medium",
         "supported_reasoning_levels": reasoning_levels(),
-        "prefer_websockets": true,
+        "prefer_websockets": prefer_websockets,
         "visibility": visibility,
     })
 }
@@ -458,13 +458,30 @@ mod tests {
 
     #[test]
     fn codex_client_models_use_models_field_only() {
-        let response = build_codex_client_models_response(&["gpt-5.4".to_string()]);
+        let response = build_codex_client_models_response(&["gpt-5.4".to_string()], true);
         assert!(response.get("models").and_then(Value::as_array).is_some());
         assert!(response.get("object").is_none());
         assert!(response.get("data").is_none());
         assert_eq!(
             response.pointer("/models/0/slug").and_then(Value::as_str),
             Some("gpt-5.4")
+        );
+        assert_eq!(
+            response
+                .pointer("/models/0/prefer_websockets")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn codex_client_models_can_disable_websocket_preference() {
+        let response = build_codex_client_models_response(&["gpt-5.4".to_string()], false);
+        assert_eq!(
+            response
+                .pointer("/models/0/prefer_websockets")
+                .and_then(Value::as_bool),
+            Some(false)
         );
     }
 }

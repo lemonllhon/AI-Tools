@@ -2037,7 +2037,15 @@
       "webSocketStatusReady": "Ready",
       "webSocketStatusStopped": "Waiting for service",
       "webSocketStatusDisabled": "Disabled with service",
-      "webSocketManagedDesc": "Codex Responses WebSocket follows the API service switch, port, key, and access scope.",
+      "webSocketStatusManualDisabled": "Off",
+      "webSocketManagedDesc": "Auto mode turns WS off for provider sources, so clients use normal HTTP/SSE when the provider does not support it.",
+      "webSocketModeLabel": "WS Protocol",
+      "webSocketModeSaveSuccess": "API service WS protocol mode updated",
+      "webSocketMode": {
+        "auto": "Auto",
+        "enabled": "Enabled",
+        "disabled": "Disabled"
+      },
       "providerTitle": "Providers",
       "providerKeyCount": "{{count}} provider key(s)",
       "providerSaveSuccess": "API service providers updated",

@@ -8,6 +8,7 @@ import type {
   CodexLocalAccessState,
   CodexLocalAccessTestResult,
   CodexLocalAccessUpstreamProxyMode,
+  CodexLocalAccessWebSocketMode,
 } from '../types/codexLocalAccess';
 
 export const CODEX_LOCAL_ACCESS_STATE_UPDATED_EVENT = 'codex-local-access-state-updated';
@@ -119,6 +120,14 @@ export async function updateCodexLocalAccessSourceMode(
 ): Promise<CodexLocalAccessState> {
   return await invokeCodexLocalAccessStateMutation('codex_local_access_update_source_mode', {
     sourceMode,
+  });
+}
+
+export async function updateCodexLocalAccessWebSocketMode(
+  webSocketMode: CodexLocalAccessWebSocketMode,
+): Promise<CodexLocalAccessState> {
+  return await invokeCodexLocalAccessStateMutation('codex_local_access_update_web_socket_mode', {
+    webSocketMode,
   });
 }
 

@@ -115,6 +115,7 @@ import type {
   CodexLocalAccessState,
   CodexLocalAccessTestResult,
   CodexLocalAccessUpstreamProxyMode,
+  CodexLocalAccessWebSocketMode,
 } from '../types/codexLocalAccess';
 
 interface DashboardPageProps {
@@ -603,6 +604,16 @@ export function DashboardPage({
       await runApiServiceStateMutation(
         () => codexLocalAccessService.updateCodexLocalAccessSourceMode(sourceMode),
         t('codex.localAccess.sourceModeSaveSuccess', 'API 服务来源模式已更新'),
+      );
+    },
+    [runApiServiceStateMutation, t],
+  );
+
+  const handleUpdateApiServiceWebSocketMode = useCallback(
+    async (webSocketMode: CodexLocalAccessWebSocketMode) => {
+      await runApiServiceStateMutation(
+        () => codexLocalAccessService.updateCodexLocalAccessWebSocketMode(webSocketMode),
+        t('codex.localAccess.webSocketModeSaveSuccess', 'API 服务 WS 协议模式已更新'),
       );
     },
     [runApiServiceStateMutation, t],
@@ -3741,6 +3752,7 @@ export function DashboardPage({
         onUpdateAccessScope={handleUpdateApiServiceAccessScope}
         onUpdateUpstreamProxyMode={handleUpdateApiServiceUpstreamProxyMode}
         onUpdateSourceMode={handleUpdateApiServiceSourceMode}
+        onUpdateWebSocketMode={handleUpdateApiServiceWebSocketMode}
         onUpdateBoundOAuthAccount={handleUpdateApiServiceBoundOAuthAccount}
         onRotateApiKey={handleRotateApiServiceKey}
         onKillPort={handleKillApiServicePort}

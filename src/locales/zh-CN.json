@@ -1838,7 +1838,15 @@
       "webSocketStatusReady": "可用",
       "webSocketStatusStopped": "等待服务运行",
       "webSocketStatusDisabled": "随服务停用",
-      "webSocketManagedDesc": "Codex Responses WebSocket 跟随 API 服务开关、端口、密钥和访问范围统一管理。",
+      "webSocketStatusManualDisabled": "已关闭",
+      "webSocketManagedDesc": "自动模式会在供应商来源下关闭 WS，供应商不支持时客户端将使用普通 HTTP/SSE。",
+      "webSocketModeLabel": "WS 协议",
+      "webSocketModeSaveSuccess": "API 服务 WS 协议模式已更新",
+      "webSocketMode": {
+        "auto": "自动",
+        "enabled": "启用",
+        "disabled": "禁用"
+      },
       "addressKind": "地址类型",
       "addressLocal": "本机",
       "addressLan": "局域网",

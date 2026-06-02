@@ -52,6 +52,20 @@ impl Default for CodexLocalAccessSourceMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CodexLocalAccessWebSocketMode {
+    Auto,
+    Enabled,
+    Disabled,
+}
+
+impl Default for CodexLocalAccessWebSocketMode {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
 fn default_access_scope_for_existing_config() -> CodexLocalAccessScope {
     CodexLocalAccessScope::Lan
 }
@@ -94,6 +108,8 @@ pub struct CodexLocalAccessCollection {
     pub upstream_proxy_mode: CodexLocalAccessUpstreamProxyMode,
     #[serde(default)]
     pub source_mode: CodexLocalAccessSourceMode,
+    #[serde(default)]
+    pub web_socket_mode: CodexLocalAccessWebSocketMode,
     #[serde(default)]
     pub routing_strategy: CodexLocalAccessRoutingStrategy,
     #[serde(default)]

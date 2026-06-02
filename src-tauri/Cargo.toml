@@ -1,6 +1,6 @@
 [package]
 name = "cockpit-tools"
-version = "0.0.33"
+version = "0.0.34"
 description = "AI Lemon Tools"
 authors = ["jlcodes"]
 license = "CC-BY-NC-SA-4.0"

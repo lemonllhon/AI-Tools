@@ -137,6 +137,7 @@ import type {
   CodexLocalAccessState,
   CodexLocalAccessTestResult,
   CodexLocalAccessUpstreamProxyMode,
+  CodexLocalAccessWebSocketMode,
 } from "../types/codexLocalAccess";
 import {
   CODEX_API_SERVICE_BIND_ID,
@@ -4985,6 +4986,32 @@ export function CodexAccountsPage() {
         return nextState;
       } catch (error) {
         console.error("Failed to update local access source mode:", error);
+        throw new Error(String(error).replace(/^Error:\s*/, ""));
+      } finally {
+        setLocalAccessSaving(false);
+      }
+    },
+    [setMessage, t],
+  );
+
+  const handleUpdateLocalAccessWebSocketMode = useCallback(
+    async (webSocketMode: CodexLocalAccessWebSocketMode) => {
+      setLocalAccessSaving(true);
+      try {
+        const nextState =
+          await codexLocalAccessService.updateCodexLocalAccessWebSocketMode(
+            webSocketMode,
+          );
+        setLocalAccessState(nextState);
+        setMessage({
+          text: t(
+            "codex.localAccess.webSocketModeSaveSuccess",
+            "API 服务 WS 协议模式已更新",
+          ),
+        });
+        return nextState;
+      } catch (error) {
+        console.error("Failed to update local access websocket mode:", error);
         throw new Error(String(error).replace(/^Error:\s*/, ""));
       } finally {
         setLocalAccessSaving(false);
@@ -10459,6 +10486,7 @@ export function CodexAccountsPage() {
             onUpdateAccessScope={handleUpdateLocalAccessAccessScope}
             onUpdateUpstreamProxyMode={handleUpdateLocalAccessUpstreamProxyMode}
             onUpdateSourceMode={handleUpdateLocalAccessSourceMode}
+            onUpdateWebSocketMode={handleUpdateLocalAccessWebSocketMode}
             onRotateApiKey={handleRotateLocalAccessApiKey}
             onKillPort={handleKillLocalAccessPort}
             onTest={handleTestLocalAccess}

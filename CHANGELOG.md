@@ -6,6 +6,17 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.34] - 2026-06-02
+### Added
+- Added a Codex API service WebSocket protocol mode selector with Auto, Enabled, and Disabled modes.
+
+### Changed
+- Auto mode now disables Codex Responses WebSocket preference for provider sources so older New API upstreams can fall back to normal HTTP/SSE calls.
+
+### Fixed
+- WebSocket upgrade requests are now rejected when the API service WebSocket mode resolves to disabled, preventing clients from using an unsupported WS path.
+- Codex client model catalog responses now work when the API service has provider-pool entries but no OAuth account-pool members.
+
 ## [0.0.33] - 2026-06-02
 ### Added
 - Added Codex API service provider management, allowing saved New API model providers to join the provider pool with optional auto-add for new New API providers.

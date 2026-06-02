@@ -588,6 +588,7 @@ pub fn run() {
             commands::codex::codex_local_access_update_custom_routing,
             commands::codex::codex_local_access_update_upstream_proxy_mode,
             commands::codex::codex_local_access_update_source_mode,
+            commands::codex::codex_local_access_update_web_socket_mode,
             commands::codex::codex_local_access_update_access_scope,
             commands::codex::codex_local_access_set_enabled,
             commands::codex::codex_local_access_activate,

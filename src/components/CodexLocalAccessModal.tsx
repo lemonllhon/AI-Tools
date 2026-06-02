@@ -34,6 +34,7 @@ import type {
   CodexLocalAccessStatsWindow,
   CodexLocalAccessTestResult,
   CodexLocalAccessUpstreamProxyMode,
+  CodexLocalAccessWebSocketMode,
 } from '../types/codexLocalAccess';
 import {
   getCodexPlanFilterKey,
@@ -101,6 +102,9 @@ interface CodexLocalAccessModalProps {
   ) => Promise<unknown> | unknown;
   onUpdateSourceMode: (
     sourceMode: CodexLocalAccessSourceMode,
+  ) => Promise<unknown> | unknown;
+  onUpdateWebSocketMode: (
+    webSocketMode: CodexLocalAccessWebSocketMode,
   ) => Promise<unknown> | unknown;
   onUpdateBoundOAuthAccount?: (
     accountId: string | null,
@@ -237,6 +241,7 @@ export function CodexLocalAccessModal({
   onUpdateAccessScope,
   onUpdateUpstreamProxyMode,
   onUpdateSourceMode,
+  onUpdateWebSocketMode,
   onUpdateBoundOAuthAccount,
   onRotateApiKey,
   onKillPort,
@@ -298,7 +303,9 @@ export function CodexLocalAccessModal({
       : webSocketUrl;
   const webSocketStatus = state?.webSocketEnabled
     ? t('codex.localAccess.webSocketStatusReady', '可用')
-    : collection?.enabled
+    : collection?.enabled && state?.running
+      ? t('codex.localAccess.webSocketStatusManualDisabled', '已关闭')
+      : collection?.enabled
       ? t('codex.localAccess.webSocketStatusStopped', '等待服务运行')
       : t('codex.localAccess.webSocketStatusDisabled', '随服务停用');
   const modelIds = state?.modelIds ?? [];
@@ -327,6 +334,7 @@ export function CodexLocalAccessModal({
   const selectedTotals = selectedStatsWindow?.totals;
   const routingStrategy = collection?.routingStrategy ?? 'auto';
   const sourceMode = collection?.sourceMode ?? 'hybrid';
+  const webSocketMode = collection?.webSocketMode ?? 'auto';
   const accessScope = collection?.accessScope ?? 'localhost';
   const upstreamProxyMode = collection?.upstreamProxyMode ?? 'follow_global_proxy';
   const accessScopeAddress =
@@ -925,6 +933,23 @@ export function CodexLocalAccessModal({
         label: t('codex.localAccess.sourceMode.hybrid', '融合'),
       },
     ] satisfies Array<{ value: CodexLocalAccessSourceMode; label: string }>,
+    [t],
+  );
+  const webSocketModeOptions = useMemo(
+    () => [
+      {
+        value: 'auto',
+        label: t('codex.localAccess.webSocketMode.auto', '自动'),
+      },
+      {
+        value: 'enabled',
+        label: t('codex.localAccess.webSocketMode.enabled', '启用'),
+      },
+      {
+        value: 'disabled',
+        label: t('codex.localAccess.webSocketMode.disabled', '禁用'),
+      },
+    ] satisfies Array<{ value: CodexLocalAccessWebSocketMode; label: string }>,
     [t],
   );
   const accessScopeOptions = useMemo(
@@ -1535,6 +1560,20 @@ export function CodexLocalAccessModal({
     );
   };
 
+  const handleChangeWebSocketMode = async (nextValue: string) => {
+    if (!collection) return;
+    const nextMode: CodexLocalAccessWebSocketMode =
+      nextValue === 'enabled' || nextValue === 'disabled' ? nextValue : 'auto';
+    if (nextMode === webSocketMode) return;
+
+    await runAction(
+      async () => {
+        await onUpdateWebSocketMode(nextMode);
+      },
+      t('codex.localAccess.webSocketModeSaveSuccess', 'API 服务 WS 协议模式已更新'),
+    );
+  };
+
   const handleResetKey = async () => {
     const confirmed = await confirmDialog(
       t(
@@ -1759,6 +1798,18 @@ export function CodexLocalAccessModal({
                         disabled={saving || testing}
                         ariaLabel={t('codex.localAccess.upstreamProxyLabel', '上游连接')}
                         menuWidth={150}
+                      />
+                    </div>
+                  )}
+                  {collection && (
+                    <div className="codex-local-access-header-websocket-mode">
+                      <SingleSelectDropdown
+                        value={webSocketMode}
+                        options={webSocketModeOptions}
+                        onChange={(value) => void handleChangeWebSocketMode(value)}
+                        disabled={saving || testing}
+                        ariaLabel={t('codex.localAccess.webSocketModeLabel', 'WS 协议')}
+                        menuWidth={120}
                       />
                     </div>
                   )}
@@ -2033,7 +2084,7 @@ export function CodexLocalAccessModal({
                             className={`codex-local-access-status ${state?.webSocketEnabled ? 'running' : 'stopped'}`}
                             title={t(
                               'codex.localAccess.webSocketManagedDesc',
-                              'Codex Responses WebSocket 跟随 API 服务开关、端口、密钥和访问范围统一管理。',
+                              '自动模式会在供应商来源下关闭 WS，供应商不支持时客户端将使用普通 HTTP/SSE。',
                             )}
                           >
                             {webSocketStatus}

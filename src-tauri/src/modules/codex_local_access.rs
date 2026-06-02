@@ -5,6 +5,7 @@ use crate::models::codex_local_access::{
     CodexLocalAccessSourceMode, CodexLocalAccessState, CodexLocalAccessStats,
     CodexLocalAccessStatsWindow, CodexLocalAccessTestFailure, CodexLocalAccessTestResult,
     CodexLocalAccessUpstreamProxyMode, CodexLocalAccessUsageEvent, CodexLocalAccessUsageStats,
+    CodexLocalAccessWebSocketMode,
 };
 use crate::modules::atomic_write::write_string_atomic;
 use crate::modules::{codex_account, codex_oauth, codex_protocol, codex_wakeup, logger, process};
@@ -3852,6 +3853,58 @@ fn build_provider_runtime_accounts(
     Ok(accounts)
 }
 
+fn collection_has_available_provider_source(collection: &CodexLocalAccessCollection) -> bool {
+    match collection.source_mode {
+        CodexLocalAccessSourceMode::ProviderFirst => return true,
+        CodexLocalAccessSourceMode::AccountPool => return false,
+        CodexLocalAccessSourceMode::Hybrid => {}
+    }
+
+    let provider_ids: HashSet<&str> = collection
+        .provider_ids
+        .iter()
+        .map(String::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .collect();
+    if !provider_ids.is_empty() {
+        if load_new_api_model_providers()
+            .map(|providers| {
+                providers
+                    .iter()
+                    .any(|provider| provider_ids.contains(provider.id.as_str()))
+            })
+            .unwrap_or(false)
+        {
+            return true;
+        }
+    }
+
+    collection.account_ids.iter().any(|account_id| {
+        try_get_cached_account_for_routing(account_id)
+            .or_else(|| codex_account::load_account(account_id))
+            .as_ref()
+            .map(is_new_api_provider_account)
+            .unwrap_or(false)
+    })
+}
+
+fn resolve_websocket_enabled_for_collection(
+    collection: &CodexLocalAccessCollection,
+    service_running: bool,
+) -> bool {
+    if !collection.enabled || !service_running {
+        return false;
+    }
+
+    match collection.web_socket_mode {
+        CodexLocalAccessWebSocketMode::Enabled => true,
+        CodexLocalAccessWebSocketMode::Disabled => false,
+        CodexLocalAccessWebSocketMode::Auto => {
+            !collection_has_available_provider_source(collection)
+        }
+    }
+}
+
 async fn cache_provider_runtime_accounts(accounts: &[CodexAccount]) {
     if accounts.is_empty() {
         return;
@@ -4056,6 +4109,7 @@ async fn ensure_runtime_loaded_without_start() -> Result<(), String> {
             access_scope: CodexLocalAccessScope::Localhost,
             upstream_proxy_mode: CodexLocalAccessUpstreamProxyMode::default(),
             source_mode: CodexLocalAccessSourceMode::default(),
+            web_socket_mode: CodexLocalAccessWebSocketMode::default(),
             routing_strategy: CodexLocalAccessRoutingStrategy::default(),
             custom_routing_rules: Vec::new(),
             restrict_free_accounts: true,
@@ -4423,7 +4477,7 @@ fn build_state_snapshot(runtime: &GatewayRuntime) -> CodexLocalAccessState {
     });
     let web_socket_enabled = collection
         .as_ref()
-        .map(|item| item.enabled && runtime.running)
+        .map(|item| resolve_websocket_enabled_for_collection(item, runtime.running))
         .unwrap_or(false);
     let model_ids = supported_codex_model_ids();
     let mut stats = runtime.stats.clone();
@@ -4960,6 +5014,7 @@ pub async fn save_local_access_accounts(
                 access_scope: CodexLocalAccessScope::Localhost,
                 upstream_proxy_mode: CodexLocalAccessUpstreamProxyMode::default(),
                 source_mode: CodexLocalAccessSourceMode::default(),
+                web_socket_mode: CodexLocalAccessWebSocketMode::default(),
                 routing_strategy: CodexLocalAccessRoutingStrategy::default(),
                 custom_routing_rules: Vec::new(),
                 restrict_free_accounts: true,
@@ -5027,6 +5082,7 @@ pub async fn save_local_access_providers(
                 access_scope: CodexLocalAccessScope::Localhost,
                 upstream_proxy_mode: CodexLocalAccessUpstreamProxyMode::default(),
                 source_mode: CodexLocalAccessSourceMode::default(),
+                web_socket_mode: CodexLocalAccessWebSocketMode::default(),
                 routing_strategy: CodexLocalAccessRoutingStrategy::default(),
                 custom_routing_rules: Vec::new(),
                 restrict_free_accounts: true,
@@ -5181,6 +5237,36 @@ pub async fn update_local_access_source_mode(
     }
 
     collection.source_mode = source_mode;
+    collection.updated_at = now_ms();
+    save_collection_to_disk(&collection)?;
+
+    {
+        let mut runtime = gateway_runtime().lock().await;
+        sync_runtime_collection(&mut runtime, collection);
+    }
+
+    snapshot_state().await
+}
+
+pub async fn update_local_access_web_socket_mode(
+    web_socket_mode: CodexLocalAccessWebSocketMode,
+) -> Result<CodexLocalAccessState, String> {
+    ensure_runtime_loaded().await?;
+
+    let maybe_collection = {
+        let runtime = gateway_runtime().lock().await;
+        runtime.collection.clone()
+    };
+
+    let Some(mut collection) = maybe_collection else {
+        return Err("本地接入集合尚未创建".to_string());
+    };
+
+    if collection.web_socket_mode == web_socket_mode {
+        return snapshot_state().await;
+    }
+
+    collection.web_socket_mode = web_socket_mode;
     collection.updated_at = now_ms();
     save_collection_to_disk(&collection)?;
 
@@ -5727,9 +5813,10 @@ fn build_local_models_response() -> Value {
     })
 }
 
-fn build_codex_client_models_response() -> Value {
+fn build_codex_client_models_response(collection: &CodexLocalAccessCollection) -> Value {
     let model_ids = supported_codex_model_ids();
-    codex_protocol::build_codex_client_models_response(&model_ids)
+    let prefer_websockets = resolve_websocket_enabled_for_collection(collection, true);
+    codex_protocol::build_codex_client_models_response(&model_ids, prefer_websockets)
 }
 
 fn usage_number(value: Option<&Value>) -> Option<u64> {
@@ -8387,11 +8474,45 @@ async fn handle_connection(
     }
 
     if is_websocket_upgrade_request(&parsed) && is_responses_request(&parsed.target) {
+        if !resolve_websocket_enabled_for_collection(&collection, state.running) {
+            write_json_error_response(
+                &mut stream,
+                Some(&addr),
+                Some(&parsed),
+                400,
+                "Bad Request",
+                "Responses WebSocket 已关闭，请使用普通 HTTP/SSE 请求",
+                None,
+                None,
+                None,
+            )
+            .await?;
+            return Ok(());
+        }
         return handle_responses_websocket(stream, addr, parsed, collection).await;
     }
 
     if is_local_models_request(&parsed.target) {
-        if collection.account_ids.is_empty() {
+        let (primary_account_ids, fallback_account_ids) =
+            match resolve_route_account_ids_for_source_mode(&collection).await {
+                Ok(account_ids) => account_ids,
+                Err(err) => {
+                    write_json_error_response(
+                        &mut stream,
+                        Some(&addr),
+                        Some(&parsed),
+                        503,
+                        "Service Unavailable",
+                        err.as_str(),
+                        None,
+                        None,
+                        None,
+                    )
+                    .await?;
+                    return Ok(());
+                }
+            };
+        if primary_account_ids.is_empty() && fallback_account_ids.is_empty() {
             write_json_error_response(
                 &mut stream,
                 Some(&addr),
@@ -8408,7 +8529,7 @@ async fn handle_connection(
         }
 
         let response_body = if codex_protocol::is_codex_client_models_request(&parsed.target) {
-            build_codex_client_models_response()
+            build_codex_client_models_response(&collection)
         } else {
             build_local_models_response()
         };
@@ -9022,9 +9143,38 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
         assert!(has_image_model);
     }
 
+    fn test_collection_with_websocket_mode(
+        source_mode: CodexLocalAccessSourceMode,
+        web_socket_mode: CodexLocalAccessWebSocketMode,
+    ) -> CodexLocalAccessCollection {
+        CodexLocalAccessCollection {
+            enabled: true,
+            port: 3000,
+            api_key: "test-key".to_string(),
+            access_scope: CodexLocalAccessScope::Localhost,
+            upstream_proxy_mode: CodexLocalAccessUpstreamProxyMode::default(),
+            source_mode,
+            web_socket_mode,
+            routing_strategy: CodexLocalAccessRoutingStrategy::default(),
+            custom_routing_rules: Vec::new(),
+            restrict_free_accounts: true,
+            auto_include_new_accounts: false,
+            auto_include_new_providers: false,
+            provider_ids: Vec::new(),
+            bound_oauth_account_id: None,
+            account_ids: Vec::new(),
+            created_at: 1,
+            updated_at: 1,
+        }
+    }
+
     #[test]
     fn codex_client_models_use_models_catalog_shape() {
-        let response = build_codex_client_models_response();
+        let collection = test_collection_with_websocket_mode(
+            CodexLocalAccessSourceMode::AccountPool,
+            CodexLocalAccessWebSocketMode::Auto,
+        );
+        let response = build_codex_client_models_response(&collection);
         assert!(response.get("object").is_none());
         assert!(response.get("data").is_none());
         let models = response
@@ -9037,6 +9187,44 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
         assert!(models
             .iter()
             .all(|model| model.get("prefer_websockets").and_then(Value::as_bool) == Some(true)));
+    }
+
+    #[test]
+    fn websocket_auto_mode_disables_provider_source_catalog_preference() {
+        let collection = test_collection_with_websocket_mode(
+            CodexLocalAccessSourceMode::ProviderFirst,
+            CodexLocalAccessWebSocketMode::Auto,
+        );
+        let response = build_codex_client_models_response(&collection);
+        let models = response
+            .get("models")
+            .and_then(Value::as_array)
+            .expect("codex client models should be an array");
+
+        assert!(models
+            .iter()
+            .all(|model| model.get("prefer_websockets").and_then(Value::as_bool) == Some(false)));
+    }
+
+    #[test]
+    fn websocket_manual_mode_overrides_auto_detection() {
+        let enabled_collection = test_collection_with_websocket_mode(
+            CodexLocalAccessSourceMode::ProviderFirst,
+            CodexLocalAccessWebSocketMode::Enabled,
+        );
+        let disabled_collection = test_collection_with_websocket_mode(
+            CodexLocalAccessSourceMode::AccountPool,
+            CodexLocalAccessWebSocketMode::Disabled,
+        );
+
+        assert!(resolve_websocket_enabled_for_collection(
+            &enabled_collection,
+            true
+        ));
+        assert!(!resolve_websocket_enabled_for_collection(
+            &disabled_collection,
+            true
+        ));
     }
 
     #[test]

@@ -9,6 +9,11 @@ export type CodexLocalAccessSourceMode =
   | 'account_pool'
   | 'hybrid';
 
+export type CodexLocalAccessWebSocketMode =
+  | 'auto'
+  | 'enabled'
+  | 'disabled';
+
 export type CodexLocalAccessRoutingStrategy =
   | 'auto'
   | 'quota_high_first'
@@ -31,6 +36,7 @@ export interface CodexLocalAccessCollection {
   accessScope: CodexLocalAccessScope;
   upstreamProxyMode: CodexLocalAccessUpstreamProxyMode;
   sourceMode: CodexLocalAccessSourceMode;
+  webSocketMode: CodexLocalAccessWebSocketMode;
   routingStrategy: CodexLocalAccessRoutingStrategy;
   customRoutingRules: CodexLocalAccessCustomRoutingRule[];
   restrictFreeAccounts: boolean;
