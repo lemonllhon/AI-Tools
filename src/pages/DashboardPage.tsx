@@ -157,6 +157,26 @@ function persistDashboardLocalAccessAddressKind(
   }
 }
 
+function isDashboardNewApiModelProvider(provider: CodexModelProvider): boolean {
+  const normalized = `${provider.id} ${provider.name}`
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
+  return normalized.includes('newapi');
+}
+
+function getDashboardApiServiceProviderKeyCount(
+  collection: CodexLocalAccessState['collection'] | null | undefined,
+  modelProviders: CodexModelProvider[],
+): number {
+  const providerIds = new Set(collection?.providerIds ?? []);
+  if (providerIds.size === 0) return 0;
+  return modelProviders
+    .filter((provider) => providerIds.has(provider.id))
+    .filter(isDashboardNewApiModelProvider)
+    .reduce((count, provider) => count + provider.apiKeys.length, 0);
+}
+
 function toFiniteNumber(value: number | null | undefined): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
@@ -225,6 +245,7 @@ export function DashboardPage({
   >(null);
   const [apiServiceSaving, setApiServiceSaving] = React.useState(false);
   const [apiServiceSpeedSaving, setApiServiceSpeedSaving] = React.useState<CodexAppSpeed | null>(null);
+  const [apiServiceAppSpeed, setApiServiceAppSpeed] = React.useState<CodexAppSpeed>('standard');
   const [apiServiceTesting, setApiServiceTesting] = React.useState(false);
   const [apiServicePortCleanupBusy, setApiServicePortCleanupBusy] = React.useState(false);
   const [apiServiceMessage, setApiServiceMessage] = React.useState<{ text: string; tone?: 'success' | 'error' } | null>(null);
@@ -349,11 +370,21 @@ export function DashboardPage({
     }
   }, []);
 
+  const loadApiServiceAppSpeed = useCallback(async () => {
+    try {
+      const config = await codexService.getCodexApiServiceAppSpeedConfig();
+      setApiServiceAppSpeed(config.speed);
+    } catch (error) {
+      console.error('Failed to load Codex API service app speed:', error);
+    }
+  }, []);
+
   React.useEffect(() => {
     if (!isMenuVisiblePlatform('codex')) return;
     void reloadApiServiceAccountGroups();
     void reloadApiServiceModelProviders();
-  }, [reloadApiServiceAccountGroups, reloadApiServiceModelProviders]);
+    void loadApiServiceAppSpeed();
+  }, [loadApiServiceAppSpeed, reloadApiServiceAccountGroups, reloadApiServiceModelProviders]);
 
   const openCodexApiServiceModal = useCallback(
     (mode: 'panel' | 'members' | 'providers') => {
@@ -950,22 +981,37 @@ export function DashboardPage({
     [codexAccounts],
   );
 
+  const codexApiServiceProviderKeyCount = useMemo(
+    () =>
+      getDashboardApiServiceProviderKeyCount(
+        apiServiceState?.collection,
+        apiServiceModelProviders,
+      ),
+    [apiServiceModelProviders, apiServiceState?.collection],
+  );
+
   const codexSpeedSummary = useMemo(() => {
-    const total = codexAccounts.length;
-    const standard = codexAccounts.filter(
+    const accountTotal = codexAccounts.length;
+    const providerKeyCount = codexApiServiceProviderKeyCount;
+    const accountStandard = codexAccounts.filter(
       (account) => (account.app_speed ?? 'standard') === 'standard',
     ).length;
-    const fast = codexAccounts.filter(
+    const accountFast = codexAccounts.filter(
       (account) => (account.app_speed ?? 'standard') === 'fast',
     ).length;
+    const standard =
+      accountStandard + (apiServiceAppSpeed === 'standard' ? providerKeyCount : 0);
+    const fast =
+      accountFast + (apiServiceAppSpeed === 'fast' ? providerKeyCount : 0);
+    const total = accountTotal + providerKeyCount;
     const active: CodexAppSpeed | null =
       total > 0 && standard === total
         ? 'standard'
         : total > 0 && fast === total
           ? 'fast'
           : null;
-    return { active, fast, standard, total };
-  }, [codexAccounts]);
+    return { active, fast, providerKeyCount, standard, total };
+  }, [apiServiceAppSpeed, codexAccounts, codexApiServiceProviderKeyCount]);
 
   const applyCodexSpeedToAllAccounts = useCallback(
     async (speed: CodexAppSpeed) => {
@@ -974,8 +1020,18 @@ export function DashboardPage({
       }
 
       const targetAccounts = useCodexAccountStore.getState().accounts;
-      if (targetAccounts.length === 0) {
-        throw new Error(t('dashboard.apiServices.codexSpeedNoAccounts', '暂无 Codex 账号可设置速度'));
+      const providerKeyCount = getDashboardApiServiceProviderKeyCount(
+        apiServiceState?.collection,
+        apiServiceModelProviders,
+      );
+      const totalTargetCount = targetAccounts.length + providerKeyCount;
+      if (totalTargetCount === 0) {
+        throw new Error(
+          t(
+            'dashboard.apiServices.codexSpeedNoAccounts',
+            '暂无 Codex 账号或供应商 Key 可设置速度',
+          ),
+        );
       }
 
       setApiServiceSpeedSaving(speed);
@@ -993,7 +1049,8 @@ export function DashboardPage({
           }
         }
         try {
-          await codexService.saveCodexApiServiceAppSpeed(speed);
+          const saved = await codexService.saveCodexApiServiceAppSpeed(speed);
+          setApiServiceAppSpeed(saved.speed);
         } catch (error) {
           firstFailure = firstFailure ?? error;
           failureCount += 1;
@@ -1008,12 +1065,20 @@ export function DashboardPage({
             }),
           );
         }
-        return { total: targetAccounts.length };
+        return { total: totalTargetCount };
       } finally {
         setApiServiceSpeedSaving(null);
       }
     },
-    [apiServiceSpeedSaving, codexSpeedSummary.total, fetchCodexAccounts, fetchCodexCurrent, t],
+    [
+      apiServiceModelProviders,
+      apiServiceSpeedSaving,
+      apiServiceState?.collection,
+      codexSpeedSummary.total,
+      fetchCodexAccounts,
+      fetchCodexCurrent,
+      t,
+    ],
   );
 
   const handleApplyCodexSpeedToAllAccounts = useCallback(
@@ -1028,7 +1093,7 @@ export function DashboardPage({
           text: t('dashboard.apiServices.codexSpeedApplied', {
             count: result.total,
             speed: speedLabel,
-            defaultValue: '已将 {{count}} 个 Codex 账号和 API 服务默认速度设置为{{speed}}',
+            defaultValue: '已将 {{count}} 个 Codex 账号/供应商 Key 和 API 服务默认速度设置为{{speed}}',
           }),
           tone: 'success',
         });
@@ -3514,7 +3579,7 @@ export function DashboardPage({
                       <small>
                         {t('dashboard.apiServices.codexSpeedCount', {
                           count: codexSpeedSummary.total,
-                          defaultValue: '{{count}} 个账号',
+                          defaultValue: '{{count}} 个账号/供应商 Key',
                         })}
                       </small>
                     </div>
@@ -3803,6 +3868,7 @@ export function DashboardPage({
         onKillPort={handleKillApiServicePort}
         onTest={handleTestApiService}
         onApplyAllAccountSpeed={applyCodexSpeedToAllAccounts}
+        apiServiceSpeed={apiServiceAppSpeed}
         bulkSpeedSaving={apiServiceSpeedSaving}
         saving={apiServiceSaving}
         testing={apiServiceTesting}

@@ -6,6 +6,14 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.37] - 2026-06-03
+### Added
+- Codex API service all-account speed controls now include selected New API provider keys, so provider-only and hybrid pools can apply the API service default speed from the dashboard and service panel.
+
+### Fixed
+- Manually deselecting an API service member now turns off account auto-add, preventing refresh from adding the member back immediately.
+- Manually deselecting a New API provider now turns off provider auto-add, so saved provider-pool choices are respected.
+
 ## [0.0.36] - 2026-06-02
 ### Added
 - Added an Update Config action for the Codex API service in the dashboard console, Codex overview card, and API service panel. It rewrites the current Codex `config.toml`/auth provider bundle without restarting the API service.

@@ -118,6 +118,7 @@ interface CodexLocalAccessModalProps {
     | null;
   onTest: () => Promise<CodexLocalAccessTestResult> | CodexLocalAccessTestResult;
   onApplyAllAccountSpeed?: (speed: CodexAppSpeed) => Promise<unknown> | unknown;
+  apiServiceSpeed?: CodexAppSpeed | null;
   bulkSpeedSaving?: CodexAppSpeed | null;
   saving: boolean;
   testing: boolean;
@@ -250,6 +251,7 @@ export function CodexLocalAccessModal({
   onKillPort,
   onTest,
   onApplyAllAccountSpeed,
+  apiServiceSpeed = 'standard',
   bulkSpeedSaving = null,
   saving,
   testing,
@@ -361,22 +363,6 @@ export function CodexLocalAccessModal({
   const testDialogBusy = testDialogRunning || testing;
   const actionBusy = saving || testing || portCleanupBusy;
   const speedOptions: CodexAppSpeed[] = ['standard', 'fast'];
-  const speedSummary = useMemo(() => {
-    const total = accounts.length;
-    const standard = accounts.filter(
-      (account) => (account.app_speed ?? 'standard') === 'standard',
-    ).length;
-    const fast = accounts.filter(
-      (account) => (account.app_speed ?? 'standard') === 'fast',
-    ).length;
-    const active: CodexAppSpeed | null =
-      total > 0 && standard === total
-        ? 'standard'
-        : total > 0 && fast === total
-          ? 'fast'
-          : null;
-    return { active, fast, standard, total };
-  }, [accounts]);
   const summaryStats = useMemo(
     () => [
       {
@@ -492,6 +478,29 @@ export function CodexLocalAccessModal({
       .filter((provider) => providerIds.has(provider.id))
       .reduce((count, provider) => count + provider.apiKeys.length, 0);
   }, [collection?.providerIds, localAccessProviders]);
+  const effectiveApiServiceSpeed = apiServiceSpeed ?? 'standard';
+  const speedSummary = useMemo(() => {
+    const accountTotal = accounts.length;
+    const providerKeyCount = currentProviderKeyCount;
+    const accountStandard = accounts.filter(
+      (account) => (account.app_speed ?? 'standard') === 'standard',
+    ).length;
+    const accountFast = accounts.filter(
+      (account) => (account.app_speed ?? 'standard') === 'fast',
+    ).length;
+    const providerStandard = effectiveApiServiceSpeed === 'standard' ? providerKeyCount : 0;
+    const providerFast = effectiveApiServiceSpeed === 'fast' ? providerKeyCount : 0;
+    const standard = accountStandard + providerStandard;
+    const fast = accountFast + providerFast;
+    const total = accountTotal + providerKeyCount;
+    const active: CodexAppSpeed | null =
+      total > 0 && standard === total
+        ? 'standard'
+        : total > 0 && fast === total
+          ? 'fast'
+          : null;
+    return { active, fast, providerKeyCount, standard, total };
+  }, [accounts, currentProviderKeyCount, effectiveApiServiceSpeed]);
   const localAccessAccountIdSet = useMemo(
     () => new Set(localAccessAccounts.map((account) => account.id)),
     [localAccessAccounts],
@@ -1252,6 +1261,9 @@ export function CodexLocalAccessModal({
 
   const toggleSelectAllVisible = () => {
     if (actionBusy || visibleSelectableAccounts.length === 0) return;
+    if (allVisibleSelected) {
+      setAutoIncludeNewAccounts(false);
+    }
     setSelected((prev) => {
       const next = new Set(prev);
       if (allVisibleSelected) {
@@ -1269,6 +1281,9 @@ export function CodexLocalAccessModal({
 
   const toggleProviderSelect = (providerId: string) => {
     if (actionBusy) return;
+    if (selectedProviders.has(providerId)) {
+      setAutoIncludeNewProviders(false);
+    }
     setSelectedProviders((prev) => {
       const next = new Set(prev);
       if (next.has(providerId)) {
@@ -1282,6 +1297,9 @@ export function CodexLocalAccessModal({
 
   const toggleSelectAllVisibleProviders = () => {
     if (actionBusy || visibleProviders.length === 0) return;
+    if (allVisibleProvidersSelected) {
+      setAutoIncludeNewProviders(false);
+    }
     setSelectedProviders((prev) => {
       const next = new Set(prev);
       if (allVisibleProvidersSelected) {
@@ -1300,13 +1318,42 @@ export function CodexLocalAccessModal({
 
   const handleToggleAutoIncludeNewAccounts = () => {
     if (actionBusy) return;
-    setAutoIncludeNewAccounts((prev) => !prev);
+    const nextAutoInclude = !autoIncludeNewAccounts;
+    setAutoIncludeNewAccounts(nextAutoInclude);
+    if (nextAutoInclude) {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        localAccessAccounts.forEach((account) => {
+          if (restrictFreeAccounts && isCodexExplicitFreePlanType(account.plan_type)) {
+            return;
+          }
+          next.add(account.id);
+        });
+        return next;
+      });
+    }
+  };
+
+  const handleToggleAutoIncludeNewProviders = () => {
+    if (actionBusy) return;
+    const nextAutoInclude = !autoIncludeNewProviders;
+    setAutoIncludeNewProviders(nextAutoInclude);
+    if (nextAutoInclude) {
+      setSelectedProviders((prev) => {
+        const next = new Set(prev);
+        localAccessProviders.forEach((provider) => next.add(provider.id));
+        return next;
+      });
+    }
   };
 
   const toggleSelect = (accountId: string) => {
     if (actionBusy) return;
     const account = localAccessAccountById.get(accountId);
     if (!account) return;
+    if (selected.has(accountId)) {
+      setAutoIncludeNewAccounts(false);
+    }
     setSelected((prev) => {
       const isFreeAccount = isCodexExplicitFreePlanType(account.plan_type);
       if (isFreeAccount && restrictFreeAccounts && !prev.has(accountId)) {
@@ -1693,7 +1740,7 @@ export function CodexLocalAccessModal({
         t('codex.localAccess.bulkSpeedSuccess', {
           count: speedSummary.total,
           speed: speedLabel,
-          defaultValue: '已将 {{count}} 个 Codex 账号和 API 服务默认速度设置为{{speed}}',
+          defaultValue: '已将 {{count}} 个 Codex 账号/供应商 Key 和 API 服务默认速度设置为{{speed}}',
         }),
       );
     } catch (err) {
@@ -2020,7 +2067,7 @@ export function CodexLocalAccessModal({
                 <span className="codex-local-access-speed-count">
                   {t('codex.localAccess.bulkSpeedCount', {
                     count: speedSummary.total,
-                    defaultValue: '{{count}} 个账号',
+                    defaultValue: '{{count}} 个账号/供应商 Key',
                   })}
                 </span>
               </div>
@@ -2678,7 +2725,7 @@ export function CodexLocalAccessModal({
                     <input
                       type="checkbox"
                       checked={autoIncludeNewProviders}
-                      onChange={(event) => setAutoIncludeNewProviders(event.target.checked)}
+                      onChange={handleToggleAutoIncludeNewProviders}
                       disabled={actionBusy}
                     />
                     <span>

@@ -4412,8 +4412,7 @@ export function CodexAccountsPage() {
           {
             restrictFreeAccounts:
               localAccessCollection.restrictFreeAccounts ?? true,
-            autoIncludeNewAccounts:
-              localAccessCollection.autoIncludeNewAccounts ?? false,
+            autoIncludeNewAccounts: false,
           },
         );
       } catch (error) {
