@@ -885,6 +885,11 @@ export function CodexLocalAccessModal({
       });
   }, [collection?.accountIds, localAccessAccounts, t, windowStatsByAccountId]);
 
+  const currentProviderStats = useMemo(
+    () => selectedStatsWindow?.providers ?? [],
+    [selectedStatsWindow?.providers],
+  );
+
   const routingStrategyOptions = useMemo(
     () => [
       {
@@ -2310,6 +2315,86 @@ export function CodexLocalAccessModal({
                     ) : null}
                   </div>
                 ) : null}
+              </section>
+
+              <section className="codex-local-access-section codex-local-access-section-surface codex-local-access-provider-stats-section">
+                <div className="codex-local-access-section-title">
+                  <KeyRound size={16} />
+                  <span>{t('codex.localAccess.providerStatsTitle', '模型供应商统计')}</span>
+                </div>
+                <div className="codex-local-access-account-stats codex-local-access-provider-stats">
+                  {currentProviderStats.length === 0 ? (
+                    <div className="group-account-empty">
+                      {t('codex.localAccess.providerStatsEmpty', '当前还没有供应商统计数据')}
+                    </div>
+                  ) : (
+                    currentProviderStats.map((provider) => {
+                      const providerUsage = provider.usage;
+                      const providerAvgLatency =
+                        providerUsage.requestCount > 0
+                          ? providerUsage.totalLatencyMs / providerUsage.requestCount
+                          : 0;
+                      const providerEndpoint = provider.baseUrl || provider.providerId;
+                      return (
+                        <div
+                          key={provider.providerId}
+                          className="codex-local-access-account-stat-row codex-local-access-provider-stat-row"
+                        >
+                          <div className="codex-local-access-account-stat-top codex-local-access-provider-stat-top">
+                            <div className="codex-local-access-account-stat-main codex-local-access-provider-stat-main">
+                              <span
+                                className="group-account-email"
+                                title={provider.name || provider.providerId}
+                              >
+                                {provider.name || provider.providerId}
+                              </span>
+                              <span className="codex-local-access-provider-key-badge">
+                                {t('codex.localAccess.providerKeyCount', {
+                                  count: provider.keyCount,
+                                  defaultValue: '{{count}} keys',
+                                })}
+                              </span>
+                            </div>
+                            <div className="codex-local-access-account-stat-block codex-local-access-provider-endpoint">
+                              <code title={providerEndpoint}>{providerEndpoint}</code>
+                            </div>
+                            <div className="codex-local-access-account-stat-block codex-local-access-account-stat-block-metrics">
+                              <div className="codex-local-access-account-stat-metrics">
+                                <span className="codex-local-access-account-stat-pill">
+                                  {t('codex.localAccess.stats.accountRequests', {
+                                    count: providerUsage.requestCount,
+                                    defaultValue: '{{count}} 次请求',
+                                  })}
+                                </span>
+                                <span className="codex-local-access-account-stat-pill">
+                                  {t('codex.localAccess.stats.accountResult', {
+                                    success: providerUsage.successCount,
+                                    failed: providerUsage.failureCount,
+                                    defaultValue: '成功 {{success}} / 失败 {{failed}}',
+                                  })}
+                                </span>
+                                <span className="codex-local-access-account-stat-pill">
+                                  {providerUsage.totalTokens === 0
+                                    ? t('codex.localAccess.stats.accountTokens', {
+                                        count: 0,
+                                        defaultValue: '0 Tokens',
+                                      })
+                                    : t('codex.localAccess.stats.accountTokensCompact', {
+                                        value: formatCompactNumber(providerUsage.totalTokens),
+                                        defaultValue: '{{value}}',
+                                      })}
+                                </span>
+                                <span className="codex-local-access-account-stat-pill">
+                                  {formatLatencyMs(providerAvgLatency)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               </section>
 
               <section className="codex-local-access-section codex-local-access-section-surface codex-local-access-account-stats-section">

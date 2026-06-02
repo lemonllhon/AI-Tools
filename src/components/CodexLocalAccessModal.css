@@ -1488,6 +1488,13 @@
   width: 100%;
 }
 
+.codex-local-access-provider-stat-top {
+  grid-template-columns:
+    var(--codex-local-account-col)
+    minmax(190px, 1fr)
+    minmax(280px, var(--codex-local-metrics-col));
+}
+
 .codex-local-access-account-stat-main {
   display: flex;
   align-items: center;
@@ -1505,12 +1512,49 @@
   flex: 1 1 auto;
 }
 
+.codex-local-access-provider-stat-main {
+  gap: 9px;
+}
+
+.codex-local-access-provider-key-badge {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, rgba(148, 163, 184, 0.16));
+  background: color-mix(in srgb, var(--primary) 9%, rgba(255, 255, 255, 0.68));
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .codex-local-access-account-stat-block {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
   overflow: hidden;
+}
+
+.codex-local-access-provider-endpoint code {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 7px 9px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(15, 23, 42, 0.04);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.2;
 }
 
 .codex-local-access-account-stat-block-metrics,
@@ -1986,6 +2030,15 @@
 
   .codex-local-access-custom-routing-guide {
     grid-template-columns: 1fr;
+  }
+
+  .codex-local-access-provider-stat-top {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .codex-local-access-provider-stat-main {
+    flex-wrap: wrap;
   }
 
   .codex-local-access-custom-routing-row-head {

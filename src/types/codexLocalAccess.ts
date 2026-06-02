@@ -68,11 +68,21 @@ export interface CodexLocalAccessAccountStats {
   updatedAt: number;
 }
 
+export interface CodexLocalAccessProviderStats {
+  providerId: string;
+  name: string;
+  baseUrl: string;
+  keyCount: number;
+  usage: CodexLocalAccessUsageStats;
+  updatedAt: number;
+}
+
 export interface CodexLocalAccessStatsWindow {
   since: number;
   updatedAt: number;
   totals: CodexLocalAccessUsageStats;
   accounts: CodexLocalAccessAccountStats[];
+  providers?: CodexLocalAccessProviderStats[];
 }
 
 export interface CodexLocalAccessStats {
@@ -80,6 +90,7 @@ export interface CodexLocalAccessStats {
   updatedAt: number;
   totals: CodexLocalAccessUsageStats;
   accounts: CodexLocalAccessAccountStats[];
+  providers?: CodexLocalAccessProviderStats[];
   daily: CodexLocalAccessStatsWindow;
   weekly: CodexLocalAccessStatsWindow;
   monthly: CodexLocalAccessStatsWindow;

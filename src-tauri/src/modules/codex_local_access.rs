@@ -1,11 +1,11 @@
 use crate::models::codex::{CodexAccount, CodexApiProviderMode};
 use crate::models::codex_local_access::{
     CodexLocalAccessAccountStats, CodexLocalAccessCollection, CodexLocalAccessCustomRoutingRule,
-    CodexLocalAccessPortCleanupResult, CodexLocalAccessRoutingStrategy, CodexLocalAccessScope,
-    CodexLocalAccessSourceMode, CodexLocalAccessState, CodexLocalAccessStats,
-    CodexLocalAccessStatsWindow, CodexLocalAccessTestFailure, CodexLocalAccessTestResult,
-    CodexLocalAccessUpstreamProxyMode, CodexLocalAccessUsageEvent, CodexLocalAccessUsageStats,
-    CodexLocalAccessWebSocketMode,
+    CodexLocalAccessPortCleanupResult, CodexLocalAccessProviderStats,
+    CodexLocalAccessRoutingStrategy, CodexLocalAccessScope, CodexLocalAccessSourceMode,
+    CodexLocalAccessState, CodexLocalAccessStats, CodexLocalAccessStatsWindow,
+    CodexLocalAccessTestFailure, CodexLocalAccessTestResult, CodexLocalAccessUpstreamProxyMode,
+    CodexLocalAccessUsageEvent, CodexLocalAccessUsageStats, CodexLocalAccessWebSocketMode,
 };
 use crate::modules::atomic_write::write_string_atomic;
 use crate::modules::{codex_account, codex_oauth, codex_protocol, codex_wakeup, logger, process};
@@ -3058,23 +3058,27 @@ fn empty_stats_snapshot() -> CodexLocalAccessStats {
         updated_at: now,
         totals: CodexLocalAccessUsageStats::default(),
         accounts: Vec::new(),
+        providers: Vec::new(),
         daily: CodexLocalAccessStatsWindow {
             since: day_since,
             updated_at: now,
             totals: CodexLocalAccessUsageStats::default(),
             accounts: Vec::new(),
+            providers: Vec::new(),
         },
         weekly: CodexLocalAccessStatsWindow {
             since: week_since,
             updated_at: now,
             totals: CodexLocalAccessUsageStats::default(),
             accounts: Vec::new(),
+            providers: Vec::new(),
         },
         monthly: CodexLocalAccessStatsWindow {
             since: month_since,
             updated_at: now,
             totals: CodexLocalAccessUsageStats::default(),
             accounts: Vec::new(),
+            providers: Vec::new(),
         },
         events: Vec::new(),
     }
@@ -3086,6 +3090,7 @@ fn empty_stats_window(since: i64, updated_at: i64) -> CodexLocalAccessStatsWindo
         updated_at,
         totals: CodexLocalAccessUsageStats::default(),
         accounts: Vec::new(),
+        providers: Vec::new(),
     }
 }
 
@@ -3098,6 +3103,340 @@ fn sort_usage_accounts(accounts: &mut [CodexLocalAccessAccountStats]) {
             .then_with(|| right.updated_at.cmp(&left.updated_at))
             .then_with(|| left.account_id.cmp(&right.account_id))
     });
+}
+
+#[derive(Debug, Clone, Default)]
+struct ProviderStatsInfo {
+    name: String,
+    base_url: String,
+    key_count: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ProviderStatsAccumulator {
+    provider_id: String,
+    name: String,
+    base_url: String,
+    key_count: usize,
+    usage: CodexLocalAccessUsageStats,
+    updated_at: i64,
+    used_key_ids: HashSet<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ProviderStatsContext {
+    provider_infos: HashMap<String, ProviderStatsInfo>,
+    account_provider_ids: HashMap<String, String>,
+    selected_provider_ids: HashSet<String>,
+}
+
+fn merge_usage_stats(
+    target: &mut CodexLocalAccessUsageStats,
+    source: &CodexLocalAccessUsageStats,
+) {
+    target.request_count = target.request_count.saturating_add(source.request_count);
+    target.success_count = target.success_count.saturating_add(source.success_count);
+    target.failure_count = target.failure_count.saturating_add(source.failure_count);
+    target.total_latency_ms = target
+        .total_latency_ms
+        .saturating_add(source.total_latency_ms);
+    target.input_tokens = target.input_tokens.saturating_add(source.input_tokens);
+    target.output_tokens = target.output_tokens.saturating_add(source.output_tokens);
+    target.total_tokens = target.total_tokens.saturating_add(source.total_tokens);
+    target.cached_tokens = target.cached_tokens.saturating_add(source.cached_tokens);
+    target.reasoning_tokens = target
+        .reasoning_tokens
+        .saturating_add(source.reasoning_tokens);
+}
+
+fn sort_usage_providers(providers: &mut [CodexLocalAccessProviderStats]) {
+    providers.sort_by(|left, right| {
+        right
+            .usage
+            .request_count
+            .cmp(&left.usage.request_count)
+            .then_with(|| right.updated_at.cmp(&left.updated_at))
+            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+            .then_with(|| left.provider_id.cmp(&right.provider_id))
+    });
+}
+
+fn provider_runtime_account_parts(account_id: &str) -> Option<(String, String)> {
+    let mut parts = account_id.trim().splitn(3, ':');
+    if parts.next()? != "provider" {
+        return None;
+    }
+    let provider_id = parts.next()?.trim();
+    let api_key_id = parts.next()?.trim();
+    if provider_id.is_empty() || api_key_id.is_empty() {
+        return None;
+    }
+    Some((provider_id.to_string(), api_key_id.to_string()))
+}
+
+fn provider_stats_info_from_provider(provider: &CodexModelProviderEntry) -> ProviderStatsInfo {
+    let name = provider.name.trim().to_string();
+    let base_url = normalize_provider_base_url(&provider.base_url)
+        .unwrap_or_else(|| provider.base_url.trim().trim_end_matches('/').to_string());
+    let key_count = provider
+        .api_keys
+        .iter()
+        .filter(|api_key| normalize_provider_api_key(&api_key.api_key).is_some())
+        .count();
+    ProviderStatsInfo {
+        name,
+        base_url,
+        key_count,
+    }
+}
+
+fn normalize_provider_stats_account_source_id(account: &CodexAccount) -> String {
+    let provider_id = account
+        .api_provider_id
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or_default();
+    let normalized_provider_id = normalize_provider_identity(provider_id);
+    let is_generic_provider_id = normalized_provider_id.is_empty()
+        || normalized_provider_id == "newapi"
+        || normalized_provider_id == "cockpitapi";
+    if !is_generic_provider_id {
+        return provider_id.to_string();
+    }
+
+    if let Some(base_url) = account
+        .api_base_url
+        .as_deref()
+        .and_then(normalize_provider_base_url)
+    {
+        return format!("account_provider:{}", base_url.to_ascii_lowercase());
+    }
+
+    format!("account_provider:{}", account.id)
+}
+
+fn provider_stats_info_from_account(
+    account: &CodexAccount,
+) -> Option<(String, ProviderStatsInfo)> {
+    if !is_new_api_provider_account(account) {
+        return None;
+    }
+    let provider_id = normalize_provider_stats_account_source_id(account);
+    let name = account
+        .api_provider_name
+        .as_deref()
+        .or(account.account_name.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(NEW_API_PROVIDER_NAME)
+        .to_string();
+    let base_url = account
+        .api_base_url
+        .as_deref()
+        .and_then(normalize_provider_base_url)
+        .unwrap_or_default();
+    Some((
+        provider_id,
+        ProviderStatsInfo {
+            name,
+            base_url,
+            key_count: 1,
+        },
+    ))
+}
+
+fn merge_provider_stats_info(target: &mut ProviderStatsInfo, source: ProviderStatsInfo) {
+    if target.name.trim().is_empty() {
+        target.name = source.name;
+    }
+    if target.base_url.trim().is_empty() {
+        target.base_url = source.base_url;
+    }
+    target.key_count = target.key_count.saturating_add(source.key_count);
+}
+
+fn provider_name_from_runtime_email(email: &str) -> Option<String> {
+    email
+        .split('·')
+        .next()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn provider_stats_info_for_id(
+    provider_id: &str,
+    context: &ProviderStatsContext,
+) -> ProviderStatsInfo {
+    context
+        .provider_infos
+        .get(provider_id)
+        .cloned()
+        .unwrap_or_else(|| ProviderStatsInfo {
+            name: provider_id.to_string(),
+            base_url: String::new(),
+            key_count: 0,
+        })
+}
+
+fn ensure_provider_stats_accumulator<'a>(
+    providers: &'a mut HashMap<String, ProviderStatsAccumulator>,
+    provider_id: &str,
+    context: &ProviderStatsContext,
+) -> &'a mut ProviderStatsAccumulator {
+    providers
+        .entry(provider_id.to_string())
+        .or_insert_with(|| {
+            let info = provider_stats_info_for_id(provider_id, context);
+            ProviderStatsAccumulator {
+                provider_id: provider_id.to_string(),
+                name: if info.name.trim().is_empty() {
+                    provider_id.to_string()
+                } else {
+                    info.name
+                },
+                base_url: info.base_url,
+                key_count: info.key_count,
+                usage: CodexLocalAccessUsageStats::default(),
+                updated_at: 0,
+                used_key_ids: HashSet::new(),
+            }
+        })
+}
+
+fn build_provider_stats_context(
+    collection: Option<&CodexLocalAccessCollection>,
+) -> ProviderStatsContext {
+    let mut context = ProviderStatsContext::default();
+
+    if let Ok(providers) = load_model_providers() {
+        for provider in providers {
+            let provider_id = provider.id.trim();
+            if provider_id.is_empty() {
+                continue;
+            }
+            context
+                .provider_infos
+                .insert(provider_id.to_string(), provider_stats_info_from_provider(&provider));
+        }
+    }
+
+    let Some(collection) = collection else {
+        return context;
+    };
+
+    for provider_id in &collection.provider_ids {
+        let provider_id = provider_id.trim();
+        if provider_id.is_empty() {
+            continue;
+        }
+        context.selected_provider_ids.insert(provider_id.to_string());
+        context
+            .provider_infos
+            .entry(provider_id.to_string())
+            .or_insert_with(|| ProviderStatsInfo {
+                name: provider_id.to_string(),
+                base_url: String::new(),
+                key_count: 0,
+            });
+    }
+
+    for account_id in &collection.account_ids {
+        let account_id = account_id.trim();
+        if account_id.is_empty() {
+            continue;
+        }
+        let Some(account) = try_get_cached_account_for_routing(account_id)
+            .or_else(|| codex_account::load_account(account_id))
+        else {
+            continue;
+        };
+        let Some((provider_id, provider_info)) = provider_stats_info_from_account(&account) else {
+            continue;
+        };
+        context.selected_provider_ids.insert(provider_id.clone());
+        context
+            .account_provider_ids
+            .insert(account.id.clone(), provider_id.clone());
+        context
+            .provider_infos
+            .entry(provider_id)
+            .and_modify(|existing| merge_provider_stats_info(existing, provider_info.clone()))
+            .or_insert(provider_info);
+    }
+
+    context
+}
+
+fn build_provider_stats_for_accounts(
+    accounts: &[CodexLocalAccessAccountStats],
+    context: &ProviderStatsContext,
+) -> Vec<CodexLocalAccessProviderStats> {
+    let mut providers: HashMap<String, ProviderStatsAccumulator> = HashMap::new();
+
+    for provider_id in &context.selected_provider_ids {
+        let _ = ensure_provider_stats_accumulator(&mut providers, provider_id, context);
+    }
+
+    for account_stats in accounts {
+        let (provider_id, api_key_id) =
+            if let Some((provider_id, api_key_id)) =
+                provider_runtime_account_parts(&account_stats.account_id)
+            {
+                (provider_id, Some(api_key_id))
+            } else if let Some(provider_id) =
+                context.account_provider_ids.get(&account_stats.account_id)
+            {
+                (provider_id.clone(), None)
+            } else {
+                continue;
+            };
+
+        let provider = ensure_provider_stats_accumulator(&mut providers, &provider_id, context);
+        if let Some(api_key_id) = api_key_id {
+            provider.used_key_ids.insert(api_key_id);
+        }
+        if provider.name == provider_id {
+            if let Some(name) = provider_name_from_runtime_email(&account_stats.email) {
+                provider.name = name;
+            }
+        }
+        provider.updated_at = provider.updated_at.max(account_stats.updated_at);
+        merge_usage_stats(&mut provider.usage, &account_stats.usage);
+    }
+
+    let mut result = providers
+        .into_values()
+        .map(|mut provider| {
+            if provider.key_count == 0 {
+                provider.key_count = provider.used_key_ids.len();
+            }
+            if provider.key_count == 0 && provider.usage.request_count > 0 {
+                provider.key_count = 1;
+            }
+            CodexLocalAccessProviderStats {
+                provider_id: provider.provider_id,
+                name: provider.name,
+                base_url: provider.base_url,
+                key_count: provider.key_count,
+                usage: provider.usage,
+                updated_at: provider.updated_at,
+            }
+        })
+        .collect::<Vec<_>>();
+    sort_usage_providers(&mut result);
+    result
+}
+
+fn hydrate_provider_stats_for_snapshot(
+    stats: &mut CodexLocalAccessStats,
+    collection: Option<&CodexLocalAccessCollection>,
+) {
+    let context = build_provider_stats_context(collection);
+    stats.providers = build_provider_stats_for_accounts(&stats.accounts, &context);
+    stats.daily.providers = build_provider_stats_for_accounts(&stats.daily.accounts, &context);
+    stats.weekly.providers = build_provider_stats_for_accounts(&stats.weekly.accounts, &context);
+    stats.monthly.providers = build_provider_stats_for_accounts(&stats.monthly.accounts, &context);
 }
 
 fn trim_recent_events(events: &mut Vec<CodexLocalAccessUsageEvent>, month_since: i64) {
@@ -3451,6 +3790,41 @@ fn build_runtime_account(
     runtime_account
 }
 
+fn write_local_access_account_bundle_for_collection(
+    profile_dir: &Path,
+    collection: &CodexLocalAccessCollection,
+    base_url: String,
+) -> Result<(), String> {
+    let bound_oauth_account_id =
+        normalize_optional_account_ref(collection.bound_oauth_account_id.as_deref());
+    let runtime_account = build_runtime_account(
+        base_url.clone(),
+        collection.api_key.clone(),
+        bound_oauth_account_id,
+    );
+    codex_account::write_local_access_account_bundle_to_dir(
+        profile_dir,
+        &runtime_account,
+        base_url,
+        resolve_websocket_enabled_for_collection(collection, true),
+    )
+}
+
+fn sync_active_local_access_config_if_needed(
+    collection: &CodexLocalAccessCollection,
+) -> Result<(), String> {
+    let codex_home = codex_account::get_codex_home();
+    if !codex_account::is_local_access_provider_active_in_config(&codex_home) {
+        return Ok(());
+    }
+
+    write_local_access_account_bundle_for_collection(
+        &codex_home,
+        collection,
+        build_base_url(collection.port),
+    )
+}
+
 fn generate_local_api_key() -> String {
     let suffix: String = rand::thread_rng()
         .sample_iter(&Alphanumeric)
@@ -3497,6 +3871,7 @@ fn normalize_stats(stats: &mut CodexLocalAccessStats) {
     if stats.updated_at <= 0 {
         stats.updated_at = stats.since;
     }
+    stats.providers.clear();
     sort_usage_accounts(&mut stats.accounts);
     recompute_time_windows(stats, now);
 }
@@ -4481,6 +4856,7 @@ fn build_state_snapshot(runtime: &GatewayRuntime) -> CodexLocalAccessState {
         .unwrap_or(false);
     let model_ids = supported_codex_model_ids();
     let mut stats = runtime.stats.clone();
+    hydrate_provider_stats_for_snapshot(&mut stats, collection.as_ref());
     stats.events.clear();
 
     CodexLocalAccessState {
@@ -4533,9 +4909,7 @@ pub async fn activate_local_access_for_dir(
         let _ = validate_local_access_bound_oauth_account(bound_id)?;
         let _ = codex_account::ensure_managed_account_fresh(bound_id).await?;
     }
-    let runtime_account =
-        build_runtime_account(base_url, collection.api_key.clone(), bound_oauth_account_id);
-    codex_account::write_account_bundle_to_dir(profile_dir, &runtime_account)?;
+    write_local_access_account_bundle_for_collection(profile_dir, &collection, base_url)?;
     Ok(state)
 }
 
@@ -5057,9 +5431,10 @@ pub async fn save_local_access_accounts(
 
     {
         let mut runtime = gateway_runtime().lock().await;
-        sync_runtime_collection(&mut runtime, collection);
+        sync_runtime_collection(&mut runtime, collection.clone());
     }
 
+    sync_active_local_access_config_if_needed(&collection)?;
     ensure_gateway_matches_runtime().await?;
     snapshot_state().await
 }
@@ -5123,9 +5498,10 @@ pub async fn save_local_access_providers(
 
     {
         let mut runtime = gateway_runtime().lock().await;
-        sync_runtime_collection(&mut runtime, collection);
+        sync_runtime_collection(&mut runtime, collection.clone());
     }
 
+    sync_active_local_access_config_if_needed(&collection)?;
     ensure_gateway_matches_runtime().await?;
     snapshot_state().await
 }
@@ -5242,8 +5618,10 @@ pub async fn update_local_access_source_mode(
 
     {
         let mut runtime = gateway_runtime().lock().await;
-        sync_runtime_collection(&mut runtime, collection);
+        sync_runtime_collection(&mut runtime, collection.clone());
     }
+
+    sync_active_local_access_config_if_needed(&collection)?;
 
     snapshot_state().await
 }
@@ -5272,8 +5650,10 @@ pub async fn update_local_access_web_socket_mode(
 
     {
         let mut runtime = gateway_runtime().lock().await;
-        sync_runtime_collection(&mut runtime, collection);
+        sync_runtime_collection(&mut runtime, collection.clone());
     }
+
+    sync_active_local_access_config_if_needed(&collection)?;
 
     snapshot_state().await
 }
@@ -5302,9 +5682,10 @@ pub async fn update_local_access_scope(
 
     {
         let mut runtime = gateway_runtime().lock().await;
-        sync_runtime_collection(&mut runtime, collection);
+        sync_runtime_collection(&mut runtime, collection.clone());
     }
 
+    sync_active_local_access_config_if_needed(&collection)?;
     ensure_gateway_matches_runtime().await?;
     snapshot_state().await
 }
@@ -5334,9 +5715,10 @@ pub async fn remove_local_access_account(
 
     {
         let mut runtime = gateway_runtime().lock().await;
-        sync_runtime_collection(&mut runtime, collection);
+        sync_runtime_collection(&mut runtime, collection.clone());
     }
 
+    sync_active_local_access_config_if_needed(&collection)?;
     ensure_gateway_matches_runtime().await?;
     snapshot_state().await
 }
@@ -5359,9 +5741,10 @@ pub async fn rotate_local_access_api_key() -> Result<CodexLocalAccessState, Stri
 
     {
         let mut runtime = gateway_runtime().lock().await;
-        sync_runtime_collection(&mut runtime, collection);
+        sync_runtime_collection(&mut runtime, collection.clone());
     }
 
+    sync_active_local_access_config_if_needed(&collection)?;
     snapshot_state().await
 }
 
@@ -5395,9 +5778,10 @@ pub async fn update_local_access_bound_oauth_account(
 
     {
         let mut runtime = gateway_runtime().lock().await;
-        sync_runtime_collection(&mut runtime, collection);
+        sync_runtime_collection(&mut runtime, collection.clone());
     }
 
+    sync_active_local_access_config_if_needed(&collection)?;
     snapshot_state().await
 }
 
@@ -5496,6 +5880,7 @@ pub async fn kill_local_access_port_processes() -> Result<CodexLocalAccessPortCl
             sync_runtime_collection(&mut runtime, collection.clone());
         }
 
+        sync_active_local_access_config_if_needed(&collection)?;
         current_port = fallback_port;
         port_changed = true;
     } else if !cleanup_warnings.is_empty() {
@@ -5547,9 +5932,10 @@ pub async fn update_local_access_port(port: u16) -> Result<CodexLocalAccessState
 
     {
         let mut runtime = gateway_runtime().lock().await;
-        sync_runtime_collection(&mut runtime, collection);
+        sync_runtime_collection(&mut runtime, collection.clone());
     }
 
+    sync_active_local_access_config_if_needed(&collection)?;
     ensure_gateway_matches_runtime().await?;
     snapshot_state().await
 }

@@ -6,6 +6,15 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.0.35] - 2026-06-02
+
+### 新增
+- Codex API 服务面板新增模型供应商统计，可查看请求总量、成功/失败次数、Token 用量、平均延迟、端点和 Key 数。
+
+### 修复
+- API 服务激活时会把解析后的 WebSocket 支持状态写入 `config.toml`，关闭 WS 协议后当前 Codex 本地接入供应商配置会同步生效。
+- 会在影响当前本地接入供应商的 API 服务设置变更后刷新已写入的端点、Bearer Token 和 WebSocket 支持信息。
+
 ## [0.0.34] - 2026-06-02
 
 ### 新增

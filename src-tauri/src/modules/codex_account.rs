@@ -272,6 +272,15 @@ fn provider_supports_responses_websocket(provider_config: &ApiProviderConfig) ->
         && provider_config.provider_name.as_deref() == Some(CODEX_LOCAL_ACCESS_PROVIDER_NAME)
 }
 
+fn local_access_api_provider_config(base_url: String) -> ApiProviderConfig {
+    ApiProviderConfig {
+        mode: CodexApiProviderMode::Custom,
+        base_url: Some(base_url),
+        provider_id: Some(CODEX_RUNTIME_MODEL_PROVIDER_ID.to_string()),
+        provider_name: Some(CODEX_LOCAL_ACCESS_PROVIDER_NAME.to_string()),
+    }
+}
+
 fn is_http_like_url(raw: &str) -> bool {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -833,6 +842,13 @@ fn read_api_provider_from_config_toml(base_dir: &Path) -> ApiProviderConfig {
     )
 }
 
+pub fn is_local_access_provider_active_in_config(base_dir: &Path) -> bool {
+    read_api_provider_from_config_toml(base_dir)
+        .provider_id
+        .as_deref()
+        == Some(CODEX_RUNTIME_MODEL_PROVIDER_ID)
+}
+
 fn write_api_provider_to_config_toml(
     base_dir: &Path,
     provider_config: &ApiProviderConfig,
@@ -951,6 +967,20 @@ fn write_api_key_provider_to_config_toml(
     provider_config: &ApiProviderConfig,
     bearer_token: &str,
 ) -> Result<(), String> {
+    write_api_key_provider_to_config_toml_with_websocket_override(
+        base_dir,
+        provider_config,
+        bearer_token,
+        None,
+    )
+}
+
+fn write_api_key_provider_to_config_toml_with_websocket_override(
+    base_dir: &Path,
+    provider_config: &ApiProviderConfig,
+    bearer_token: &str,
+    supports_websockets_override: Option<bool>,
+) -> Result<(), String> {
     let config_path = get_config_toml_path(base_dir);
     let bearer_token = normalize_api_key(bearer_token)
         .ok_or_else(|| "API Key 账号缺少可写入 provider 的密钥".to_string())?;
@@ -988,8 +1018,10 @@ fn write_api_key_provider_to_config_toml(
     provider_table["wire_api"] = value(CODEX_PROVIDER_WIRE_API);
     provider_table["requires_openai_auth"] = value(true);
     provider_table[CODEX_CONFIG_EXPERIMENTAL_BEARER_TOKEN_KEY] = value(bearer_token);
-    provider_table["supports_websockets"] =
-        value(provider_supports_responses_websocket(provider_config));
+    provider_table["supports_websockets"] = value(
+        supports_websockets_override
+            .unwrap_or_else(|| provider_supports_responses_websocket(provider_config)),
+    );
 
     if let Some(parent) = config_path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("创建 config.toml 目录失败: {}", e))?;
@@ -3276,6 +3308,33 @@ pub fn write_account_bundle_to_dir(base_dir: &Path, account: &CodexAccount) -> R
 
     let account = resolve_account_for_bundle_write(base_dir, account)?;
     write_prepared_account_bundle_to_dir(base_dir, &account)
+}
+
+pub fn write_local_access_account_bundle_to_dir(
+    base_dir: &Path,
+    account: &CodexAccount,
+    base_url: String,
+    supports_websockets: bool,
+) -> Result<(), String> {
+    write_auth_file_to_dir(base_dir, account)?;
+    if let Err(err) = write_codex_keychain_to_dir(base_dir, account) {
+        logger::log_warn(&format!(
+            "[Codex切号] 写入 API 服务 keychain 失败，目标目录可能缺少完整登录快照: {}",
+            err
+        ));
+    }
+
+    let api_key = normalize_api_key(account.openai_api_key.as_deref().unwrap_or_default())
+        .ok_or_else(|| "API 服务账号缺少可写入 provider 的密钥".to_string())?;
+    let provider_config = local_access_api_provider_config(base_url);
+    write_api_key_provider_to_config_toml_with_websocket_override(
+        base_dir,
+        &provider_config,
+        &api_key,
+        Some(supports_websockets),
+    )?;
+    write_managed_projection_to_dir(base_dir, account)?;
+    Ok(())
 }
 
 fn is_bound_api_key_account_id(
@@ -5771,6 +5830,44 @@ requires_openai_auth = false
         assert!(content.contains("name = \"Codex API Service\""));
         assert!(content.contains("base_url = \"http://127.0.0.1:63898/v1\""));
         assert!(content.contains("supports_websockets = true"));
+
+        fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn local_access_bundle_can_override_websocket_support_in_config_toml() {
+        let base_dir = make_temp_dir("codex-local-access-config-ws-override-test");
+        let account = CodexAccount::new_api_key(
+            "codex_local_access_runtime".to_string(),
+            "api-service-local".to_string(),
+            "agt_codex_test".to_string(),
+            CodexApiProviderMode::Custom,
+            Some("http://127.0.0.1:63898/v1".to_string()),
+            Some("codex_local_access".to_string()),
+            Some("Codex API Service".to_string()),
+        );
+
+        write_local_access_account_bundle_to_dir(
+            &base_dir,
+            &account,
+            "http://127.0.0.1:63898/v1".to_string(),
+            false,
+        )
+        .expect("write disabled config");
+        let config_path = base_dir.join("config.toml");
+        let disabled_content = fs::read_to_string(&config_path).expect("read disabled config");
+        assert!(disabled_content.contains("model_provider = \"codex_local_access\""));
+        assert!(disabled_content.contains("supports_websockets = false"));
+
+        write_local_access_account_bundle_to_dir(
+            &base_dir,
+            &account,
+            "http://127.0.0.1:63898/v1".to_string(),
+            true,
+        )
+        .expect("write enabled config");
+        let enabled_content = fs::read_to_string(&config_path).expect("read enabled config");
+        assert!(enabled_content.contains("supports_websockets = true"));
 
         fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
     }

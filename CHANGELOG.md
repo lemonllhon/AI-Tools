@@ -6,6 +6,14 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.35] - 2026-06-02
+### Added
+- Added model-provider usage statistics to the Codex API service panel, including request totals, success and failure counts, token usage, average latency, endpoint, and key count.
+
+### Fixed
+- Codex API service activation now writes the resolved WebSocket support flag into `config.toml`, so disabling WebSocket mode is reflected in the active Codex local-access provider configuration.
+- Codex API service setting changes that affect the active local-access provider now refresh the written endpoint, bearer token, and WebSocket support metadata.
+
 ## [0.0.34] - 2026-06-02
 ### Added
 - Added a Codex API service WebSocket protocol mode selector with Auto, Enabled, and Disabled modes.
