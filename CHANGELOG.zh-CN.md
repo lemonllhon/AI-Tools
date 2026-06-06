@@ -6,6 +6,15 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.0.38] - 2026-06-06
+
+### 新增
+- Codex 账号总览新增批量导入账号 JSON 文件入口，导入进度和结果会同步显示在总览消息条中。
+- Codex 本地文件导入现在明确支持一次选择多个文件，导入 Codex 账号 JSON、`auth.json`、session JSON、tokens 数组和 Sub2API JSON。
+
+### 修复
+- Codex API Key 账号 JSON 导入现在兼容 `openai_api_key` 和 `openaiApiKey` 字段别名，不再只识别 `OPENAI_API_KEY`。
+
 ## [0.0.37] - 2026-06-03
 
 ### 新增

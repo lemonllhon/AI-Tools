@@ -6,6 +6,14 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.38] - 2026-06-06
+### Added
+- Added a Codex overview action for batch importing account JSON files, with shared progress and result feedback in the overview message bar.
+- Codex local file import now explicitly supports Codex account JSON, `auth.json`, session JSON, token arrays, and Sub2API JSON from one or more selected files.
+
+### Fixed
+- Codex API-key account JSON imports now accept `openai_api_key` and `openaiApiKey` aliases in addition to `OPENAI_API_KEY`.
+
 ## [0.0.37] - 2026-06-03
 ### Added
 - Codex API service all-account speed controls now include selected New API provider keys, so provider-only and hybrid pools can apply the API service default speed from the dashboard and service panel.

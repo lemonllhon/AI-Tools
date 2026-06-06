@@ -516,6 +516,7 @@ export function CodexAccountsPage() {
     useState(false);
   const [formattedSavingExportDocumentId, setFormattedSavingExportDocumentId] =
     useState<string | null>(null);
+  const [codexFileImporting, setCodexFileImporting] = useState(false);
   const {
     message: exportModalError,
     scrollKey: exportModalErrorScrollKey,
@@ -3225,6 +3226,7 @@ export function CodexAccountsPage() {
   };
 
   const handleImportFromFiles = async () => {
+    if (codexFileImporting) return;
     let unlistenProgress: UnlistenFn | undefined;
     try {
       const selected = await openFileDialog({
@@ -3234,10 +3236,13 @@ export function CodexAccountsPage() {
       if (!selected || (Array.isArray(selected) && selected.length === 0))
         return;
       const paths = Array.isArray(selected) ? selected : [selected];
+      setCodexFileImporting(true);
+      const initialMessage = t("modals.import.importingFiles", {
+        count: paths.length,
+      });
       page.setAddStatus("loading");
-      page.setAddMessage(
-        t("modals.import.importingFiles", { count: paths.length }),
-      );
+      page.setAddMessage(initialMessage);
+      setMessage({ text: initialMessage, tone: "success" });
 
       unlistenProgress = await listen<{
         current: number;
@@ -3247,9 +3252,9 @@ export function CodexAccountsPage() {
         const { current, total, email } = event.payload ?? {};
         if (current > 0 && total > 0) {
           const label = email ? ` ${email}` : "";
-          page.setAddMessage(
-            `${t("modals.import.importingFiles", { count: total })} ${current}/${total}${label}`,
-          );
+          const progressMessage = `${t("modals.import.importingFiles", { count: total })} ${current}/${total}${label}`;
+          page.setAddMessage(progressMessage);
+          setMessage({ text: progressMessage, tone: "success" });
         }
       });
 
@@ -3264,24 +3269,36 @@ export function CodexAccountsPage() {
       }
       if (imported.length === 0 && failed.length === 0) {
         page.setAddStatus("error");
-        page.setAddMessage(t("modals.import.noAccountsFound"));
+        const errorMessage = t("modals.import.noAccountsFound");
+        page.setAddMessage(errorMessage);
+        setMessage({ text: errorMessage, tone: "error" });
       } else if (failed.length > 0) {
         const failedList = failed.map((f) => f.email).join(", ");
         page.setAddStatus(imported.length > 0 ? "success" : "error");
-        page.setAddMessage(
-          `${t("messages.importSuccess", { count: imported.length })}，${t("messages.importPartialFailed", { failCount: failed.length, failList: failedList })}`,
-        );
+        const resultMessage = `${t("messages.importSuccess", { count: imported.length })}，${t("messages.importPartialFailed", { failCount: failed.length, failList: failedList })}`;
+        page.setAddMessage(resultMessage);
+        setMessage({
+          text: resultMessage,
+          tone: imported.length > 0 ? "success" : "error",
+        });
       } else {
         page.setAddStatus("success");
-        page.setAddMessage(
-          t("messages.importSuccess", { count: imported.length }),
-        );
+        const resultMessage = t("messages.importSuccess", {
+          count: imported.length,
+        });
+        page.setAddMessage(resultMessage);
+        setMessage({ text: resultMessage, tone: "success" });
       }
     } catch (e) {
+      const errorMessage = t("messages.importFailed", {
+        error: String(e).replace(/^Error:\s*/, ""),
+      });
       page.setAddStatus("error");
-      page.setAddMessage(t("messages.importFailed", { error: String(e) }));
+      page.setAddMessage(errorMessage);
+      setMessage({ text: errorMessage, tone: "error" });
     } finally {
       if (unlistenProgress) unlistenProgress();
+      setCodexFileImporting(false);
     }
   };
 
@@ -7978,6 +7995,25 @@ export function CodexAccountsPage() {
               </button>
               <button
                 className="btn btn-secondary icon-only"
+                onClick={handleImportFromFiles}
+                disabled={codexFileImporting || importing}
+                title={t(
+                  "codex.import.batchJsonTitle",
+                  "批量导入账号 JSON",
+                )}
+                aria-label={t(
+                  "codex.import.batchJsonTitle",
+                  "批量导入账号 JSON",
+                )}
+              >
+                {codexFileImporting ? (
+                  <RefreshCw size={14} className="loading-spinner" />
+                ) : (
+                  <FileUp size={14} />
+                )}
+              </button>
+              <button
+                className="btn btn-secondary icon-only"
                 onClick={handleRefreshAll}
                 disabled={refreshingAll || accounts.length === 0}
                 title={t("common.shared.refreshAll", "刷新全部")}
@@ -8068,6 +8104,7 @@ export function CodexAccountsPage() {
                 style={{
                   display: "flex",
                   gap: "12px",
+                  flexWrap: "wrap",
                   justifyContent: "center",
                   marginTop: "16px",
                 }}
@@ -8078,6 +8115,18 @@ export function CodexAccountsPage() {
                 >
                   <Plus size={16} />
                   {t("common.shared.addAccount", "添加账号")}
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleImportFromFiles}
+                  disabled={codexFileImporting || importing}
+                >
+                  {codexFileImporting ? (
+                    <RefreshCw size={16} className="loading-spinner" />
+                  ) : (
+                    <FileUp size={16} />
+                  )}
+                  {t("codex.import.batchJsonAction", "批量导入账号 JSON")}
                 </button>
                 <button
                   className="btn btn-secondary"
@@ -8827,6 +8876,7 @@ export function CodexAccountsPage() {
                           onClick={() => void handleApiKeyLogin()}
                           disabled={
                             importing ||
+                            codexFileImporting ||
                             addStatus === "loading" ||
                             !apiKeyInput.trim()
                           }
@@ -8907,7 +8957,9 @@ export function CodexAccountsPage() {
                       <button
                         className="btn btn-primary btn-full"
                         onClick={handleTokenImport}
-                        disabled={importing || !tokenInput.trim()}
+                        disabled={
+                          importing || codexFileImporting || !tokenInput.trim()
+                        }
                       >
                         {importing ? (
                           <RefreshCw size={16} className="loading-spinner" />
@@ -8929,7 +8981,7 @@ export function CodexAccountsPage() {
                       <button
                         className="btn btn-primary btn-full"
                         onClick={handleImportFromLocal}
-                        disabled={importing}
+                        disabled={importing || codexFileImporting}
                       >
                         {importing ? (
                           <RefreshCw size={16} className="loading-spinner" />
@@ -8940,19 +8992,22 @@ export function CodexAccountsPage() {
                       </button>
                       <div style={{ height: 12 }} />
                       <p className="section-desc">
-                        {t("modals.import.fromFilesDesc")}
+                        {t(
+                          "codex.import.batchJsonDesc",
+                          "选择一个或多个 JSON 文件，支持 Codex 账号 JSON、auth.json、session JSON、tokens 数组和 Sub2API JSON。",
+                        )}
                       </p>
                       <button
                         className="btn btn-secondary btn-full"
                         onClick={handleImportFromFiles}
-                        disabled={importing}
+                        disabled={importing || codexFileImporting}
                       >
-                        {importing ? (
+                        {importing || codexFileImporting ? (
                           <RefreshCw size={16} className="loading-spinner" />
                         ) : (
                           <FileUp size={16} />
                         )}
-                        {t("modals.import.fromFiles")}
+                        {t("codex.import.batchJsonAction", "批量导入账号 JSON")}
                       </button>
                     </div>
                   )}
