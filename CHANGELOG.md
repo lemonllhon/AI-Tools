@@ -6,6 +6,14 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.40] - 2026-06-07
+### Fixed
+- Codex auto-switch now falls back to a Free account's single quota window when no primary 5-hour window is reported, so the configured threshold can trigger account switching.
+- Codex local access now uses the same main-or-single quota selection when skipping low-quota accounts for auto-switching.
+
+### Changed
+- Clarified the Codex auto-switch threshold copy to describe main quota and Free single-quota behavior.
+
 ## [0.0.39] - 2026-06-07
 ### Changed
 - Improved Codex account import performance for large JSON, JSON Lines, token-line, Sub2API, and multi-file batches by reusing account index state and reducing repeated index writes.

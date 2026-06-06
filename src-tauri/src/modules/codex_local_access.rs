@@ -2676,22 +2676,15 @@ fn resolve_remaining_quota(account: &CodexAccount) -> Option<i32> {
     percentages.into_iter().min()
 }
 
-fn resolve_primary_remaining_quota(account: &CodexAccount) -> Option<i32> {
-    let quota = account.quota.as_ref()?;
-    quota.hourly_window_present
-        .unwrap_or(true)
-        .then_some(quota.hourly_percentage.clamp(0, 100))
-}
-
-fn should_skip_account_for_codex_auto_switch(account: &CodexAccount) -> Option<i32> {
+fn should_skip_account_for_codex_auto_switch(account: &CodexAccount) -> Option<(String, i32)> {
     let cfg = crate::modules::config::get_user_config();
     if !cfg.codex_auto_switch_enabled {
         return None;
     }
 
     let threshold = cfg.codex_auto_switch_primary_threshold.clamp(0, 100);
-    let primary_remaining = resolve_primary_remaining_quota(account)?;
-    (primary_remaining <= threshold).then_some(primary_remaining)
+    let (quota_label, remaining) = codex_account::resolve_auto_switch_quota_summary(account)?;
+    (remaining <= threshold).then_some((quota_label, remaining))
 }
 
 fn resolve_subscription_expiry_ms(account: &CodexAccount) -> Option<i64> {
@@ -8522,7 +8515,9 @@ async fn proxy_request_with_account_pool(
                 last_error = "仅 New API API Key 账号支持加入本地接入".to_string();
                 continue;
             }
-            if let Some(primary_remaining) = should_skip_account_for_codex_auto_switch(&account) {
+            if let Some((quota_label, remaining)) =
+                should_skip_account_for_codex_auto_switch(&account)
+            {
                 log_codex_api_failure(
                     None,
                     Some(request),
@@ -8531,14 +8526,14 @@ async fn proxy_request_with_account_pool(
                     Some(account.email.as_str()),
                     None,
                     format!(
-                        "5小时配额剩余 {}%，低于 Codex 自动切号阈值，已无感跳过该账号",
-                        primary_remaining
+                        "{} 配额剩余 {}%，低于 Codex 自动切号阈值，已无感跳过该账号",
+                        quota_label, remaining
                     )
                     .as_str(),
                 );
                 last_error = format!(
-                    "账号 {} 5小时配额剩余 {}%，已按自动切号阈值跳过",
-                    account.email, primary_remaining
+                    "账号 {} {} 配额剩余 {}%，已按自动切号阈值跳过",
+                    account.email, quota_label, remaining
                 );
                 continue;
             }

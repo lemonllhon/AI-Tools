@@ -2374,7 +2374,8 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
                       <div className="qs-row">
                         <div className="qs-row-label">
                           <span>
-                            {t('codex.quota.hourly', '5小时配额')} {t('quickSettings.autoSwitch.threshold', '切号阈值')}
+                            {t('quickSettings.codexAutoSwitch.primaryOrSingleQuota', '主/单额度')}{' '}
+                            {t('quickSettings.autoSwitch.threshold', '切号阈值')}
                           </span>
                         </div>
                         <div className="qs-row-control">
@@ -2441,16 +2442,16 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
                       <div className="qs-hint">
                         {t(
                           'quickSettings.codexAutoSwitch.hint',
-                          '当前 Codex 账号 5小时配额低于阈值时，会无感切换到范围内 5小时配额更高的账号。'
+                          '当前 Codex 账号主额度低于阈值时，会无感切换到范围内额度更高的账号；Free 账号没有 5 小时窗口时，会按唯一额度判断。'
                         )}
                         <div>
                           {t(
-                            'quickSettings.codexWindow.primaryWindowMeaning',
-                            'primary_window 一般指 5 小时配额；免费用户下 primary_window 可能对应周配额，不同订阅可能不同。'
+                            'quickSettings.codexAutoSwitch.quotaMetricMeaning',
+                            '付费账号通常使用 primary_window（5 小时配额）；当账号只返回一个额度窗口时，自动切号会使用这个唯一额度。'
                           )}
                         </div>
                         <div>
-                          {`primary_window <= ${codexAutoSwitchPrimaryThresholdValue}%`}
+                          {`primary_window / single_window <= ${codexAutoSwitchPrimaryThresholdValue}%`}
                         </div>
                       </div>
                     </div>
