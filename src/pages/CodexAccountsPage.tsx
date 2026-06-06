@@ -3243,6 +3243,7 @@ export function CodexAccountsPage() {
       page.setAddStatus("loading");
       page.setAddMessage(initialMessage);
       setMessage({ text: initialMessage, tone: "success" });
+      let lastProgressMessageUpdate = 0;
 
       unlistenProgress = await listen<{
         current: number;
@@ -3251,6 +3252,14 @@ export function CodexAccountsPage() {
       }>("codex:file-import-progress", (event) => {
         const { current, total, email } = event.payload ?? {};
         if (current > 0 && total > 0) {
+          const now = Date.now();
+          const shouldUpdateProgress =
+            current <= 1 ||
+            current >= total ||
+            current % 20 === 0 ||
+            now - lastProgressMessageUpdate >= 200;
+          if (!shouldUpdateProgress) return;
+          lastProgressMessageUpdate = now;
           const label = email ? ` ${email}` : "";
           const progressMessage = `${t("modals.import.importingFiles", { count: total })} ${current}/${total}${label}`;
           page.setAddMessage(progressMessage);
@@ -5520,7 +5529,7 @@ export function CodexAccountsPage() {
   );
 
   useEffect(() => {
-    const teamAccountIds = filteredAccounts
+    const teamAccountIds = paginatedAccounts
       .filter(
         (account) =>
           !hasCodexAccountStructure(account) ||
@@ -5530,7 +5539,7 @@ export function CodexAccountsPage() {
       .map((account) => account.id);
     if (teamAccountIds.length === 0) return;
     void hydrateAccountProfilesIfNeeded(teamAccountIds);
-  }, [filteredAccounts, hydrateAccountProfilesIfNeeded]);
+  }, [paginatedAccounts, hydrateAccountProfilesIfNeeded]);
 
   const resolveGroupLabel = (groupKey: string) =>
     groupKey === untaggedKey

@@ -16,6 +16,7 @@ const CODEX_CURRENT_ACCOUNT_CACHE_KEY = 'agtools.codex.accounts.current';
 const CODEX_PROFILE_SYNC_IN_FLIGHT = new Set<string>();
 const CODEX_PROFILE_SYNC_LAST_ATTEMPT = new Map<string, number>();
 const CODEX_PROFILE_SYNC_RETRY_INTERVAL_MS = 5 * 60 * 1000;
+const CODEX_PROFILE_SYNC_BATCH_LIMIT = 30;
 let allowNextEmptyCodexAccountList = false;
 let allowNextEmptyCodexCurrentAccount = false;
 
@@ -121,7 +122,9 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
       allowNextEmptyCodexAccountList = false;
       set({ accounts, loading: false });
       persistCodexAccountsCache(accounts);
-      void get().hydrateAccountProfilesIfNeeded(accounts.map((account) => account.id));
+      void get().hydrateAccountProfilesIfNeeded(
+        accounts.slice(0, CODEX_PROFILE_SYNC_BATCH_LIMIT).map((account) => account.id),
+      );
     } catch (e) {
       set({ error: String(e), loading: false });
     }
@@ -244,7 +247,7 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
           CODEX_PROFILE_SYNC_RETRY_INTERVAL_MS,
     );
 
-    for (const account of candidates) {
+    for (const account of candidates.slice(0, CODEX_PROFILE_SYNC_BATCH_LIMIT)) {
       CODEX_PROFILE_SYNC_IN_FLIGHT.add(account.id);
       CODEX_PROFILE_SYNC_LAST_ATTEMPT.set(account.id, now);
       try {

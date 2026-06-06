@@ -19,6 +19,7 @@ use tauri::Emitter;
 use tauri_plugin_opener::OpenerExt;
 
 static CODEX_POST_REFRESH_CHECK_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+const CODEX_IMPORT_AUTO_REFRESH_LIMIT: usize = 25;
 
 fn restart_codex_specified_app_if_enabled(user_config: &config::UserConfig) {
     if !user_config.codex_restart_specified_app_on_switch {
@@ -414,6 +415,18 @@ async fn refresh_imported_codex_accounts(
     app: &AppHandle,
     accounts: Vec<CodexAccount>,
 ) -> Vec<CodexAccount> {
+    if accounts.len() > CODEX_IMPORT_AUTO_REFRESH_LIMIT {
+        logger::log_info(&format!(
+            "Codex 导入账号数量较多，跳过导入后逐账号配额刷新: count={}, limit={}",
+            accounts.len(),
+            CODEX_IMPORT_AUTO_REFRESH_LIMIT
+        ));
+        if !accounts.is_empty() {
+            let _ = crate::modules::tray::update_tray_menu(app);
+        }
+        return accounts;
+    }
+
     let mut result = Vec::with_capacity(accounts.len());
     let mut success_count = 0;
     let mut attempted = false;
