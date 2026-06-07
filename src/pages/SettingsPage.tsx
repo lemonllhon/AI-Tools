@@ -3004,7 +3004,7 @@ export function SettingsPage() {
                   <div className="row-desc">
                     {t(
                       'settings.general.codexAutoSwitchDesc',
-                      '当前 Codex 账号 5小时配额小于等于阈值时，无感切换到范围内 5小时配额更高的账号。',
+                      '当前 Codex 账号主额度小于等于阈值时，无感切换到范围内额度更高的账号；Free 账号没有 5 小时窗口时会按唯一额度判断。',
                     )}
                   </div>
                 </div>
@@ -3026,13 +3026,13 @@ export function SettingsPage() {
                     <div className="row-title">
                       {t(
                         'settings.general.codexAutoSwitchPrimaryThreshold',
-                        '5小时配额切号阈值',
+                        '主/单额度切号阈值',
                       )}
                     </div>
                     <div className="row-desc">
                       {t(
                         'settings.general.codexAutoSwitchPrimaryThresholdDesc',
-                        '默认 10%。只按 5小时配额判断，周配额不会阻止无感切号。',
+                        '默认 10%。付费账号通常按主窗口判断；账号只返回一个额度窗口时，会按该唯一额度判断。',
                       )}
                     </div>
                   </div>

@@ -846,6 +846,16 @@ export function getCodexQuotaWindows(
   ];
 }
 
+export function getCodexAverageQuotaPercentage(
+  quota: CodexQuota | undefined,
+): number | null {
+  const windows = getCodexQuotaWindows(quota);
+  if (windows.length === 0) return null;
+
+  const total = windows.reduce((sum, window) => sum + window.percentage, 0);
+  return total / windows.length;
+}
+
 /** 格式化重置时间显示（相对时间 + 绝对时间） */
 export function formatCodexResetTime(
   resetTime: number | undefined,

@@ -45,7 +45,7 @@ import {
   WorkbuddyAccount,
   getWorkbuddyOfficialQuotaModel,
 } from '../types/workbuddy';
-import { CodexAccount, CodexAppSpeed } from '../types/codex';
+import { CodexAccount, CodexAppSpeed, getCodexAverageQuotaPercentage } from '../types/codex';
 import { GitHubCopilotAccount } from '../types/githubCopilot';
 import {
   WindsurfAccount,
@@ -1924,8 +1924,7 @@ export function DashboardPage({
 
     return others.reduce((prev, curr) => {
       const getScore = (acc: CodexAccount) => {
-        if (!acc.quota) return -1;
-        return (acc.quota.hourly_percentage + acc.quota.weekly_percentage) / 2;
+        return getCodexAverageQuotaPercentage(acc.quota) ?? -1;
       };
       return getScore(curr) > getScore(prev) ? curr : prev;
     });

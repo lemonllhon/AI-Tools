@@ -1,7 +1,7 @@
 import type { Account } from '../types/account';
 import type { CodebuddyAccount } from '../types/codebuddy';
 import { getCodebuddyExtraCreditSummary, getCodebuddyOfficialQuotaModel, getCodebuddyResourceSummary } from '../types/codebuddy';
-import type { CodexAccount } from '../types/codex';
+import { getCodexAverageQuotaPercentage, type CodexAccount } from '../types/codex';
 import type { CursorAccount } from '../types/cursor';
 import { getCursorUsage } from '../types/cursor';
 import type { GeminiAccount } from '../types/gemini';
@@ -145,8 +145,7 @@ export function getRecommendedCodexAccount(
   if (others.length === 0) return null;
 
   const getScore = (account: CodexAccount) => {
-    if (!account.quota) return -1;
-    return (account.quota.hourly_percentage + account.quota.weekly_percentage) / 2;
+    return getCodexAverageQuotaPercentage(account.quota) ?? -1;
   };
 
   return others.reduce((best, candidate) => (

@@ -6,6 +6,13 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.41] - 2026-06-07
+### Fixed
+- Codex account recommendations in the dashboard and floating card now average only the quota windows that are actually present, so Free single-window accounts are ranked correctly.
+
+### Changed
+- Updated the Settings page Codex auto-switch copy to match the main-or-single quota behavior used by Quick Settings and the backend.
+
 ## [0.0.40] - 2026-06-07
 ### Fixed
 - Codex auto-switch now falls back to a Free account's single quota window when no primary 5-hour window is reported, so the configured threshold can trigger account switching.
