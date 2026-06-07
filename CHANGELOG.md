@@ -6,6 +6,14 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.43] - 2026-06-07
+### Changed
+- When the Codex API service is set to LAN access, the service panel now shows the detected LAN access URL that other devices on the same network can use.
+- The dashboard Codex API service card now prefers the LAN access URL when LAN access is enabled, making the shared endpoint visible from the unified service entry.
+
+### Fixed
+- The service panel no longer encourages copying `0.0.0.0` when no LAN IP is detected; it shows a warning instead.
+
 ## [0.0.42] - 2026-06-07
 ### Added
 - Added a real 2x Codex speed option across account speed selectors, dashboard all-account speed controls, and the Codex API service panel.

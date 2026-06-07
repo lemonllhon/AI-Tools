@@ -347,6 +347,13 @@
   font-size: 12px;
 }
 
+.api-service-endpoint small {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
 .api-service-speed-panel {
   display: flex;
   align-items: center;

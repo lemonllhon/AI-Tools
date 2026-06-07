@@ -3517,10 +3517,23 @@ export function DashboardPage({
           {apiServicePlatformIds.map((platformId) => {
             const isCodex = platformId === 'codex';
             const memberCount = isCodex ? apiServiceState?.memberCount ?? 0 : 0;
+            const showCodexLanEndpoint =
+              isCodex &&
+              codexCollection?.accessScope === 'lan' &&
+              Boolean(apiServiceState?.lanBaseUrl);
             const baseUrl = isCodex
-              ? apiServiceState?.baseUrl || (codexCollection ? `http://127.0.0.1:${codexCollection.port}/v1` : '-')
+              ? showCodexLanEndpoint && apiServiceState?.lanBaseUrl
+                ? apiServiceState.lanBaseUrl
+                : apiServiceState?.baseUrl || (codexCollection ? `http://127.0.0.1:${codexCollection.port}/v1` : '-')
               : '-';
-            const wsUrl = isCodex ? apiServiceState?.webSocketUrl || '-' : '-';
+            const wsUrl = isCodex
+              ? showCodexLanEndpoint && apiServiceState?.lanWebSocketUrl
+                ? apiServiceState.lanWebSocketUrl
+                : apiServiceState?.webSocketUrl || '-'
+              : '-';
+            const baseUrlLabel = showCodexLanEndpoint
+              ? t('codex.localAccess.lanAccessUrl', '局域网接入地址')
+              : t('codex.localAccess.baseUrl', '地址');
             const wsStatus = isCodex
               ? apiServiceState?.webSocketEnabled
                 ? t('codex.localAccess.webSocketStatusReady', '可用')
@@ -3565,8 +3578,13 @@ export function DashboardPage({
                   <span>{t('dashboard.apiServices.pageVisible', '页面可见')}</span>
                 </div>
                 <div className="api-service-endpoint" title={baseUrl}>
-                  <span>{t('codex.localAccess.baseUrl', '地址')}</span>
+                  <span>{baseUrlLabel}</span>
                   <code>{baseUrl}</code>
+                  {showCodexLanEndpoint && (
+                    <small>
+                      {t('codex.localAccess.lanAccessHint', '同一局域网内的设备可使用这个地址接入 API 服务。')}
+                    </small>
+                  )}
                 </div>
                 {isCodex && (
                   <div className="api-service-endpoint" title={wsUrl}>

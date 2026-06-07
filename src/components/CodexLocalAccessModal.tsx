@@ -129,7 +129,13 @@ interface CodexLocalAccessModalProps {
 }
 
 type StatsRangeKey = 'daily' | 'weekly' | 'monthly';
-type CopyableField = 'apiPortUrl' | 'baseUrl' | 'webSocketUrl' | 'apiKey' | 'modelId';
+type CopyableField =
+  | 'apiPortUrl'
+  | 'baseUrl'
+  | 'webSocketUrl'
+  | 'apiKey'
+  | 'modelId'
+  | 'accessScopeAddress';
 interface CustomRoutingDraftRule {
   priority: number;
   weight: number;
@@ -345,8 +351,25 @@ export function CodexLocalAccessModal({
   const webSocketMode = collection?.webSocketMode ?? 'auto';
   const accessScope = collection?.accessScope ?? 'localhost';
   const upstreamProxyMode = collection?.upstreamProxyMode ?? 'follow_global_proxy';
+  const lanAccessUrl = accessScope === 'lan' ? state?.lanBaseUrl ?? '' : '';
   const accessScopeAddress =
-    accessScope === 'lan' ? '0.0.0.0' : '127.0.0.1';
+    accessScope === 'lan' ? lanAccessUrl || '0.0.0.0' : '127.0.0.1';
+  const accessScopeAddressLabel =
+    accessScope === 'lan' && lanAccessUrl
+      ? t('codex.localAccess.lanAccessUrl', '局域网接入地址')
+      : t('codex.localAccess.bindAddress', '监听地址');
+  const accessScopeAddressHint =
+    accessScope === 'lan'
+      ? lanAccessUrl
+        ? t(
+            'codex.localAccess.lanAccessHint',
+            '同一局域网内的设备可使用这个地址接入 API 服务。',
+          )
+        : t(
+            'codex.localAccess.lanAccessUnavailable',
+            '已监听局域网，但暂未检测到本机局域网 IP，可检查网络连接后刷新。',
+          )
+      : t('codex.localAccess.localhostAccessHint', '仅当前设备可使用该地址接入。');
   const accessScopeBadge =
     accessScope === 'lan'
       ? t('codex.localAccess.accessScopeLanShort', '本机+局域网')
@@ -2277,6 +2300,22 @@ export function CodexLocalAccessModal({
                           {t('codex.localAccess.accessScopeLabel', '访问范围')}
                         </span>
                         <div className="codex-local-access-config-actions">
+                          <button
+                            type="button"
+                            className="folder-icon-btn"
+                            onClick={() => void handleCopy('accessScopeAddress', accessScopeAddress)}
+                            title={
+                              accessScope === 'lan' && !lanAccessUrl
+                                ? t(
+                                    'codex.localAccess.lanAccessUnavailable',
+                                    '已监听局域网，但暂未检测到本机局域网 IP，可检查网络连接后刷新。',
+                                  )
+                                : t('common.copy', '复制')
+                            }
+                            disabled={accessScope === 'lan' && !lanAccessUrl}
+                          >
+                            {copiedField === 'accessScopeAddress' ? <Check size={14} /> : <Copy size={14} />}
+                          </button>
                           <SingleSelectDropdown
                             value={accessScope}
                             options={accessScopeOptions}
@@ -2289,9 +2328,15 @@ export function CodexLocalAccessModal({
                           />
                         </div>
                       </div>
-                      <code className="codex-local-access-code" title={accessScopeAddress}>
-                        {accessScopeAddress}
-                      </code>
+                      <div className="codex-local-access-scope-address">
+                        <span>{accessScopeAddressLabel}</span>
+                        <code className="codex-local-access-code" title={accessScopeAddress}>
+                          {accessScopeAddress}
+                        </code>
+                        <small className={accessScope === 'lan' && !lanAccessUrl ? 'warning' : ''}>
+                          {accessScopeAddressHint}
+                        </small>
+                      </div>
                     </div>
                   </div>
                 ) : (
