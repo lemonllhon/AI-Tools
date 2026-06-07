@@ -6,6 +6,10 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.44] - 2026-06-07
+### Fixed
+- Windows portable packages now always include and validate the bundled proxy runtime resources before upload, fixing missing `runtime-manifest.json` errors when opening the proxy kernel directory.
+
 ## [0.0.43] - 2026-06-07
 ### Changed
 - When the Codex API service is set to LAN access, the service panel now shows the detected LAN access URL that other devices on the same network can use.

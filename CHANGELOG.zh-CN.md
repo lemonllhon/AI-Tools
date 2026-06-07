@@ -6,6 +6,11 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.0.44] - 2026-06-07
+
+### 修复
+- Windows portable 免安装包现在会在上传前强制包含并校验内置代理内核资源，修复打开代理内核目录时提示缺少 `runtime-manifest.json` 的问题。
+
 ## [0.0.43] - 2026-06-07
 
 ### 变更

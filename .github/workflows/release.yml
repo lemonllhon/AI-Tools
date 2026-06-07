@@ -480,10 +480,56 @@ jobs:
               Copy-Item -LiteralPath $_.FullName -Destination $appDir -Force
             }
 
+          $portableResourcesDir = Join-Path $appDir "resources"
           $resourceDir = Join-Path $releaseDir "resources"
           if (Test-Path -LiteralPath $resourceDir) {
-            Copy-Item -LiteralPath $resourceDir -Destination (Join-Path $appDir "resources") -Recurse -Force
+            Copy-Item -LiteralPath $resourceDir -Destination $portableResourcesDir -Recurse -Force
           }
+
+          & node (Join-Path $env:GITHUB_WORKSPACE "scripts/verify-proxy-runtime.cjs") "--bundle" "--targets" "windows-x86_64"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Proxy runtime bundle verification failed."
+          }
+
+          $portableProxyRuntimeDir = Join-Path $portableResourcesDir "proxy-runtime"
+          $releaseProxyRuntimeDir = Join-Path $resourceDir "proxy-runtime"
+          $bundleProxyRuntimeDir = Join-Path $env:GITHUB_WORKSPACE "src-tauri/proxy-runtime-bundle"
+          $proxyRuntimeSourceDir = $null
+          if (Test-Path -LiteralPath (Join-Path $bundleProxyRuntimeDir "runtime-manifest.json")) {
+            $proxyRuntimeSourceDir = $bundleProxyRuntimeDir
+          } elseif (Test-Path -LiteralPath (Join-Path $releaseProxyRuntimeDir "runtime-manifest.json")) {
+            $proxyRuntimeSourceDir = $releaseProxyRuntimeDir
+          }
+
+          if (-not $proxyRuntimeSourceDir) {
+            throw "Proxy runtime resources are missing. Expected runtime-manifest.json under $releaseProxyRuntimeDir or $bundleProxyRuntimeDir."
+          }
+
+          New-Item -ItemType Directory -Force -Path $portableResourcesDir | Out-Null
+          Remove-Item -LiteralPath $portableProxyRuntimeDir -Recurse -Force -ErrorAction SilentlyContinue
+          Copy-Item -LiteralPath $proxyRuntimeSourceDir -Destination $portableProxyRuntimeDir -Recurse -Force
+
+          $portableManifestPath = Join-Path $portableProxyRuntimeDir "runtime-manifest.json"
+          if (-not (Test-Path -LiteralPath $portableManifestPath)) {
+            throw "Portable proxy runtime manifest missing: $portableManifestPath"
+          }
+
+          $manifest = Get-Content -LiteralPath $portableManifestPath -Raw | ConvertFrom-Json
+          $windowsEntries = @($manifest.files | Where-Object { $_.target -eq "windows-x86_64" })
+          $runtimeNames = @($windowsEntries | ForEach-Object { $_.runtime })
+          foreach ($runtime in @("xray", "sing-box", "mihomo")) {
+            if ($runtimeNames -notcontains $runtime) {
+              throw "Portable proxy runtime manifest is missing windows-x86_64/$runtime."
+            }
+          }
+          foreach ($entry in $windowsEntries) {
+            $relativePath = $entry.path -replace '/', [System.IO.Path]::DirectorySeparatorChar
+            $runtimeFile = Join-Path $portableProxyRuntimeDir $relativePath
+            if (-not (Test-Path -LiteralPath $runtimeFile)) {
+              throw "Portable proxy runtime file missing: $runtimeFile"
+            }
+          }
+          Write-Host "Portable proxy runtime resources: $portableProxyRuntimeDir"
 
           @"
           AI Lemon Tools Windows Portable
