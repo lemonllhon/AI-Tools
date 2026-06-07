@@ -6,6 +6,19 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.42] - 2026-06-07
+### Added
+- Added a real 2x Codex speed option across account speed selectors, dashboard all-account speed controls, and the Codex API service panel.
+
+### Changed
+- Codex API service all-account speed now uses a backend batch update instead of many per-account frontend calls, improving reliability for large account pools.
+- The Codex auto-switch account scope selector now paginates large account lists so thousands of accounts are not rendered at once.
+- Codex account sorting by primary quota now falls back to a single present quota window, matching Free account quota behavior.
+
+### Fixed
+- Codex speed persistence now preserves the official `flex` service tier instead of reading it as `fast`, preventing the 2x speed state from appearing to reset.
+- Dashboard and Codex API service panel speed summaries now account for standard, fast, and 2x speeds when deciding the active all-account speed.
+
 ## [0.0.41] - 2026-06-07
 ### Fixed
 - Codex account recommendations in the dashboard and floating card now average only the quota windows that are actually present, so Free single-window accounts are ranked correctly.

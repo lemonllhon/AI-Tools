@@ -8,7 +8,14 @@ import {
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, Zap } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { CodexAppSpeed } from "../../types/codex";
+import {
+  CODEX_APP_SPEED_DEFAULT_DESCRIPTIONS,
+  CODEX_APP_SPEED_DEFAULT_LABELS,
+  CODEX_APP_SPEED_DESC_KEYS,
+  CODEX_APP_SPEED_LABEL_KEYS,
+  CODEX_APP_SPEED_VALUES,
+  type CodexAppSpeed,
+} from "../../types/codex";
 
 type SpeedMenuPlacement = "top" | "bottom";
 
@@ -31,9 +38,9 @@ interface CodexSpeedSelectProps {
 }
 
 const SPEED_MENU_WIDTH = 206;
-const SPEED_MENU_HEIGHT = 122;
+const SPEED_MENU_HEIGHT = 166;
 const SPEED_MENU_COMPACT_WIDTH = 180;
-const SPEED_MENU_COMPACT_HEIGHT = 104;
+const SPEED_MENU_COMPACT_HEIGHT = 152;
 const SPEED_MENU_GAP = 5;
 const SPEED_MENU_MARGIN = 8;
 const SPEED_MENU_Z_INDEX = 10030;
@@ -98,18 +105,12 @@ export function CodexSpeedSelect({
   const speed = value ?? "standard";
 
   const options = useMemo(
-    () => [
-      {
-        value: "standard" as CodexAppSpeed,
-        label: t("codex.speed.standard", "标准"),
-        desc: t("codex.speed.standardDesc", "默认速度，常规用量"),
-      },
-      {
-        value: "fast" as CodexAppSpeed,
-        label: t("codex.speed.fast", "快速"),
-        desc: t("codex.speed.fastDesc", "1.5 倍速，用量增加"),
-      },
-    ],
+    () =>
+      CODEX_APP_SPEED_VALUES.map((speed) => ({
+        value: speed,
+        label: t(CODEX_APP_SPEED_LABEL_KEYS[speed], CODEX_APP_SPEED_DEFAULT_LABELS[speed]),
+        desc: t(CODEX_APP_SPEED_DESC_KEYS[speed], CODEX_APP_SPEED_DEFAULT_DESCRIPTIONS[speed]),
+      })),
     [t],
   );
 
@@ -179,7 +180,7 @@ export function CodexSpeedSelect({
         title={selectedTitle}
         aria-label={ariaLabel || t("codex.speed.title", "速度")}
       >
-        {speed === "fast" && <Zap size={12} />}
+        {(speed === "fast" || speed === "flex") && <Zap size={12} />}
         <span>{selected.label}</span>
         {!compact && <ChevronDown size={12} className="codex-speed-caret" />}
       </button>

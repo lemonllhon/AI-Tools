@@ -45,7 +45,14 @@ import {
   WorkbuddyAccount,
   getWorkbuddyOfficialQuotaModel,
 } from '../types/workbuddy';
-import { CodexAccount, CodexAppSpeed, getCodexAverageQuotaPercentage } from '../types/codex';
+import {
+  CODEX_APP_SPEED_DEFAULT_LABELS,
+  CODEX_APP_SPEED_LABEL_KEYS,
+  CODEX_APP_SPEED_VALUES,
+  CodexAccount,
+  CodexAppSpeed,
+  getCodexAverageQuotaPercentage,
+} from '../types/codex';
 import { GitHubCopilotAccount } from '../types/githubCopilot';
 import {
   WindsurfAccount,
@@ -993,24 +1000,26 @@ export function DashboardPage({
   const codexSpeedSummary = useMemo(() => {
     const accountTotal = codexAccounts.length;
     const providerKeyCount = codexApiServiceProviderKeyCount;
-    const accountStandard = codexAccounts.filter(
-      (account) => (account.app_speed ?? 'standard') === 'standard',
-    ).length;
-    const accountFast = codexAccounts.filter(
-      (account) => (account.app_speed ?? 'standard') === 'fast',
-    ).length;
-    const standard =
-      accountStandard + (apiServiceAppSpeed === 'standard' ? providerKeyCount : 0);
-    const fast =
-      accountFast + (apiServiceAppSpeed === 'fast' ? providerKeyCount : 0);
     const total = accountTotal + providerKeyCount;
+    const speedCounts: Record<CodexAppSpeed, number> = {
+      standard: 0,
+      fast: 0,
+      flex: 0,
+    };
+    for (const account of codexAccounts) {
+      speedCounts[account.app_speed ?? 'standard'] += 1;
+    }
+    speedCounts[apiServiceAppSpeed] += providerKeyCount;
     const active: CodexAppSpeed | null =
-      total > 0 && standard === total
-        ? 'standard'
-        : total > 0 && fast === total
-          ? 'fast'
-          : null;
-    return { active, fast, providerKeyCount, standard, total };
+      CODEX_APP_SPEED_VALUES.find((speed) => total > 0 && speedCounts[speed] === total) ?? null;
+    return {
+      active,
+      fast: speedCounts.fast,
+      flex: speedCounts.flex,
+      providerKeyCount,
+      standard: speedCounts.standard,
+      total,
+    };
   }, [apiServiceAppSpeed, codexAccounts, codexApiServiceProviderKeyCount]);
 
   const applyCodexSpeedToAllAccounts = useCallback(
@@ -1038,19 +1047,16 @@ export function DashboardPage({
       try {
         let firstFailure: unknown = null;
         let failureCount = 0;
-        for (const account of targetAccounts) {
-          if ((account.app_speed ?? 'standard') !== speed) {
-            try {
-              await codexService.updateCodexAccountAppSpeed(account.id, speed);
-            } catch (error) {
-              firstFailure = firstFailure ?? error;
-              failureCount += 1;
-            }
-          }
-        }
         try {
           const saved = await codexService.saveCodexApiServiceAppSpeed(speed);
           setApiServiceAppSpeed(saved.speed);
+        } catch (error) {
+          throw error;
+        }
+        try {
+          if (targetAccounts.length > 0) {
+            await codexService.updateAllCodexAccountAppSpeeds(speed);
+          }
         } catch (error) {
           firstFailure = firstFailure ?? error;
           failureCount += 1;
@@ -1083,10 +1089,7 @@ export function DashboardPage({
 
   const handleApplyCodexSpeedToAllAccounts = useCallback(
     async (speed: CodexAppSpeed) => {
-      const speedLabel =
-        speed === 'fast'
-          ? t('codex.speed.fast', '快速')
-          : t('codex.speed.standard', '标准');
+      const speedLabel = t(CODEX_APP_SPEED_LABEL_KEYS[speed], CODEX_APP_SPEED_DEFAULT_LABELS[speed]);
       try {
         const result = await applyCodexSpeedToAllAccounts(speed);
         setApiServiceMessage({
@@ -3540,7 +3543,7 @@ export function DashboardPage({
               apiServiceBusy !== null ||
               apiServiceSaving ||
               codexSpeedSummary.total === 0;
-            const speedOptions: CodexAppSpeed[] = ['standard', 'fast'];
+            const speedOptions = CODEX_APP_SPEED_VALUES;
 
             return (
               <article className={`api-service-card tone-${cardTone}`} key={platformId}>
@@ -3588,10 +3591,10 @@ export function DashboardPage({
                       aria-label={t('dashboard.apiServices.codexSpeedTitle', '全账号速度')}
                     >
                       {speedOptions.map((speed) => {
-                        const speedLabel =
-                          speed === 'fast'
-                            ? t('codex.speed.fast', '快速')
-                            : t('codex.speed.standard', '标准');
+                        const speedLabel = t(
+                          CODEX_APP_SPEED_LABEL_KEYS[speed],
+                          CODEX_APP_SPEED_DEFAULT_LABELS[speed],
+                        );
                         const isSaving = apiServiceSpeedSaving === speed;
                         return (
                           <button
@@ -3613,7 +3616,7 @@ export function DashboardPage({
                           >
                             {isSaving ? (
                               <RotateCw size={13} className="loading-spinner" />
-                            ) : speed === 'fast' ? (
+                            ) : speed === 'fast' || speed === 'flex' ? (
                               <Zap size={13} />
                             ) : (
                               <Gauge size={13} />

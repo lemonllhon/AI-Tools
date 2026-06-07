@@ -51,7 +51,8 @@ fn read_global_state(path: &Path) -> Result<Map<String, Value>, String> {
 
 fn normalize_speed(value: Option<&Value>) -> CodexAppSpeed {
     match value.and_then(Value::as_str) {
-        Some(FAST_SERVICE_TIER) | Some(FLEX_SERVICE_TIER) => CodexAppSpeed::Fast,
+        Some(FAST_SERVICE_TIER) => CodexAppSpeed::Fast,
+        Some(FLEX_SERVICE_TIER) => CodexAppSpeed::Flex,
         _ => CodexAppSpeed::Standard,
     }
 }
@@ -146,6 +147,7 @@ fn write_app_speed_for_global_state_path(
     let service_tier_value = match &speed {
         CodexAppSpeed::Standard => Value::Null,
         CodexAppSpeed::Fast => Value::String(FAST_SERVICE_TIER.to_string()),
+        CodexAppSpeed::Flex => Value::String(FLEX_SERVICE_TIER.to_string()),
     };
 
     match speed {
@@ -156,6 +158,12 @@ fn write_app_speed_for_global_state_path(
             state.insert(
                 DEFAULT_SERVICE_TIER_KEY.to_string(),
                 Value::String(FAST_SERVICE_TIER.to_string()),
+            );
+        }
+        CodexAppSpeed::Flex => {
+            state.insert(
+                DEFAULT_SERVICE_TIER_KEY.to_string(),
+                Value::String(FLEX_SERVICE_TIER.to_string()),
             );
         }
     }
@@ -220,14 +228,14 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn reads_fast_and_flex_as_fast_speed() {
+    fn reads_fast_and_flex_speed() {
         assert_eq!(
             normalize_speed(Some(&Value::String("fast".to_string()))),
             CodexAppSpeed::Fast
         );
         assert_eq!(
             normalize_speed(Some(&Value::String("flex".to_string()))),
-            CodexAppSpeed::Fast
+            CodexAppSpeed::Flex
         );
     }
 

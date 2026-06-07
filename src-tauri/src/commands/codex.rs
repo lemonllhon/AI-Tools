@@ -238,6 +238,26 @@ pub fn update_codex_account_app_speed(
     Ok(account)
 }
 
+#[tauri::command]
+pub fn update_all_codex_account_app_speeds(speed: CodexAppSpeed) -> Result<usize, String> {
+    let updated_count = codex_account::update_all_account_app_speeds(speed.clone())?;
+    let current_account_id = codex_account::load_account_index().current_account_id;
+    let default_bind_account_id = crate::modules::codex_instance::load_default_settings()
+        .ok()
+        .and_then(|settings| settings.bind_account_id);
+    let default_binds_real_account = default_bind_account_id
+        .as_deref()
+        .map(|account_id| {
+            account_id != crate::modules::codex_instance::CODEX_API_SERVICE_BIND_ACCOUNT_ID
+        })
+        .unwrap_or(false);
+    if current_account_id.is_some() || default_binds_real_account {
+        codex_speed::write_official_app_speed(speed.clone())?;
+        let _ = crate::modules::codex_instance::update_default_app_speed(speed);
+    }
+    Ok(updated_count)
+}
+
 /// 刷新账号资料（团队名/结构）
 #[tauri::command]
 pub async fn refresh_codex_account_profile(account_id: String) -> Result<CodexAccount, String> {

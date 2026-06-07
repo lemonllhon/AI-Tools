@@ -2642,6 +2642,8 @@
       "standardDesc": "Default speed, regular usage",
       "fast": "Fast",
       "fastDesc": "1.5x speed, higher usage",
+      "flex": "2x",
+      "flexDesc": "2x speed, highest usage",
       "saveSuccess": "Speed updated",
       "saveFailed": "Failed to save speed: {{error}}"
     }

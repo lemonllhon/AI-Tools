@@ -7,7 +7,33 @@ export interface CodexQuickConfig {
   detected_auto_compact_token_limit?: number;
 }
 
-export type CodexAppSpeed = "standard" | "fast";
+export const CODEX_APP_SPEED_VALUES = ["standard", "fast", "flex"] as const;
+
+export type CodexAppSpeed = (typeof CODEX_APP_SPEED_VALUES)[number];
+
+export const CODEX_APP_SPEED_LABEL_KEYS: Record<CodexAppSpeed, string> = {
+  standard: "codex.speed.standard",
+  fast: "codex.speed.fast",
+  flex: "codex.speed.flex",
+};
+
+export const CODEX_APP_SPEED_DEFAULT_LABELS: Record<CodexAppSpeed, string> = {
+  standard: "标准",
+  fast: "快速",
+  flex: "2倍",
+};
+
+export const CODEX_APP_SPEED_DESC_KEYS: Record<CodexAppSpeed, string> = {
+  standard: "codex.speed.standardDesc",
+  fast: "codex.speed.fastDesc",
+  flex: "codex.speed.flexDesc",
+};
+
+export const CODEX_APP_SPEED_DEFAULT_DESCRIPTIONS: Record<CodexAppSpeed, string> = {
+  standard: "默认速度，常规用量",
+  fast: "1.5 倍速，用量增加",
+  flex: "2 倍速，用量更多",
+};
 
 export interface CodexAppSpeedConfig {
   speed: CodexAppSpeed;
@@ -854,6 +880,18 @@ export function getCodexAverageQuotaPercentage(
 
   const total = windows.reduce((sum, window) => sum + window.percentage, 0);
   return total / windows.length;
+}
+
+export function getCodexPrimaryOrSingleQuotaWindow(
+  quota: CodexQuota | undefined,
+): CodexQuotaWindow | null {
+  const windows = getCodexQuotaWindows(quota);
+  if (windows.length === 0) return null;
+
+  return (
+    windows.find((window) => window.id === "primary") ??
+    (windows.length === 1 ? windows[0] : null)
+  );
 }
 
 /** 格式化重置时间显示（相对时间 + 绝对时间） */

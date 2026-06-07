@@ -38,6 +38,9 @@ import type {
   CodexLocalAccessWebSocketMode,
 } from '../types/codexLocalAccess';
 import {
+  CODEX_APP_SPEED_DEFAULT_LABELS,
+  CODEX_APP_SPEED_LABEL_KEYS,
+  CODEX_APP_SPEED_VALUES,
   getCodexPlanFilterKey,
   isCodexApiKeyAccount,
   isCodexExplicitFreePlanType,
@@ -362,7 +365,7 @@ export function CodexLocalAccessModal({
       : 0;
   const testDialogBusy = testDialogRunning || testing;
   const actionBusy = saving || testing || portCleanupBusy;
-  const speedOptions: CodexAppSpeed[] = ['standard', 'fast'];
+  const speedOptions = CODEX_APP_SPEED_VALUES;
   const summaryStats = useMemo(
     () => [
       {
@@ -482,24 +485,26 @@ export function CodexLocalAccessModal({
   const speedSummary = useMemo(() => {
     const accountTotal = accounts.length;
     const providerKeyCount = currentProviderKeyCount;
-    const accountStandard = accounts.filter(
-      (account) => (account.app_speed ?? 'standard') === 'standard',
-    ).length;
-    const accountFast = accounts.filter(
-      (account) => (account.app_speed ?? 'standard') === 'fast',
-    ).length;
-    const providerStandard = effectiveApiServiceSpeed === 'standard' ? providerKeyCount : 0;
-    const providerFast = effectiveApiServiceSpeed === 'fast' ? providerKeyCount : 0;
-    const standard = accountStandard + providerStandard;
-    const fast = accountFast + providerFast;
     const total = accountTotal + providerKeyCount;
+    const speedCounts: Record<CodexAppSpeed, number> = {
+      standard: 0,
+      fast: 0,
+      flex: 0,
+    };
+    for (const account of accounts) {
+      speedCounts[account.app_speed ?? 'standard'] += 1;
+    }
+    speedCounts[effectiveApiServiceSpeed] += providerKeyCount;
     const active: CodexAppSpeed | null =
-      total > 0 && standard === total
-        ? 'standard'
-        : total > 0 && fast === total
-          ? 'fast'
-          : null;
-    return { active, fast, providerKeyCount, standard, total };
+      CODEX_APP_SPEED_VALUES.find((speed) => total > 0 && speedCounts[speed] === total) ?? null;
+    return {
+      active,
+      fast: speedCounts.fast,
+      flex: speedCounts.flex,
+      providerKeyCount,
+      standard: speedCounts.standard,
+      total,
+    };
   }, [accounts, currentProviderKeyCount, effectiveApiServiceSpeed]);
   const localAccessAccountIdSet = useMemo(
     () => new Set(localAccessAccounts.map((account) => account.id)),
@@ -1728,10 +1733,7 @@ export function CodexLocalAccessModal({
 
   const handleApplyAllAccountSpeed = async (speed: CodexAppSpeed) => {
     if (!onApplyAllAccountSpeed || actionBusy || bulkSpeedSaving) return;
-    const speedLabel =
-      speed === 'fast'
-        ? t('codex.speed.fast', '快速')
-        : t('codex.speed.standard', '标准');
+    const speedLabel = t(CODEX_APP_SPEED_LABEL_KEYS[speed], CODEX_APP_SPEED_DEFAULT_LABELS[speed]);
     setError('');
     setNotice('');
     try {
@@ -2077,10 +2079,10 @@ export function CodexLocalAccessModal({
                 aria-label={t('codex.localAccess.bulkSpeedTitle', '全账号速度')}
               >
                 {speedOptions.map((speed) => {
-                  const speedLabel =
-                    speed === 'fast'
-                      ? t('codex.speed.fast', '快速')
-                      : t('codex.speed.standard', '标准');
+                  const speedLabel = t(
+                    CODEX_APP_SPEED_LABEL_KEYS[speed],
+                    CODEX_APP_SPEED_DEFAULT_LABELS[speed],
+                  );
                   const isSaving = bulkSpeedSaving === speed;
                   return (
                     <button
@@ -2102,7 +2104,7 @@ export function CodexLocalAccessModal({
                     >
                       {isSaving ? (
                         <RefreshCw size={15} className="loading-spinner" />
-                      ) : speed === 'fast' ? (
+                      ) : speed === 'fast' || speed === 'flex' ? (
                         <Zap size={15} />
                       ) : (
                         <Gauge size={15} />

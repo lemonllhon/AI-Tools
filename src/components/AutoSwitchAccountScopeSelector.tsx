@@ -9,6 +9,7 @@ import { normalizeAccountTag } from '../utils/accountFilters';
 import './AutoSwitchAccountScopeSelector.css';
 
 const UNGROUPED_ACCOUNT_GROUP_FILTER_KEY = '__ungrouped__';
+const ACCOUNT_SCOPE_PAGE_SIZE = 120;
 
 export type AutoSwitchAccountScopeMode = 'all_accounts' | 'selected_accounts';
 
@@ -60,6 +61,7 @@ export function AutoSwitchAccountScopeSelector({
   const [typeFilter, setTypeFilter] = useState<string[]>([]);
   const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [groupFilter, setGroupFilter] = useState<string[]>([]);
+  const [accountListPage, setAccountListPage] = useState(1);
 
   const accountById = useMemo(() => {
     const map = new Map<string, AutoSwitchScopeAccount>();
@@ -171,6 +173,25 @@ export function AutoSwitchAccountScopeSelector({
     () => filteredAccounts.map((account) => account.id),
     [filteredAccounts],
   );
+  const accountListPageCount = Math.max(
+    1,
+    Math.ceil(filteredAccounts.length / ACCOUNT_SCOPE_PAGE_SIZE),
+  );
+  const normalizedAccountListPage = Math.min(accountListPage, accountListPageCount);
+  const accountListPageStart = (normalizedAccountListPage - 1) * ACCOUNT_SCOPE_PAGE_SIZE;
+  const pagedAccounts = useMemo(
+    () =>
+      filteredAccounts.slice(
+        accountListPageStart,
+        accountListPageStart + ACCOUNT_SCOPE_PAGE_SIZE,
+      ),
+    [accountListPageStart, filteredAccounts],
+  );
+  const accountListRangeStart = filteredAccounts.length === 0 ? 0 : accountListPageStart + 1;
+  const accountListRangeEnd = Math.min(
+    accountListPageStart + ACCOUNT_SCOPE_PAGE_SIZE,
+    filteredAccounts.length,
+  );
 
   const selectedVisibleCount = useMemo(
     () =>
@@ -224,6 +245,16 @@ export function AutoSwitchAccountScopeSelector({
     if (!selectAllRef.current) return;
     selectAllRef.current.indeterminate = partiallyVisibleSelected;
   }, [partiallyVisibleSelected]);
+
+  useEffect(() => {
+    setAccountListPage(1);
+  }, [groupFilter, searchQuery, tagFilter, typeFilter]);
+
+  useEffect(() => {
+    if (accountListPage > accountListPageCount) {
+      setAccountListPage(accountListPageCount);
+    }
+  }, [accountListPage, accountListPageCount]);
 
   useEffect(() => {
     if (mode !== 'selected_accounts') {
@@ -349,7 +380,7 @@ export function AutoSwitchAccountScopeSelector({
         ) : filteredAccounts.length === 0 ? (
           <span className="settings-account-scope-empty">{t('accounts.noMatch.title')}</span>
         ) : (
-          filteredAccounts.map((account) => {
+          pagedAccounts.map((account) => {
             const isSelected = selectedSet.has(account.id);
             return (
               <label
@@ -371,6 +402,33 @@ export function AutoSwitchAccountScopeSelector({
           })
         )}
       </div>
+      {filteredAccounts.length > ACCOUNT_SCOPE_PAGE_SIZE && (
+        <div className="settings-account-scope-pagination">
+          <span className="settings-account-scope-pagination-info">
+            {accountListRangeStart}-{accountListRangeEnd} / {filteredAccounts.length}
+          </span>
+          <div className="settings-account-scope-pagination-actions">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={normalizedAccountListPage <= 1}
+              onClick={() => setAccountListPage((page) => Math.max(1, page - 1))}
+            >
+              {t('pagination.prev', 'Previous')}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={normalizedAccountListPage >= accountListPageCount}
+              onClick={() =>
+                setAccountListPage((page) => Math.min(accountListPageCount, page + 1))
+              }
+            >
+              {t('pagination.next', 'Next')}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 

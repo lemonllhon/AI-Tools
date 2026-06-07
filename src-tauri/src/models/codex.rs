@@ -53,6 +53,7 @@ pub struct CodexQuickConfig {
 pub enum CodexAppSpeed {
     Standard,
     Fast,
+    Flex,
 }
 
 impl Default for CodexAppSpeed {

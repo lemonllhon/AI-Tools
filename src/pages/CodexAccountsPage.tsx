@@ -88,6 +88,7 @@ import {
   formatCodexLoginProvider,
   getCodexAuthMetadata,
   getCodexPlanFilterKey,
+  getCodexPrimaryOrSingleQuotaWindow,
   getCodexSubscriptionPresentation,
   hasCodexAccountName,
   isCodexApiKeyAccount,
@@ -5259,11 +5260,11 @@ export function CodexAccountsPage() {
         const aR =
           sortBy === "weekly_reset"
             ? (a.quota?.weekly_reset_time ?? null)
-            : (a.quota?.hourly_reset_time ?? null);
+            : (getCodexPrimaryOrSingleQuotaWindow(a.quota)?.resetTime ?? null);
         const bR =
           sortBy === "weekly_reset"
             ? (b.quota?.weekly_reset_time ?? null)
-            : (b.quota?.hourly_reset_time ?? null);
+            : (getCodexPrimaryOrSingleQuotaWindow(b.quota)?.resetTime ?? null);
         if (aR == null && bR == null) return 0;
         if (aR == null) return 1;
         if (bR == null) return -1;
@@ -5284,11 +5285,11 @@ export function CodexAccountsPage() {
       const aV =
         sortBy === "weekly"
           ? (a.quota?.weekly_percentage ?? -1)
-          : (a.quota?.hourly_percentage ?? -1);
+          : (getCodexPrimaryOrSingleQuotaWindow(a.quota)?.percentage ?? -1);
       const bV =
         sortBy === "weekly"
           ? (b.quota?.weekly_percentage ?? -1)
-          : (b.quota?.hourly_percentage ?? -1);
+          : (getCodexPrimaryOrSingleQuotaWindow(b.quota)?.percentage ?? -1);
       return sortDirection === "desc" ? bV - aV : aV - bV;
     },
     [
@@ -7943,7 +7944,7 @@ export function CodexAccountsPage() {
                   },
                   {
                     value: "hourly",
-                    label: t("codex.sort.hourly", "按5小时配额"),
+                    label: t("codex.sort.primaryOrSingle", "按主/单额度"),
                   },
                   {
                     value: "weekly_reset",
@@ -7951,7 +7952,7 @@ export function CodexAccountsPage() {
                   },
                   {
                     value: "hourly_reset",
-                    label: t("codex.sort.hourlyReset", "按5小时配额重置时间"),
+                    label: t("codex.sort.primaryOrSingleReset", "按主/单额度重置时间"),
                   },
                   {
                     value: "subscription_expiry",

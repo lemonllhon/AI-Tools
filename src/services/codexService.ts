@@ -74,6 +74,10 @@ export async function updateCodexAccountAppSpeed(
   return await invoke('update_codex_account_app_speed', { accountId, speed });
 }
 
+export async function updateAllCodexAccountAppSpeeds(speed: CodexAppSpeed): Promise<number> {
+  return await invoke('update_all_codex_account_app_speeds', { speed });
+}
+
 /** 刷新 Codex 账号资料（团队名/结构） */
 export async function refreshCodexAccountProfile(accountId: string): Promise<CodexAccount> {
   return await invoke('refresh_codex_account_profile', { accountId });

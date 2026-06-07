@@ -6781,6 +6781,34 @@ pub fn update_account_app_speed(
     Ok(account)
 }
 
+pub fn update_all_account_app_speeds(speed: CodexAppSpeed) -> Result<usize, String> {
+    let accounts = list_accounts_checked()?;
+    let total_count = accounts.len();
+    let mut failure_count = 0usize;
+    let mut first_failure: Option<String> = None;
+
+    for mut account in accounts {
+        if account.app_speed == speed {
+            continue;
+        }
+        account.app_speed = speed.clone();
+        if let Err(error) = save_account(&account) {
+            failure_count += 1;
+            first_failure.get_or_insert(error);
+        }
+    }
+
+    if failure_count > 0 {
+        return Err(format!(
+            "{} 个账号速度保存失败：{}",
+            failure_count,
+            first_failure.unwrap_or_else(|| "未知错误".to_string())
+        ));
+    }
+
+    Ok(total_count)
+}
+
 pub async fn update_api_key_bound_oauth_account(
     account_id: &str,
     bound_oauth_account_id: Option<String>,

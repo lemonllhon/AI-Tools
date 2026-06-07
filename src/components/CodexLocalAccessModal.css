@@ -1045,7 +1045,7 @@
 
 .codex-local-access-speed-control {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -1094,6 +1094,12 @@
   color: #b45309;
   border-color: rgba(245, 158, 11, 0.3);
   background: rgba(245, 158, 11, 0.12);
+}
+
+.codex-local-access-speed-option.flex.is-active {
+  color: #0e7490;
+  border-color: rgba(14, 165, 183, 0.32);
+  background: rgba(14, 165, 183, 0.12);
 }
 
 .codex-local-access-speed-option:disabled {
