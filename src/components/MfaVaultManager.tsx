@@ -10,11 +10,11 @@ import {
   createMfaRecordId,
   dedupeMfaRecordsBySecret,
   getMfaOtpToken,
-  getMfaTimeRemaining,
   loadMfaHistoryRecords,
   loadSavedMfaRecords,
   normalizeMfaRecord,
   parseMfaCredentialInput,
+  subscribeMfaTimeRemaining,
   toMfaSecretIdentity,
   type MfaRecord,
   type ParsedMfaCredential,
@@ -80,7 +80,7 @@ export function MfaVaultManager() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [timeRemaining, setTimeRemaining] = useState(() => getMfaTimeRemaining());
+  const [timeRemaining, setTimeRemaining] = useState(30);
 
   useEffect(() => {
     localStorage.setItem(MFA_STORAGE_KEY_SAVED, JSON.stringify(records));
@@ -91,10 +91,7 @@ export function MfaVaultManager() {
   }, [historyRecords]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      setTimeRemaining(getMfaTimeRemaining());
-    }, 1000);
-    return () => window.clearInterval(timer);
+    return subscribeMfaTimeRemaining(setTimeRemaining);
   }, []);
 
   const toggleSortDirection = (value: SortDirection): SortDirection => (

@@ -98,7 +98,7 @@ interface InstancesManagerProps<TAccount extends AccountLike> {
   toolbarExtraActions?: ReactNode;
 }
 
-const INSTANCE_AUTO_REFRESH_INTERVAL_MS = 10_000;
+const INSTANCE_AUTO_REFRESH_INTERVAL_MS = 30_000;
 const ACCOUNT_SELECT_PORTAL_GAP = 8;
 const ACCOUNT_SELECT_PORTAL_SAFE_MARGIN = 12;
 const ACCOUNT_SELECT_PORTAL_MAX_HEIGHT = 320;
@@ -470,10 +470,32 @@ export function InstancesManager<TAccount extends AccountLike>({
 
   useEffect(() => {
     let inFlight = false;
-    const timer = window.setInterval(() => {
+    let timerId: number | null = null;
+    let disposed = false;
+
+    const clearTimer = () => {
+      if (timerId !== null) {
+        window.clearTimeout(timerId);
+        timerId = null;
+      }
+    };
+
+    const scheduleNextRefresh = (delayMs = INSTANCE_AUTO_REFRESH_INTERVAL_MS) => {
+      clearTimer();
+      if (disposed || document.visibilityState === "hidden") {
+        return;
+      }
+      timerId = window.setTimeout(runPeriodicRefresh, delayMs);
+    };
+
+    const runPeriodicRefresh = () => {
+      timerId = null;
+      if (disposed) return;
       if (document.visibilityState === "hidden") return;
-      if (openInlineMenuId || showModal) return;
-      if (inFlight) return;
+      if (openInlineMenuId || showModal || inFlight) {
+        scheduleNextRefresh();
+        return;
+      }
       inFlight = true;
       Promise.all([refreshInstances(), fetchAccounts()])
         .catch(() => {
@@ -481,9 +503,27 @@ export function InstancesManager<TAccount extends AccountLike>({
         })
         .finally(() => {
           inFlight = false;
+          scheduleNextRefresh();
         });
-    }, INSTANCE_AUTO_REFRESH_INTERVAL_MS);
-    return () => window.clearInterval(timer);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        scheduleNextRefresh(1_000);
+      } else {
+        clearTimer();
+      }
+    };
+
+    scheduleNextRefresh();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleVisibilityChange);
+    return () => {
+      disposed = true;
+      clearTimer();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleVisibilityChange);
+    };
   }, [fetchAccounts, openInlineMenuId, refreshInstances, showModal]);
 
   useEffect(() => {

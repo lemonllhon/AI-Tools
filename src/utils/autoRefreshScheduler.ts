@@ -21,6 +21,8 @@ const DEFAULT_TICK_MS = 5_000;
 const DEFAULT_MAX_CONCURRENT = 1;
 const INITIAL_DELAY_WINDOW_RATIO = 0.8;
 const MIN_INITIAL_DELAY_RATIO = 0.05;
+const MIN_WAKE_DELAY_MS = 1_000;
+const MAX_WAKE_DELAY_MS = 2_147_483_647;
 
 interface RuntimeTask extends AutoRefreshSchedulerTask {
   nextRunAt: number;
@@ -78,7 +80,39 @@ export function createAutoRefreshScheduler(
       running: false,
     }));
 
+  const clearTimer = () => {
+    if (timerId !== null) {
+      window.clearTimeout(timerId);
+      timerId = null;
+    }
+  };
+
+  const armNextWake = () => {
+    clearTimer();
+    if (stopped || runtimeTasks.length === 0 || activeCount >= maxConcurrent) {
+      return;
+    }
+
+    const now = Date.now();
+    const nextRunAt = runtimeTasks
+      .filter((task) => !task.running)
+      .reduce<number | null>((nearest, task) => (
+        nearest === null ? task.nextRunAt : Math.min(nearest, task.nextRunAt)
+      ), null);
+
+    if (nextRunAt === null) {
+      return;
+    }
+
+    const delayMs = Math.min(
+      MAX_WAKE_DELAY_MS,
+      Math.max(MIN_WAKE_DELAY_MS, nextRunAt - now),
+    );
+    timerId = window.setTimeout(scheduleDueTasks, delayMs);
+  };
+
   const scheduleDueTasks = () => {
+    clearTimer();
     if (stopped || activeCount >= maxConcurrent) {
       return;
     }
@@ -117,6 +151,8 @@ export function createAutoRefreshScheduler(
           }
         });
     }
+
+    armNextWake();
   };
 
   return {
@@ -125,14 +161,10 @@ export function createAutoRefreshScheduler(
         return;
       }
       scheduleDueTasks();
-      timerId = window.setInterval(scheduleDueTasks, tickMs);
     },
     stop() {
       stopped = true;
-      if (timerId !== null) {
-        window.clearInterval(timerId);
-        timerId = null;
-      }
+      clearTimer();
     },
   };
 }

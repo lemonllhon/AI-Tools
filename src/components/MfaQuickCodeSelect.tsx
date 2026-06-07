@@ -3,8 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { Check, Copy, KeyRound } from 'lucide-react';
 import {
   getMfaOtpToken,
-  getMfaTimeRemaining,
   loadSavedMfaRecords,
+  subscribeMfaTimeRemaining,
   type MfaRecord,
 } from '../utils/mfaVault';
 
@@ -25,7 +25,7 @@ export function MfaQuickCodeSelect({ className = '' }: MfaQuickCodeSelectProps) 
   const { t } = useTranslation();
   const [records, setRecords] = useState<MfaRecord[]>(() => loadSavedMfaRecords());
   const [selectedId, setSelectedId] = useState('');
-  const [timeRemaining, setTimeRemaining] = useState(() => getMfaTimeRemaining());
+  const [timeRemaining, setTimeRemaining] = useState(30);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -43,10 +43,7 @@ export function MfaQuickCodeSelect({ className = '' }: MfaQuickCodeSelectProps) 
   }, [records, selectedId]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      setTimeRemaining(getMfaTimeRemaining());
-    }, 1000);
-    return () => window.clearInterval(timer);
+    return subscribeMfaTimeRemaining(setTimeRemaining);
   }, []);
 
   const selectedRecord = useMemo(

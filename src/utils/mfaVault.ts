@@ -20,6 +20,8 @@ const LEGACY_STORAGE_KEY_SAVED_MFA = 'agtools.mfa.vault.v1';
 const LEGACY_STORAGE_KEY_SAVED_2FA = 'agtools.two_factor_auth.saved.v2';
 const LEGACY_STORAGE_KEY_HISTORY_2FA = 'agtools.two_factor_auth.history.v2';
 const MAX_HISTORY = 50;
+const MFA_TICK_ALIGNMENT_PADDING_MS = 25;
+const MFA_TICK_MIN_DELAY_MS = 250;
 
 export function createMfaRecordId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -154,6 +156,60 @@ export function getMfaTimeRemaining(): number {
   const now = Math.floor(Date.now() / 1000);
   const value = 30 - (now % 30);
   return value === 0 ? 30 : value;
+}
+
+function getNextMfaTickDelayMs(): number {
+  return Math.max(
+    MFA_TICK_MIN_DELAY_MS,
+    1000 - (Date.now() % 1000) + MFA_TICK_ALIGNMENT_PADDING_MS,
+  );
+}
+
+export function subscribeMfaTimeRemaining(onTick: (timeRemaining: number) => void): () => void {
+  onTick(getMfaTimeRemaining());
+
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return () => {};
+  }
+
+  let timerId: number | null = null;
+
+  const clearTimer = () => {
+    if (timerId !== null) {
+      window.clearTimeout(timerId);
+      timerId = null;
+    }
+  };
+
+  const scheduleTick = () => {
+    clearTimer();
+    if (document.visibilityState !== 'visible') {
+      return;
+    }
+    timerId = window.setTimeout(() => {
+      onTick(getMfaTimeRemaining());
+      scheduleTick();
+    }, getNextMfaTickDelayMs());
+  };
+
+  const resumeVisibleTicking = () => {
+    if (document.visibilityState === 'visible') {
+      onTick(getMfaTimeRemaining());
+      scheduleTick();
+    } else {
+      clearTimer();
+    }
+  };
+
+  scheduleTick();
+  document.addEventListener('visibilitychange', resumeVisibleTicking);
+  window.addEventListener('focus', resumeVisibleTicking);
+
+  return () => {
+    clearTimer();
+    document.removeEventListener('visibilitychange', resumeVisibleTicking);
+    window.removeEventListener('focus', resumeVisibleTicking);
+  };
 }
 
 function readStorageArray(key: string): unknown[] {

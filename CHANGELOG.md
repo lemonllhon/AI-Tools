@@ -6,6 +6,16 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.45] - 2026-06-07
+### Changed
+- Reduced idle CPU and WebView2 GPU load by replacing fixed auto-refresh polling with due-time based scheduling.
+- Slowed instance list background refresh and paused it while the app window is hidden.
+- Paused 2FA countdown timers while the app is hidden, resuming them with a fresh tick when the window returns.
+
+### Fixed
+- Removed always-running sidebar update waves and Codex API service active-account breathing animations that could keep the WebView compositor busy.
+- Replaced the sidebar's heavy blur surface with a solid surface to reduce sustained GPU composition cost.
+
 ## [0.0.44] - 2026-06-07
 ### Fixed
 - Windows portable packages now always include and validate the bundled proxy runtime resources before upload, fixing missing `runtime-manifest.json` errors when opening the proxy kernel directory.
