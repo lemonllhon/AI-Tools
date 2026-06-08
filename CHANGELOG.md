@@ -6,6 +6,10 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.49] - 2026-06-09
+### Changed
+- Codex 2x speed indicators now use blue instead of yellow.
+
 ## [0.0.48] - 2026-06-09
 ### Changed
 - The Codex speed entry now only retains "Standard" and "2x"; the 2x configuration will be merged into a single 2x tier.
