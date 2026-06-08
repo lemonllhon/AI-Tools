@@ -1,4 +1,4 @@
-use crate::models::codex::{CodexAccount, CodexApiProviderMode};
+use crate::models::codex::{CodexAccount, CodexApiProviderMode, CodexAppSpeed};
 use crate::models::codex_local_access::{
     CodexLocalAccessAccountStats, CodexLocalAccessCollection, CodexLocalAccessCustomRoutingRule,
     CodexLocalAccessPortCleanupResult, CodexLocalAccessProviderStats,
@@ -8,7 +8,9 @@ use crate::models::codex_local_access::{
     CodexLocalAccessUsageEvent, CodexLocalAccessUsageStats, CodexLocalAccessWebSocketMode,
 };
 use crate::modules::atomic_write::write_string_atomic;
-use crate::modules::{codex_account, codex_oauth, codex_protocol, codex_wakeup, logger, process};
+use crate::modules::{
+    codex_account, codex_oauth, codex_protocol, codex_speed, codex_wakeup, logger, process,
+};
 use base64::{engine::general_purpose, Engine as _};
 use futures_util::{SinkExt, StreamExt};
 use rand::{distributions::Alphanumeric, Rng};
@@ -4307,8 +4309,9 @@ fn is_local_access_eligible_account(account: &CodexAccount, restrict_free_accoun
 
 fn sanitize_collection(
     collection: &mut CodexLocalAccessCollection,
-) -> Result<(bool, HashSet<String>), String> {
+) -> Result<(bool, HashSet<String>, Vec<String>), String> {
     let mut changed = false;
+    let mut auto_included_account_ids = Vec::new();
 
     if collection.port == 0 {
         collection.port = allocate_random_local_port(bind_host_for_collection(collection))?;
@@ -4378,6 +4381,7 @@ fn sanitize_collection(
     if collection.auto_include_new_accounts {
         for account_id in eligible_account_ids {
             if seen.insert(account_id.clone()) {
+                auto_included_account_ids.push(account_id.clone());
                 deduped.push(account_id);
                 changed = true;
             }
@@ -4427,7 +4431,56 @@ fn sanitize_collection(
     }
     collection.custom_routing_rules = normalized_custom_routing_rules;
 
-    Ok((changed, valid_account_ids))
+    Ok((changed, valid_account_ids, auto_included_account_ids))
+}
+
+fn apply_api_service_speed_to_auto_included_accounts(account_ids: &[String]) {
+    if account_ids.is_empty() {
+        return;
+    }
+
+    let speed = match codex_speed::get_api_service_app_speed_config() {
+        Ok(config) => config.speed,
+        Err(error) => {
+            logger::log_warn(&format!(
+                "自动加入 API 服务账号后读取默认速度失败，跳过速度同步: {}",
+                error
+            ));
+            return;
+        }
+    };
+
+    let mut failure_count = 0usize;
+    let mut first_failure: Option<String> = None;
+
+    for account_id in account_ids {
+        if let Err(error) = codex_account::update_account_app_speed(account_id, speed.clone()) {
+            failure_count += 1;
+            first_failure.get_or_insert(error);
+        }
+    }
+
+    if failure_count > 0 {
+        logger::log_warn(&format!(
+            "自动加入 API 服务账号后同步默认速度失败: {} 个账号失败，首个错误: {}",
+            failure_count,
+            first_failure.unwrap_or_else(|| "未知错误".to_string())
+        ));
+    } else {
+        logger::log_info(&format!(
+            "已将 {} 个自动加入 API 服务的账号速度同步为 {}",
+            account_ids.len(),
+            format_codex_app_speed_label(&speed)
+        ));
+    }
+}
+
+fn format_codex_app_speed_label(speed: &CodexAppSpeed) -> &'static str {
+    match speed {
+        CodexAppSpeed::Standard => "standard",
+        CodexAppSpeed::Fast => "fast",
+        CodexAppSpeed::Flex => "flex",
+    }
 }
 
 async fn refresh_runtime_collection_members_from_accounts() -> Result<(), String> {
@@ -4440,11 +4493,12 @@ async fn refresh_runtime_collection_members_from_accounts() -> Result<(), String
         return Ok(());
     };
 
-    let (changed, _) = sanitize_collection(&mut collection)?;
+    let (changed, _, auto_included_account_ids) = sanitize_collection(&mut collection)?;
     if !changed {
         return Ok(());
     }
 
+    apply_api_service_speed_to_auto_included_accounts(&auto_included_account_ids);
     collection.updated_at = now_ms();
     save_collection_to_disk(&collection)?;
 
@@ -4493,7 +4547,8 @@ async fn ensure_runtime_loaded_without_start() -> Result<(), String> {
     }
 
     if let Some(collection) = next_collection.as_mut() {
-        let (changed, _) = sanitize_collection(collection)?;
+        let (changed, _, auto_included_account_ids) = sanitize_collection(collection)?;
+        apply_api_service_speed_to_auto_included_accounts(&auto_included_account_ids);
         persist_after_load = persist_after_load || changed;
     }
 
@@ -5421,6 +5476,7 @@ pub async fn save_local_access_accounts(
                 updated_at: now_ms(),
             })
     };
+    let previous_account_ids: HashSet<String> = collection.account_ids.iter().cloned().collect();
 
     let valid_account_ids: HashSet<String> = codex_account::list_accounts_checked()?
         .into_iter()
@@ -5443,7 +5499,20 @@ pub async fn save_local_access_accounts(
     collection.auto_include_new_accounts = auto_include_new_accounts;
     collection.account_ids = next_account_ids;
     collection.updated_at = now_ms();
-    let (changed, _) = sanitize_collection(&mut collection)?;
+    let (changed, _, auto_included_account_ids) = sanitize_collection(&mut collection)?;
+    let mut speed_sync_account_ids = auto_included_account_ids;
+    if auto_include_new_accounts {
+        let mut seen_speed_sync_ids: HashSet<String> =
+            speed_sync_account_ids.iter().cloned().collect();
+        for account_id in &collection.account_ids {
+            if !previous_account_ids.contains(account_id)
+                && seen_speed_sync_ids.insert(account_id.clone())
+            {
+                speed_sync_account_ids.push(account_id.clone());
+            }
+        }
+    }
+    apply_api_service_speed_to_auto_included_accounts(&speed_sync_account_ids);
     if changed {
         collection.updated_at = now_ms();
     }
@@ -5490,7 +5559,6 @@ pub async fn save_local_access_providers(
                 updated_at: now_ms(),
             })
     };
-
     let valid_provider_ids: HashSet<String> = load_new_api_model_providers()?
         .into_iter()
         .map(|provider| provider.id)
@@ -5510,7 +5578,8 @@ pub async fn save_local_access_providers(
     collection.auto_include_new_providers = auto_include_new_providers;
     collection.provider_ids = next_provider_ids;
     collection.updated_at = now_ms();
-    let (changed, _) = sanitize_collection(&mut collection)?;
+    let (changed, _, auto_included_account_ids) = sanitize_collection(&mut collection)?;
+    apply_api_service_speed_to_auto_included_accounts(&auto_included_account_ids);
     if changed {
         collection.updated_at = now_ms();
     }

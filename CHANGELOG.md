@@ -6,6 +6,11 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.46] - 2026-06-08
+### Fixed
+- Codex API service auto-added accounts now inherit the saved API service speed setting instead of staying on the default standard speed.
+- Enabling auto-add in the service panel now applies the saved API service speed to accounts that become new service members in that save operation, without overwriting existing members.
+
 ## [0.0.45] - 2026-06-07
 ### Changed
 - Reduced idle CPU and WebView2 GPU load by replacing fixed auto-refresh polling with due-time based scheduling.
