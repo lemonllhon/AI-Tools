@@ -379,7 +379,11 @@ fn remove_unsupported_responses_fields(obj: &mut Map<String, Value>) -> bool {
     }
 
     if obj.get("service_tier").is_some()
-        && obj.get("service_tier").and_then(Value::as_str) != Some("priority")
+        && !obj
+            .get("service_tier")
+            .and_then(Value::as_str)
+            .map(crate::modules::codex_speed::is_supported_codex_service_tier)
+            .unwrap_or(false)
     {
         obj.remove("service_tier");
         changed = true;
@@ -426,6 +430,37 @@ mod tests {
                 .and_then(Value::as_str),
             Some("pong")
         );
+    }
+
+    #[test]
+    fn preserves_supported_codex_service_tiers() {
+        for service_tier in ["priority", "fast", "flex"] {
+            let mut body = json!({
+                "model": "gpt-5.4",
+                "input": "pong",
+                "service_tier": service_tier,
+            });
+
+            normalize_responses_body_for_codex(&mut body);
+
+            assert_eq!(
+                body.get("service_tier").and_then(Value::as_str),
+                Some(service_tier)
+            );
+        }
+    }
+
+    #[test]
+    fn removes_unsupported_codex_service_tiers() {
+        let mut body = json!({
+            "model": "gpt-5.4",
+            "input": "pong",
+            "service_tier": "auto",
+        });
+
+        normalize_responses_body_for_codex(&mut body);
+
+        assert!(body.get("service_tier").is_none());
     }
 
     #[test]

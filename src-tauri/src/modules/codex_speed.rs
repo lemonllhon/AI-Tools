@@ -12,6 +12,7 @@ const DEFAULT_SERVICE_TIER_KEY: &str = "default-service-tier";
 const HAS_USER_CHANGED_SERVICE_TIER_KEY: &str = "has-user-changed-service-tier";
 const FAST_SERVICE_TIER: &str = "fast";
 const FLEX_SERVICE_TIER: &str = "flex";
+const PRIORITY_SERVICE_TIER: &str = "priority";
 
 #[derive(serde::Deserialize, serde::Serialize)]
 struct AppSpeedPreference {
@@ -206,6 +207,21 @@ pub fn get_api_service_app_speed_config() -> Result<CodexAppSpeedConfig, String>
         Path::new(&official.global_state_path),
         read_preferred_speed()?.unwrap_or_default(),
     ))
+}
+
+pub fn service_tier_value_for_app_speed(speed: &CodexAppSpeed) -> Option<&'static str> {
+    match speed {
+        CodexAppSpeed::Standard => None,
+        CodexAppSpeed::Fast => Some(FAST_SERVICE_TIER),
+        CodexAppSpeed::Flex => Some(FLEX_SERVICE_TIER),
+    }
+}
+
+pub fn is_supported_codex_service_tier(value: &str) -> bool {
+    matches!(
+        value.trim(),
+        PRIORITY_SERVICE_TIER | FAST_SERVICE_TIER | FLEX_SERVICE_TIER
+    )
 }
 
 pub fn save_api_service_app_speed(speed: CodexAppSpeed) -> Result<CodexAppSpeedConfig, String> {

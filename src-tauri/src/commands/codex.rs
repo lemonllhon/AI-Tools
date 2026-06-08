@@ -225,6 +225,7 @@ pub fn update_codex_account_app_speed(
     speed: CodexAppSpeed,
 ) -> Result<CodexAccount, String> {
     let account = codex_account::update_account_app_speed(&account_id, speed)?;
+    codex_local_access::evict_prepared_account_cache_for_account(&account_id);
     let current_account_id = codex_account::load_account_index().current_account_id;
     let default_bind_account_id = crate::modules::codex_instance::load_default_settings()
         .ok()
@@ -240,7 +241,9 @@ pub fn update_codex_account_app_speed(
 
 #[tauri::command]
 pub fn update_all_codex_account_app_speeds(speed: CodexAppSpeed) -> Result<usize, String> {
-    let updated_count = codex_account::update_all_account_app_speeds(speed.clone())?;
+    let update_result = codex_account::update_all_account_app_speeds(speed.clone());
+    codex_local_access::clear_prepared_account_cache();
+    let updated_count = update_result?;
     let current_account_id = codex_account::load_account_index().current_account_id;
     let default_bind_account_id = crate::modules::codex_instance::load_default_settings()
         .ok()

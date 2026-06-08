@@ -5795,18 +5795,8 @@ export function CodexAccountsPage() {
               {presentation.planLabel}
             </span>
           </div>
-          {(meta.accountContextText ||
-            isInLocalAccess ||
-            account.account_note?.trim()) && (
+          {(isInLocalAccess || account.account_note?.trim()) && (
             <div className="account-sub-line">
-              {meta.accountContextText && (
-                <span
-                  className="codex-login-subline"
-                  title={meta.accountContextText}
-                >
-                  Team Name：{meta.accountContextText}
-                </span>
-              )}
               {isInLocalAccess && (
                 <span className="group-account-badge is-current">
                   {t("codex.localAccess.modal.selected", "已加入 API 服务")}
@@ -6854,18 +6844,8 @@ export function CodexAccountsPage() {
                 )}
                 {renderAccountSpeedSelect(account, true)}
               </div>
-              {(meta.accountContextText ||
-                isInLocalAccess ||
-                account.account_note?.trim()) && (
+              {(isInLocalAccess || account.account_note?.trim()) && (
                 <div className="account-sub-line codex-account-meta-inline">
-                  {meta.accountContextText && (
-                    <span
-                      className="codex-login-subline"
-                      title={meta.accountContextText}
-                    >
-                      Team Name：{meta.accountContextText}
-                    </span>
-                  )}
                   {isInLocalAccess && (
                     <span className="group-account-badge is-current">
                       {t("codex.localAccess.modal.selected", "已加入 API 服务")}

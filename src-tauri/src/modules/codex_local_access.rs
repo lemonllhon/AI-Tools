@@ -461,6 +461,53 @@ fn prune_prepared_account_cache(runtime: &mut GatewayRuntime, now: i64) {
     });
 }
 
+fn evict_prepared_account_cache_entries(
+    runtime: &mut GatewayRuntime,
+    account_ids: Option<&[String]>,
+) {
+    match account_ids {
+        Some(ids) if !ids.is_empty() => {
+            for account_id in ids {
+                runtime.prepared_accounts.remove(account_id);
+            }
+        }
+        _ => runtime.prepared_accounts.clear(),
+    }
+}
+
+fn evict_prepared_account_cache_later(account_ids: Option<Vec<String>>) {
+    if let Ok(mut runtime) = gateway_runtime().try_lock() {
+        evict_prepared_account_cache_entries(&mut runtime, account_ids.as_deref());
+        return;
+    }
+
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn(async move {
+            let mut runtime = gateway_runtime().lock().await;
+            evict_prepared_account_cache_entries(&mut runtime, account_ids.as_deref());
+        });
+    }
+}
+
+pub fn evict_prepared_account_cache_for_ids(account_ids: Vec<String>) {
+    if account_ids.is_empty() {
+        return;
+    }
+    evict_prepared_account_cache_later(Some(account_ids));
+}
+
+pub fn evict_prepared_account_cache_for_account(account_id: &str) {
+    let account_id = account_id.trim();
+    if account_id.is_empty() {
+        return;
+    }
+    evict_prepared_account_cache_later(Some(vec![account_id.to_string()]));
+}
+
+pub fn clear_prepared_account_cache() {
+    evict_prepared_account_cache_later(None);
+}
+
 fn sync_runtime_collection(runtime: &mut GatewayRuntime, collection: CodexLocalAccessCollection) {
     runtime.collection = Some(collection);
     runtime.loaded = true;
@@ -703,6 +750,54 @@ fn is_images_edits_request(target: &str) -> bool {
 fn is_responses_request(target: &str) -> bool {
     let path = proxy_target_path(target);
     path == RESPONSES_PATH || path.ends_with("/responses")
+}
+
+fn is_upstream_responses_target(target: &str) -> bool {
+    proxy_target_path(target) == "/responses"
+}
+
+fn insert_codex_app_speed_service_tier(
+    obj: &mut Map<String, Value>,
+    speed: &CodexAppSpeed,
+) -> bool {
+    if obj.contains_key("service_tier") {
+        return false;
+    }
+
+    let Some(service_tier) = codex_speed::service_tier_value_for_app_speed(speed) else {
+        return false;
+    };
+
+    obj.insert(
+        "service_tier".to_string(),
+        Value::String(service_tier.to_string()),
+    );
+    true
+}
+
+fn apply_codex_app_speed_to_upstream_body(
+    target: &str,
+    body: &[u8],
+    speed: &CodexAppSpeed,
+) -> Result<Option<Vec<u8>>, String> {
+    if !is_upstream_responses_target(target) {
+        return Ok(None);
+    }
+
+    let Some(mut body_value) = parse_request_body_json(body) else {
+        return Ok(None);
+    };
+    let Some(body_obj) = body_value.as_object_mut() else {
+        return Ok(None);
+    };
+
+    if !insert_codex_app_speed_service_tier(body_obj, speed) {
+        return Ok(None);
+    }
+
+    serde_json::to_vec(&body_value)
+        .map(Some)
+        .map_err(|e| format!("写入 Codex 速度请求参数失败: {}", e))
 }
 
 fn normalize_image_model_base(model: &str) -> String {
@@ -1718,6 +1813,17 @@ fn build_responses_body_from_chat_completions(
     responses_obj.insert("model".to_string(), Value::String(model.clone()));
     responses_obj.insert("input".to_string(), input);
     responses_obj.insert("parallel_tool_calls".to_string(), Value::Bool(true));
+    if let Some(service_tier) = request_obj
+        .get("service_tier")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| codex_speed::is_supported_codex_service_tier(value))
+    {
+        responses_obj.insert(
+            "service_tier".to_string(),
+            Value::String(service_tier.to_string()),
+        );
+    }
     responses_obj.insert(
         "reasoning".to_string(),
         json!({
@@ -4208,6 +4314,9 @@ fn build_provider_runtime_accounts(
     if selected_provider_ids.is_empty() {
         return Ok(Vec::new());
     }
+    let api_service_speed = codex_speed::get_api_service_app_speed_config()
+        .map(|config| config.speed)
+        .unwrap_or_default();
     let providers = load_new_api_model_providers()?;
     let mut accounts = Vec::new();
     for provider in providers {
@@ -4215,7 +4324,8 @@ fn build_provider_runtime_accounts(
             continue;
         }
         for api_key in &provider.api_keys {
-            if let Some(account) = build_provider_runtime_account(&provider, api_key) {
+            if let Some(mut account) = build_provider_runtime_account(&provider, api_key) {
+                account.app_speed = api_service_speed.clone();
                 accounts.push(account);
             }
         }
@@ -4452,13 +4562,19 @@ fn apply_api_service_speed_to_auto_included_accounts(account_ids: &[String]) {
 
     let mut failure_count = 0usize;
     let mut first_failure: Option<String> = None;
+    let mut updated_account_ids = Vec::new();
 
     for account_id in account_ids {
-        if let Err(error) = codex_account::update_account_app_speed(account_id, speed.clone()) {
-            failure_count += 1;
-            first_failure.get_or_insert(error);
+        match codex_account::update_account_app_speed(account_id, speed.clone()) {
+            Ok(_) => updated_account_ids.push(account_id.clone()),
+            Err(error) => {
+                failure_count += 1;
+                first_failure.get_or_insert(error);
+            }
         }
     }
+
+    evict_prepared_account_cache_for_ids(updated_account_ids);
 
     if failure_count > 0 {
         logger::log_warn(&format!(
@@ -8382,6 +8498,8 @@ async fn send_upstream_request(
             account.tokens.access_token.trim().to_string(),
         )
     };
+    let request_body = apply_codex_app_speed_to_upstream_body(target, body, &account.app_speed)?
+        .unwrap_or_else(|| body.to_vec());
     let client = upstream_http_client(upstream_proxy_mode)?;
     for retry_attempt in 0..=UPSTREAM_SEND_RETRY_ATTEMPTS {
         let mut request = client.request(method.clone(), &url);
@@ -8420,7 +8538,7 @@ async fn send_upstream_request(
         if !headers.contains_key("accept") {
             request = request.header(
                 ACCEPT,
-                if is_stream_request(headers, body) {
+                if is_stream_request(headers, &request_body) {
                     "text/event-stream"
                 } else {
                     "application/json"
@@ -8428,11 +8546,11 @@ async fn send_upstream_request(
             );
         }
         request = request.header("Connection", "Keep-Alive");
-        if !headers.contains_key("content-type") && !body.is_empty() {
+        if !headers.contains_key("content-type") && !request_body.is_empty() {
             request = request.header(CONTENT_TYPE, "application/json");
         }
-        if !body.is_empty() {
-            request = request.body(body.to_vec());
+        if !request_body.is_empty() {
+            request = request.body(request_body.clone());
         }
 
         match request.send().await {
@@ -9116,9 +9234,10 @@ async fn handle_connection(
 mod tests {
     use super::{
         apply_routing_strategy, build_chat_completion_payload, build_chat_completion_stream_body,
-        build_codex_client_models_response, build_images_api_payload, build_local_models_response,
-        build_ordered_account_ids, build_request_routing_hint, extract_usage_capture,
-        is_responses_completion_event, is_websocket_upgrade_request,
+        apply_codex_app_speed_to_upstream_body, build_codex_client_models_response,
+        build_images_api_payload, build_local_models_response, build_ordered_account_ids,
+        build_request_routing_hint, extract_usage_capture, is_responses_completion_event,
+        is_websocket_upgrade_request,
         compare_routing_candidates, normalize_custom_routing_rules, parse_codex_retry_after,
         parse_responses_payload_from_upstream, prepare_gateway_request,
         prepare_responses_websocket_request,
@@ -9128,6 +9247,7 @@ mod tests {
         ResponseUsageCollector, ResponsesWebSocketRequest, ResponsesWebSocketSessionState,
         RoutingCandidate, SseWebSocketForwarder,
     };
+    use crate::models::codex::CodexAppSpeed;
     use crate::models::codex_local_access::{
         CodexLocalAccessCustomRoutingRule, CodexLocalAccessRoutingStrategy,
     };
@@ -9761,6 +9881,88 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             }
             _ => panic!("expected chat completions adapter"),
         }
+    }
+
+    #[test]
+    fn preserves_chat_completions_service_tier_when_mapping_to_responses() {
+        let request = ParsedRequest {
+            method: "POST".to_string(),
+            target: "/v1/chat/completions".to_string(),
+            headers: HashMap::new(),
+            body: br#"{"model":"gpt-5.4","service_tier":"priority","messages":[{"role":"user","content":"hello"}]}"#
+                .to_vec(),
+        };
+
+        let (prepared, _) = prepare_gateway_request(request).expect("request should map");
+        let mapped_body: Value =
+            serde_json::from_slice(&prepared.body).expect("mapped body should be json");
+
+        assert_eq!(
+            mapped_body.get("service_tier").and_then(Value::as_str),
+            Some("priority")
+        );
+    }
+
+    #[test]
+    fn applies_account_speed_to_responses_upstream_body() {
+        let body = br#"{"model":"gpt-5.4","input":"hello","stream":true}"#;
+        let mapped = apply_codex_app_speed_to_upstream_body(
+            "/responses",
+            body,
+            &CodexAppSpeed::Fast,
+        )
+        .expect("speed should apply")
+        .expect("body should be rewritten");
+        let mapped_body: Value = serde_json::from_slice(&mapped).expect("mapped body json");
+
+        assert_eq!(
+            mapped_body.get("service_tier").and_then(Value::as_str),
+            Some("fast")
+        );
+    }
+
+    #[test]
+    fn applies_flex_account_speed_to_responses_upstream_body() {
+        let body = br#"{"model":"gpt-5.4","input":"hello","stream":true}"#;
+        let mapped = apply_codex_app_speed_to_upstream_body(
+            "/responses",
+            body,
+            &CodexAppSpeed::Flex,
+        )
+        .expect("speed should apply")
+        .expect("body should be rewritten");
+        let mapped_body: Value = serde_json::from_slice(&mapped).expect("mapped body json");
+
+        assert_eq!(
+            mapped_body.get("service_tier").and_then(Value::as_str),
+            Some("flex")
+        );
+    }
+
+    #[test]
+    fn keeps_explicit_service_tier_when_applying_account_speed() {
+        let body = br#"{"model":"gpt-5.4","input":"hello","service_tier":"priority"}"#;
+        let mapped = apply_codex_app_speed_to_upstream_body(
+            "/responses",
+            body,
+            &CodexAppSpeed::Flex,
+        )
+        .expect("speed handling should succeed");
+
+        assert!(mapped.is_none());
+    }
+
+    #[test]
+    fn standard_account_speed_does_not_inject_service_tier() {
+        let body = br#"{"model":"gpt-5.4","input":"hello"}"#;
+        let mapped = apply_codex_app_speed_to_upstream_body(
+            "/responses",
+            body,
+            &CodexAppSpeed::Standard,
+        )
+        .expect("speed handling should succeed");
+
+        assert!(mapped.is_none());
     }
 
     #[test]
