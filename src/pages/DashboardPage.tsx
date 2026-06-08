@@ -51,7 +51,9 @@ import {
   CODEX_APP_SPEED_VALUES,
   CodexAccount,
   CodexAppSpeed,
+  CodexVisibleAppSpeed,
   getCodexAverageQuotaPercentage,
+  normalizeCodexAppSpeed,
 } from '../types/codex';
 import { GitHubCopilotAccount } from '../types/githubCopilot';
 import {
@@ -1001,21 +1003,19 @@ export function DashboardPage({
     const accountTotal = codexAccounts.length;
     const providerKeyCount = codexApiServiceProviderKeyCount;
     const total = accountTotal + providerKeyCount;
-    const speedCounts: Record<CodexAppSpeed, number> = {
+    const speedCounts: Record<CodexVisibleAppSpeed, number> = {
       standard: 0,
       fast: 0,
-      flex: 0,
     };
     for (const account of codexAccounts) {
-      speedCounts[account.app_speed ?? 'standard'] += 1;
+      speedCounts[normalizeCodexAppSpeed(account.app_speed)] += 1;
     }
-    speedCounts[apiServiceAppSpeed] += providerKeyCount;
+    speedCounts[normalizeCodexAppSpeed(apiServiceAppSpeed)] += providerKeyCount;
     const active: CodexAppSpeed | null =
       CODEX_APP_SPEED_VALUES.find((speed) => total > 0 && speedCounts[speed] === total) ?? null;
     return {
       active,
       fast: speedCounts.fast,
-      flex: speedCounts.flex,
       providerKeyCount,
       standard: speedCounts.standard,
       total,
@@ -3634,7 +3634,7 @@ export function DashboardPage({
                           >
                             {isSaving ? (
                               <RotateCw size={13} className="loading-spinner" />
-                            ) : speed === 'fast' || speed === 'flex' ? (
+                            ) : speed === 'fast' ? (
                               <Zap size={13} />
                             ) : (
                               <Gauge size={13} />

@@ -115,7 +115,7 @@ pub fn update_default_app_speed(speed: CodexAppSpeed) -> Result<DefaultInstanceS
         .lock()
         .map_err(|_| "无法获取实例锁")?;
     let mut store = load_instance_store()?;
-    store.default_settings.app_speed = speed;
+    store.default_settings.app_speed = modules::codex_speed::normalize_app_speed(speed);
     let updated = store.default_settings.clone();
     save_instance_store(&store)?;
     Ok(updated)
@@ -696,7 +696,7 @@ pub fn create_instance(params: CreateInstanceParams) -> Result<InstanceProfile, 
             params.bind_account_id
         },
         launch_mode: params.launch_mode.unwrap_or_default(),
-        app_speed: params.app_speed.unwrap_or_default(),
+        app_speed: modules::codex_speed::normalize_app_speed(params.app_speed.unwrap_or_default()),
         created_at: Utc::now().timestamp_millis(),
         last_launched_at: None,
         last_pid: None,
@@ -751,7 +751,7 @@ pub fn update_instance(params: UpdateInstanceParams) -> Result<InstanceProfile, 
         instance.launch_mode = mode;
     }
     if let Some(speed) = params.app_speed {
-        instance.app_speed = speed;
+        instance.app_speed = modules::codex_speed::normalize_app_speed(speed);
     }
 
     let updated = instance.clone();

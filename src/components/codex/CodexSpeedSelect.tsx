@@ -14,6 +14,7 @@ import {
   CODEX_APP_SPEED_DESC_KEYS,
   CODEX_APP_SPEED_LABEL_KEYS,
   CODEX_APP_SPEED_VALUES,
+  normalizeCodexAppSpeed,
   type CodexAppSpeed,
 } from "../../types/codex";
 
@@ -38,9 +39,9 @@ interface CodexSpeedSelectProps {
 }
 
 const SPEED_MENU_WIDTH = 206;
-const SPEED_MENU_HEIGHT = 166;
+const SPEED_MENU_HEIGHT = 122;
 const SPEED_MENU_COMPACT_WIDTH = 180;
-const SPEED_MENU_COMPACT_HEIGHT = 152;
+const SPEED_MENU_COMPACT_HEIGHT = 112;
 const SPEED_MENU_GAP = 5;
 const SPEED_MENU_MARGIN = 8;
 const SPEED_MENU_Z_INDEX = 10030;
@@ -102,7 +103,7 @@ export function CodexSpeedSelect({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<SpeedMenuPosition | null>(null);
-  const speed = value ?? "standard";
+  const speed = normalizeCodexAppSpeed(value);
 
   const options = useMemo(
     () =>
@@ -180,7 +181,7 @@ export function CodexSpeedSelect({
         title={selectedTitle}
         aria-label={ariaLabel || t("codex.speed.title", "速度")}
       >
-        {(speed === "fast" || speed === "flex") && <Zap size={12} />}
+        {speed === "fast" && <Zap size={12} />}
         <span>{selected.label}</span>
         {!compact && <ChevronDown size={12} className="codex-speed-caret" />}
       </button>

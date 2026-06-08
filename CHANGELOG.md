@@ -6,6 +6,12 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.48] - 2026-06-09
+### Changed
+- The Codex speed entry now only retains "Standard" and "2x"; the 2x configuration will be merged into a single 2x tier.
+
+
+
 ## [0.0.47] - 2026-06-08
 ### Fixed
 - Codex API service requests now apply the selected account speed to upstream Responses calls by sending the matching Codex service tier.

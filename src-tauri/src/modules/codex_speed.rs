@@ -50,10 +50,16 @@ fn read_global_state(path: &Path) -> Result<Map<String, Value>, String> {
         .ok_or_else(|| "Codex 全局状态不是合法 JSON 对象".to_string())
 }
 
+pub fn normalize_app_speed(speed: CodexAppSpeed) -> CodexAppSpeed {
+    match speed {
+        CodexAppSpeed::Flex => CodexAppSpeed::Fast,
+        other => other,
+    }
+}
+
 fn normalize_speed(value: Option<&Value>) -> CodexAppSpeed {
     match value.and_then(Value::as_str) {
-        Some(FAST_SERVICE_TIER) => CodexAppSpeed::Fast,
-        Some(FLEX_SERVICE_TIER) => CodexAppSpeed::Flex,
+        Some(FAST_SERVICE_TIER) | Some(FLEX_SERVICE_TIER) => CodexAppSpeed::Fast,
         _ => CodexAppSpeed::Standard,
     }
 }
@@ -105,16 +111,17 @@ fn read_preferred_speed() -> Result<Option<CodexAppSpeed>, String> {
     }
     let preference = serde_json::from_str::<AppSpeedPreference>(&content)
         .map_err(|err| format!("解析 Codex 速度启动配置失败: {}", err))?;
-    Ok(Some(preference.speed))
+    Ok(Some(normalize_app_speed(preference.speed)))
 }
 
 fn write_preferred_speed(speed: &CodexAppSpeed) -> Result<(), String> {
     let path = get_preference_path()?;
+    let normalized_speed = normalize_app_speed(speed.clone());
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|err| format!("创建配置目录失败: {}", err))?;
     }
     let content = serde_json::to_string_pretty(&AppSpeedPreference {
-        speed: speed.clone(),
+        speed: normalized_speed,
     })
     .map_err(|err| format!("序列化 Codex 速度启动配置失败: {}", err))?;
     crate::modules::atomic_write::write_string_atomic(&path, &content)
@@ -143,28 +150,24 @@ fn write_app_speed_for_global_state_path(
     path: PathBuf,
     speed: CodexAppSpeed,
 ) -> Result<CodexAppSpeedConfig, String> {
+    let speed = normalize_app_speed(speed);
     let mut state = read_global_state(&path)?;
 
     let service_tier_value = match &speed {
         CodexAppSpeed::Standard => Value::Null,
-        CodexAppSpeed::Fast => Value::String(FAST_SERVICE_TIER.to_string()),
-        CodexAppSpeed::Flex => Value::String(FLEX_SERVICE_TIER.to_string()),
+        CodexAppSpeed::Fast | CodexAppSpeed::Flex => {
+            Value::String(FAST_SERVICE_TIER.to_string())
+        }
     };
 
     match speed {
         CodexAppSpeed::Standard => {
             state.insert(DEFAULT_SERVICE_TIER_KEY.to_string(), Value::Null);
         }
-        CodexAppSpeed::Fast => {
+        CodexAppSpeed::Fast | CodexAppSpeed::Flex => {
             state.insert(
                 DEFAULT_SERVICE_TIER_KEY.to_string(),
                 Value::String(FAST_SERVICE_TIER.to_string()),
-            );
-        }
-        CodexAppSpeed::Flex => {
-            state.insert(
-                DEFAULT_SERVICE_TIER_KEY.to_string(),
-                Value::String(FLEX_SERVICE_TIER.to_string()),
             );
         }
     }
@@ -209,24 +212,21 @@ pub fn get_api_service_app_speed_config() -> Result<CodexAppSpeedConfig, String>
     ))
 }
 
-pub fn service_tier_value_for_app_speed(speed: &CodexAppSpeed) -> Option<&'static str> {
+pub fn upstream_service_tier_value_for_app_speed(speed: &CodexAppSpeed) -> Option<&'static str> {
     match speed {
         CodexAppSpeed::Standard => None,
-        CodexAppSpeed::Fast => Some(FAST_SERVICE_TIER),
-        CodexAppSpeed::Flex => Some(FLEX_SERVICE_TIER),
+        CodexAppSpeed::Fast | CodexAppSpeed::Flex => Some(PRIORITY_SERVICE_TIER),
     }
 }
 
 pub fn is_supported_codex_service_tier(value: &str) -> bool {
-    matches!(
-        value.trim(),
-        PRIORITY_SERVICE_TIER | FAST_SERVICE_TIER | FLEX_SERVICE_TIER
-    )
+    value.trim() == PRIORITY_SERVICE_TIER
 }
 
 pub fn save_api_service_app_speed(speed: CodexAppSpeed) -> Result<CodexAppSpeedConfig, String> {
-    write_preferred_speed(&speed)?;
-    write_official_app_speed(speed)
+    let normalized_speed = normalize_app_speed(speed);
+    write_preferred_speed(&normalized_speed)?;
+    write_official_app_speed(normalized_speed)
 }
 
 pub fn apply_api_service_speed_to_official_state() -> Result<CodexAppSpeedConfig, String> {
@@ -237,21 +237,31 @@ pub fn apply_api_service_speed_to_official_state() -> Result<CodexAppSpeedConfig
 #[cfg(test)]
 mod tests {
     use super::{
-        build_config, normalize_speed, DEFAULT_SERVICE_TIER_KEY, PERSISTED_ATOM_STATE_KEY,
+        build_config, is_supported_codex_service_tier, normalize_app_speed, normalize_speed,
+        upstream_service_tier_value_for_app_speed, DEFAULT_SERVICE_TIER_KEY,
+        PERSISTED_ATOM_STATE_KEY,
     };
     use crate::models::codex::CodexAppSpeed;
     use serde_json::{Map, Value};
     use std::path::Path;
 
     #[test]
-    fn reads_fast_and_flex_speed() {
+    fn reads_fast_and_legacy_flex_as_fast_speed() {
         assert_eq!(
             normalize_speed(Some(&Value::String("fast".to_string()))),
             CodexAppSpeed::Fast
         );
         assert_eq!(
             normalize_speed(Some(&Value::String("flex".to_string()))),
-            CodexAppSpeed::Flex
+            CodexAppSpeed::Fast
+        );
+    }
+
+    #[test]
+    fn normalizes_legacy_flex_app_speed_to_fast() {
+        assert_eq!(
+            normalize_app_speed(CodexAppSpeed::Flex),
+            CodexAppSpeed::Fast
         );
     }
 
@@ -262,6 +272,29 @@ mod tests {
             normalize_speed(Some(&Value::String("default".to_string()))),
             CodexAppSpeed::Standard
         );
+    }
+
+    #[test]
+    fn maps_non_standard_app_speeds_to_upstream_priority() {
+        assert_eq!(
+            upstream_service_tier_value_for_app_speed(&CodexAppSpeed::Standard),
+            None
+        );
+        assert_eq!(
+            upstream_service_tier_value_for_app_speed(&CodexAppSpeed::Fast),
+            Some("priority")
+        );
+        assert_eq!(
+            upstream_service_tier_value_for_app_speed(&CodexAppSpeed::Flex),
+            Some("priority")
+        );
+    }
+
+    #[test]
+    fn accepts_only_backend_supported_service_tier() {
+        assert!(is_supported_codex_service_tier("priority"));
+        assert!(!is_supported_codex_service_tier("fast"));
+        assert!(!is_supported_codex_service_tier("flex"));
     }
 
     #[test]

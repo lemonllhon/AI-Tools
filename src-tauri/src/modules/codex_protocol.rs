@@ -433,8 +433,24 @@ mod tests {
     }
 
     #[test]
-    fn preserves_supported_codex_service_tiers() {
-        for service_tier in ["priority", "fast", "flex"] {
+    fn preserves_priority_service_tier() {
+        let mut body = json!({
+            "model": "gpt-5.4",
+            "input": "pong",
+            "service_tier": "priority",
+        });
+
+        normalize_responses_body_for_codex(&mut body);
+
+        assert_eq!(
+            body.get("service_tier").and_then(Value::as_str),
+            Some("priority")
+        );
+    }
+
+    #[test]
+    fn removes_unsupported_codex_service_tiers() {
+        for service_tier in ["auto", "fast", "flex"] {
             let mut body = json!({
                 "model": "gpt-5.4",
                 "input": "pong",
@@ -443,24 +459,8 @@ mod tests {
 
             normalize_responses_body_for_codex(&mut body);
 
-            assert_eq!(
-                body.get("service_tier").and_then(Value::as_str),
-                Some(service_tier)
-            );
+            assert!(body.get("service_tier").is_none());
         }
-    }
-
-    #[test]
-    fn removes_unsupported_codex_service_tiers() {
-        let mut body = json!({
-            "model": "gpt-5.4",
-            "input": "pong",
-            "service_tier": "auto",
-        });
-
-        normalize_responses_body_for_codex(&mut body);
-
-        assert!(body.get("service_tier").is_none());
     }
 
     #[test]

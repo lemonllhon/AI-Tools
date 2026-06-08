@@ -2,7 +2,7 @@ use crate::models::codex::{
     CodexAccount, CodexAccountIndex, CodexAccountSummary, CodexApiProviderMode, CodexAppSpeed,
     CodexAuthFile, CodexAuthMode, CodexAuthTokens, CodexJwtPayload, CodexQuickConfig, CodexTokens,
 };
-use crate::modules::{account, codex_oauth, logger};
+use crate::modules::{account, codex_oauth, codex_speed, logger};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
 #[cfg(target_os = "macos")]
@@ -6775,13 +6775,14 @@ pub fn update_account_app_speed(
     let mut account =
         load_account(account_id).ok_or_else(|| format!("账号不存在: {}", account_id))?;
 
-    account.app_speed = speed;
+    account.app_speed = codex_speed::normalize_app_speed(speed);
     save_account(&account)?;
 
     Ok(account)
 }
 
 pub fn update_all_account_app_speeds(speed: CodexAppSpeed) -> Result<usize, String> {
+    let speed = codex_speed::normalize_app_speed(speed);
     let accounts = list_accounts_checked()?;
     let total_count = accounts.len();
     let mut failure_count = 0usize;

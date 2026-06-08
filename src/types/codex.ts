@@ -7,9 +7,10 @@ export interface CodexQuickConfig {
   detected_auto_compact_token_limit?: number;
 }
 
-export const CODEX_APP_SPEED_VALUES = ["standard", "fast", "flex"] as const;
+export const CODEX_APP_SPEED_VALUES = ["standard", "fast"] as const;
 
-export type CodexAppSpeed = (typeof CODEX_APP_SPEED_VALUES)[number];
+export type CodexVisibleAppSpeed = (typeof CODEX_APP_SPEED_VALUES)[number];
+export type CodexAppSpeed = CodexVisibleAppSpeed | "flex";
 
 export const CODEX_APP_SPEED_LABEL_KEYS: Record<CodexAppSpeed, string> = {
   standard: "codex.speed.standard",
@@ -19,7 +20,7 @@ export const CODEX_APP_SPEED_LABEL_KEYS: Record<CodexAppSpeed, string> = {
 
 export const CODEX_APP_SPEED_DEFAULT_LABELS: Record<CodexAppSpeed, string> = {
   standard: "标准",
-  fast: "快速",
+  fast: "2倍",
   flex: "2倍",
 };
 
@@ -31,9 +32,15 @@ export const CODEX_APP_SPEED_DESC_KEYS: Record<CodexAppSpeed, string> = {
 
 export const CODEX_APP_SPEED_DEFAULT_DESCRIPTIONS: Record<CodexAppSpeed, string> = {
   standard: "默认速度，常规用量",
-  fast: "1.5 倍速，用量增加",
+  fast: "2 倍速，用量更多",
   flex: "2 倍速，用量更多",
 };
+
+export function normalizeCodexAppSpeed(
+  speed?: CodexAppSpeed | null,
+): CodexVisibleAppSpeed {
+  return speed === "fast" || speed === "flex" ? "fast" : "standard";
+}
 
 export interface CodexAppSpeedConfig {
   speed: CodexAppSpeed;

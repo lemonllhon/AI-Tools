@@ -764,7 +764,7 @@ fn insert_codex_app_speed_service_tier(
         return false;
     }
 
-    let Some(service_tier) = codex_speed::service_tier_value_for_app_speed(speed) else {
+    let Some(service_tier) = codex_speed::upstream_service_tier_value_for_app_speed(speed) else {
         return false;
     };
 
@@ -4594,8 +4594,7 @@ fn apply_api_service_speed_to_auto_included_accounts(account_ids: &[String]) {
 fn format_codex_app_speed_label(speed: &CodexAppSpeed) -> &'static str {
     match speed {
         CodexAppSpeed::Standard => "standard",
-        CodexAppSpeed::Fast => "fast",
-        CodexAppSpeed::Flex => "flex",
+        CodexAppSpeed::Fast | CodexAppSpeed::Flex => "2x",
     }
 }
 
@@ -9917,12 +9916,12 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
 
         assert_eq!(
             mapped_body.get("service_tier").and_then(Value::as_str),
-            Some("fast")
+            Some("priority")
         );
     }
 
     #[test]
-    fn applies_flex_account_speed_to_responses_upstream_body() {
+    fn applies_2x_account_speed_as_priority_to_responses_upstream_body() {
         let body = br#"{"model":"gpt-5.4","input":"hello","stream":true}"#;
         let mapped = apply_codex_app_speed_to_upstream_body(
             "/responses",
@@ -9935,7 +9934,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
 
         assert_eq!(
             mapped_body.get("service_tier").and_then(Value::as_str),
-            Some("flex")
+            Some("priority")
         );
     }
 

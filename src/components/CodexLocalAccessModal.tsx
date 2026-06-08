@@ -41,10 +41,12 @@ import {
   CODEX_APP_SPEED_DEFAULT_LABELS,
   CODEX_APP_SPEED_LABEL_KEYS,
   CODEX_APP_SPEED_VALUES,
+  type CodexVisibleAppSpeed,
   getCodexPlanFilterKey,
   isCodexApiKeyAccount,
   isCodexExplicitFreePlanType,
   isCodexNewApiAccount,
+  normalizeCodexAppSpeed,
 } from '../types/codex';
 import {
   buildCodexAccountPresentation,
@@ -509,21 +511,19 @@ export function CodexLocalAccessModal({
     const accountTotal = accounts.length;
     const providerKeyCount = currentProviderKeyCount;
     const total = accountTotal + providerKeyCount;
-    const speedCounts: Record<CodexAppSpeed, number> = {
+    const speedCounts: Record<CodexVisibleAppSpeed, number> = {
       standard: 0,
       fast: 0,
-      flex: 0,
     };
     for (const account of accounts) {
-      speedCounts[account.app_speed ?? 'standard'] += 1;
+      speedCounts[normalizeCodexAppSpeed(account.app_speed)] += 1;
     }
-    speedCounts[effectiveApiServiceSpeed] += providerKeyCount;
+    speedCounts[normalizeCodexAppSpeed(effectiveApiServiceSpeed)] += providerKeyCount;
     const active: CodexAppSpeed | null =
       CODEX_APP_SPEED_VALUES.find((speed) => total > 0 && speedCounts[speed] === total) ?? null;
     return {
       active,
       fast: speedCounts.fast,
-      flex: speedCounts.flex,
       providerKeyCount,
       standard: speedCounts.standard,
       total,
@@ -2127,7 +2127,7 @@ export function CodexLocalAccessModal({
                     >
                       {isSaving ? (
                         <RefreshCw size={15} className="loading-spinner" />
-                      ) : speed === 'fast' || speed === 'flex' ? (
+                      ) : speed === 'fast' ? (
                         <Zap size={15} />
                       ) : (
                         <Gauge size={15} />
