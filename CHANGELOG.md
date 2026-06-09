@@ -6,6 +6,10 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.55] - 2026-06-09
+### Fixed
+- The global refresh-all progress message now advances the completed account count during background refreshes instead of staying at `0/total` until the task finishes.
+
 ## [0.0.54] - 2026-06-09
 ### Added
 - Added a global refresh-all progress indicator that stays visible while switching between menus.

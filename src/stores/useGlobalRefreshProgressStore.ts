@@ -68,6 +68,21 @@ function nextPulseProgress(current: number): number {
   return Math.min(92, current + 1);
 }
 
+function replaceMessageCount(message: string, completed: number, total: number): string {
+  if (!message || total <= 0) return message;
+  return message.replace(/\d+\s*\/\s*\d+/, `${completed}/${total}`);
+}
+
+function nextPulseCompleted(task: GlobalRefreshProgressTask, nextProgress: number): number {
+  const total = Math.max(0, Math.floor(task.total));
+  if (total <= 0) return task.completed;
+
+  const maxRunningCompleted = Math.max(0, total - 1);
+  const current = Math.max(0, Math.min(Math.floor(task.completed), maxRunningCompleted));
+  const progressEstimate = Math.floor((total * nextProgress) / 100);
+  return Math.min(maxRunningCompleted, Math.max(current + 1, progressEstimate));
+}
+
 export const useGlobalRefreshProgressStore = create<GlobalRefreshProgressState>(
   (set, get) => ({
     task: null,
@@ -98,10 +113,14 @@ export const useGlobalRefreshProgressStore = create<GlobalRefreshProgressState>(
             if (!state.task || state.task.id !== taskId || state.task.status !== 'running') {
               return state;
             }
+            const progress = clampProgress(nextPulseProgress(state.task.progress));
+            const completed = nextPulseCompleted(state.task, progress);
             return {
               task: {
                 ...state.task,
-                progress: clampProgress(nextPulseProgress(state.task.progress)),
+                completed,
+                progress,
+                message: replaceMessageCount(state.task.message, completed, state.task.total),
                 updatedAt: Date.now(),
               },
             };
@@ -128,6 +147,8 @@ export const useGlobalRefreshProgressStore = create<GlobalRefreshProgressState>(
             : total > 0
               ? clampProgress((completed / total) * 100)
               : state.task.progress;
+        const message =
+          patch.message ?? replaceMessageCount(state.task.message, completed, total);
         return {
           task: {
             ...state.task,
@@ -135,6 +156,7 @@ export const useGlobalRefreshProgressStore = create<GlobalRefreshProgressState>(
             total,
             completed,
             progress,
+            message,
             updatedAt: Date.now(),
           },
         };
