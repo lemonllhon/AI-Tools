@@ -6,6 +6,17 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.51] - 2026-06-09
+### Changed
+- Optimized Codex account overview loading for large account pools by deduplicating in-flight account requests, limiting heavy profile hydration, and avoiding oversized local cache writes.
+- Optimized Codex quota refreshes so background refresh only checks stale or retryable accounts, while manual refresh-all still performs a forced refresh.
+- Codex local API service state refresh now avoids repeated full account scans and counts effective service members including provider keys.
+
+### Fixed
+- Newly added Codex OAuth, API Key, and imported JSON accounts now inherit the saved all-account speed and are added to the local API service pool when auto-add is enabled.
+- Bulk Codex imports now sync local API service auto-add in one batch instead of rewriting the service collection per account.
+- Temporary quota refresh failures no longer mark accounts for automatic physical deletion.
+
 ## [0.0.50] - 2026-06-09
 ### Changed
 - Codex account overview now automatically physically deletes error accounts and removes them from the local API service pool.

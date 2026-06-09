@@ -76,6 +76,7 @@ export interface CodexAccount {
   reauth_reason?: string;
   quota?: CodexQuota;
   quota_error?: CodexQuotaErrorInfo;
+  usage_updated_at?: number;
   tags?: string[];
   created_at: number;
   last_used: number;

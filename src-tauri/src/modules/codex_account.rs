@@ -1,6 +1,7 @@
 use crate::models::codex::{
     CodexAccount, CodexAccountIndex, CodexAccountSummary, CodexApiProviderMode, CodexAppSpeed,
-    CodexAuthFile, CodexAuthMode, CodexAuthTokens, CodexJwtPayload, CodexQuickConfig, CodexTokens,
+    CodexAuthFile, CodexAuthMode, CodexAuthTokens, CodexJwtPayload, CodexQuotaErrorInfo,
+    CodexQuickConfig, CodexTokens,
 };
 use crate::modules::{account, codex_oauth, codex_speed, logger};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -2042,6 +2043,31 @@ pub fn save_account(account: &CodexAccount) -> Result<(), String> {
     Ok(())
 }
 
+fn is_transient_quota_error(quota_error: &CodexQuotaErrorInfo) -> bool {
+    if quota_error
+        .code
+        .as_deref()
+        .map(|code| code.eq_ignore_ascii_case("quota_refresh_transient"))
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    let message = quota_error.message.to_ascii_lowercase();
+    message.contains("请求失败")
+        || message.contains("读取响应失败")
+        || message.contains("timed out")
+        || message.contains("timeout")
+        || message.contains("network")
+        || message.contains("connection")
+        || message.contains("dns")
+        || message.contains("超时")
+        || message.contains("连接")
+        || message.contains("too many requests")
+        || message.contains("429")
+        || message.contains("api 返回错误 5")
+        || message.contains("http 5")
+}
+
 pub fn error_account_auto_delete_reason(account: &CodexAccount) -> Option<String> {
     if account.requires_reauth {
         return Some(
@@ -2054,6 +2080,9 @@ pub fn error_account_auto_delete_reason(account: &CodexAccount) -> Option<String
     }
 
     if let Some(quota_error) = account.quota_error.as_ref() {
+        if is_transient_quota_error(quota_error) {
+            return None;
+        }
         return Some(if quota_error.message.trim().is_empty() {
             "账号配额状态异常".to_string()
         } else {
@@ -2223,6 +2252,42 @@ fn update_account_summary(index: &mut CodexAccountIndex, account: &CodexAccount)
     });
 }
 
+fn api_service_default_app_speed_for_new_account() -> CodexAppSpeed {
+    codex_speed::get_api_service_app_speed_config()
+        .map(|config| config.speed)
+        .unwrap_or_default()
+}
+
+fn apply_api_service_default_app_speed_to_new_account(account: &mut CodexAccount) {
+    account.app_speed =
+        codex_speed::normalize_app_speed(api_service_default_app_speed_for_new_account());
+}
+
+fn sync_api_service_defaults_for_new_account(account: &CodexAccount) {
+    if let Err(error) =
+        crate::modules::codex_local_access::auto_include_new_account_if_needed(account)
+    {
+        logger::log_warn(&format!(
+            "新 Codex 账号同步 API 服务默认设置失败: account_id={}, error={}",
+            account.id, error
+        ));
+    }
+}
+
+fn sync_api_service_defaults_for_imported_accounts(accounts: &[CodexAccount]) {
+    if accounts.is_empty() {
+        return;
+    }
+    if let Err(error) =
+        crate::modules::codex_local_access::auto_include_new_accounts_if_needed(accounts)
+    {
+        logger::log_warn(&format!(
+            "批量导入 Codex 账号后同步 API 服务默认设置失败: count={}, error={}",
+            accounts.len(), error
+        ));
+    }
+}
+
 fn save_partial_import_index(index: &CodexAccountIndex, context: &str) {
     if let Err(error) = save_account_index(index) {
         logger::log_warn(&format!(
@@ -2249,6 +2314,7 @@ pub fn upsert_api_key_account(
     let account_id = build_api_key_account_id(&api_key);
     let mut index = load_account_index();
     let existing = index.accounts.iter().position(|item| item.id == account_id);
+    let is_new_account = existing.is_none();
 
     let mut account = if let Some(pos) = existing {
         let existing_id = index.accounts[pos].id.clone();
@@ -2280,6 +2346,7 @@ pub fn upsert_api_key_account(
             provider_config.provider_name.clone(),
         );
         apply_api_key_fields(&mut acc, &api_key, provider_config.clone());
+        apply_api_service_default_app_speed_to_new_account(&mut acc);
         index.accounts.push(CodexAccountSummary {
             id: account_id.clone(),
             email: acc.email.clone(),
@@ -2297,6 +2364,9 @@ pub fn upsert_api_key_account(
     update_account_summary(&mut index, &account);
 
     save_account_index(&index)?;
+    if is_new_account {
+        sync_api_service_defaults_for_new_account(&account);
+    }
 
     logger::log_info(&format!(
         "Codex API Key 账号已保存: account_id={}, email={}, has_base_url={}",
@@ -2355,6 +2425,7 @@ fn upsert_api_key_account_with_index(
             provider_config.provider_name.clone(),
         );
         apply_api_key_fields(&mut acc, &api_key, provider_config.clone());
+        apply_api_service_default_app_speed_to_new_account(&mut acc);
         index.accounts.retain(|item| item.id != account_id);
         acc
     };
@@ -2402,6 +2473,7 @@ fn upsert_account_with_hints(
     )
     .unwrap_or_else(|| generated_id.clone());
     let existing = index.accounts.iter().position(|a| a.id == existing_id);
+    let is_new_account = existing.is_none();
 
     let account = if let Some(pos) = existing {
         // 更新现有账号
@@ -2427,6 +2499,7 @@ fn upsert_account_with_hints(
     } else {
         // 创建新账号
         let mut acc = CodexAccount::new(existing_id.clone(), email.clone(), tokens);
+        apply_api_service_default_app_speed_to_new_account(&mut acc);
         mark_token_chain_updated(&mut acc);
         acc.auth_mode = CodexAuthMode::OAuth;
         acc.openai_api_key = None;
@@ -2460,6 +2533,9 @@ fn upsert_account_with_hints(
     update_account_summary(&mut index, &account);
 
     save_account_index(&index)?;
+    if is_new_account {
+        sync_api_service_defaults_for_new_account(&account);
+    }
 
     logger::log_info(&format!(
         "Codex 账号已保存: email={}, account_id={:?}, organization_id={:?}",
@@ -2527,6 +2603,7 @@ fn upsert_oauth_account_with_hints_in_index(
         acc
     } else {
         let mut acc = CodexAccount::new(existing_id.clone(), email.clone(), tokens);
+        apply_api_service_default_app_speed_to_new_account(&mut acc);
         mark_token_chain_updated(&mut acc);
         acc.auth_mode = CodexAuthMode::OAuth;
         acc.openai_api_key = None;
@@ -2598,22 +2675,85 @@ pub fn remove_account(account_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn remove_error_accounts() -> Result<Vec<String>, String> {
-    let accounts = list_accounts_checked()?;
-    let mut removed_account_ids = Vec::new();
+pub fn remove_error_accounts_from_loaded(
+    accounts: Vec<CodexAccount>,
+) -> Result<(Vec<CodexAccount>, Vec<String>), String> {
+    let removable_accounts: Vec<CodexAccount> = accounts
+        .iter()
+        .filter(|account| error_account_auto_delete_reason(account).is_some())
+        .cloned()
+        .collect();
 
-    for account in accounts {
-        let Some(reason) = error_account_auto_delete_reason(&account) else {
+    if removable_accounts.is_empty() {
+        return Ok((accounts, Vec::new()));
+    }
+
+    let removed_account_ids: Vec<String> = removable_accounts
+        .iter()
+        .map(|account| account.id.clone())
+        .collect();
+    let removed_account_id_set: HashSet<String> = removed_account_ids.iter().cloned().collect();
+
+    let mut index = load_account_index();
+    index
+        .accounts
+        .retain(|item| !removed_account_id_set.contains(&item.id));
+    if index
+        .current_account_id
+        .as_deref()
+        .map(|account_id| removed_account_id_set.contains(account_id))
+        .unwrap_or(false)
+    {
+        index.current_account_id = None;
+    }
+    save_account_index(&index)?;
+
+    for account_id in &removed_account_ids {
+        delete_account_file(account_id)?;
+    }
+
+    let mut remaining_accounts = Vec::with_capacity(accounts.len() - removed_account_ids.len());
+    for mut account in accounts {
+        if removed_account_id_set.contains(&account.id) {
             continue;
-        };
-        remove_account(&account.id)?;
+        }
+        if account
+            .bound_oauth_account_id
+            .as_deref()
+            .map(|account_id| removed_account_id_set.contains(account_id))
+            .unwrap_or(false)
+        {
+            account.bound_oauth_account_id = None;
+            if let Err(err) = save_account(&account) {
+                logger::log_warn(&format!(
+                    "自动删除 Codex error 账号后清理 OAuth 绑定失败: api_account_id={}, error={}",
+                    account.id, err
+                ));
+            }
+        }
+        remaining_accounts.push(account);
+    }
+
+    crate::modules::codex_local_access::evict_prepared_account_cache_for_ids(
+        removed_account_ids.clone(),
+    );
+
+    for account in removable_accounts {
+        let reason = error_account_auto_delete_reason(&account)
+            .unwrap_or_else(|| "账号状态异常".to_string());
         logger::log_info(&format!(
             "已自动物理删除 Codex error 账号: account_id={}, email={}, reason={}",
             account.id, account.email, reason
         ));
-        removed_account_ids.push(account.id);
     }
 
+    write_list_accounts_cache(&remaining_accounts);
+    Ok((remaining_accounts, removed_account_ids))
+}
+
+pub fn remove_error_accounts() -> Result<Vec<String>, String> {
+    let accounts = list_accounts_checked()?;
+    let (_, removed_account_ids) = remove_error_accounts_from_loaded(accounts)?;
     Ok(removed_account_ids)
 }
 
@@ -4444,6 +4584,7 @@ fn upsert_access_token_account_with_index(
         acc
     } else {
         let mut acc = CodexAccount::new(existing_id.clone(), email.clone(), tokens);
+        apply_api_service_default_app_speed_to_new_account(&mut acc);
         mark_token_chain_updated(&mut acc);
         acc.auth_mode = CodexAuthMode::OAuth;
         acc.openai_api_key = None;
@@ -4499,6 +4640,7 @@ fn upsert_account_from_access_token(
         .accounts
         .iter()
         .position(|item| item.id == existing_id);
+    let is_new_account = existing.is_none();
 
     let account = if let Some(pos) = existing {
         let existing_id = index.accounts[pos].id.clone();
@@ -4525,6 +4667,7 @@ fn upsert_account_from_access_token(
         acc
     } else {
         let mut acc = CodexAccount::new(existing_id.clone(), email.clone(), tokens);
+        apply_api_service_default_app_speed_to_new_account(&mut acc);
         mark_token_chain_updated(&mut acc);
         acc.auth_mode = CodexAuthMode::OAuth;
         acc.openai_api_key = None;
@@ -4571,6 +4714,9 @@ fn upsert_account_from_access_token(
     }
 
     save_account_index(&index)?;
+    if is_new_account {
+        sync_api_service_defaults_for_new_account(&account);
+    }
 
     logger::log_info(&format!(
         "Codex accessToken 账号已保存: email={}, account_id={:?}, organization_id={:?}",
@@ -4698,6 +4844,7 @@ async fn import_accounts_from_token_lines(content: &str) -> Result<Vec<CodexAcco
     }
 
     save_account_index(&index)?;
+    sync_api_service_defaults_for_imported_accounts(&accounts);
     Ok(accounts)
 }
 
@@ -4767,6 +4914,7 @@ async fn import_sub2api_export_from_value(
     }
 
     save_account_index(&index_state)?;
+    sync_api_service_defaults_for_imported_accounts(&imported);
     Ok(Some(imported))
 }
 
@@ -5029,6 +5177,7 @@ pub async fn import_from_json(json_content: &str) -> Result<Vec<CodexAccount>, S
 
                 if !result.is_empty() {
                     save_account_index(&index)?;
+                    sync_api_service_defaults_for_imported_accounts(&result);
                     return Ok(result);
                 }
             }
@@ -5063,6 +5212,7 @@ pub async fn import_from_json(json_content: &str) -> Result<Vec<CodexAccount>, S
 
         if !result.is_empty() {
             save_account_index(&index_state)?;
+            sync_api_service_defaults_for_imported_accounts(&result);
             return Ok(result);
         }
     }
@@ -6803,6 +6953,7 @@ pub async fn import_from_files(file_paths: Vec<String>) -> Result<CodexFileImpor
         failed.len()
     ));
 
+    sync_api_service_defaults_for_imported_accounts(&imported);
     Ok(CodexFileImportResult { imported, failed })
 }
 

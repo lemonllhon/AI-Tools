@@ -364,7 +364,7 @@ export function useAutoRefresh() {
               fullRefreshingRef: codexRefreshingRef,
               currentRefreshingRef: codexCurrentRefreshingRef,
               runFullRefresh: async () => {
-                await refreshAllCodexQuotas();
+                await refreshAllCodexQuotas({ force: false });
               },
               runCurrentRefresh: async () => {
                 if (!useCodexAccountStore.getState().currentAccount?.id) {

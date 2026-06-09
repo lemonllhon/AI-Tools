@@ -1,8 +1,12 @@
 use crate::models::codex::{CodexAccount, CodexQuota, CodexQuotaErrorInfo};
 use crate::modules::{codex_account, logger};
+use futures::stream::{self, StreamExt};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Duration;
 
 // 使用 wham/usage 端点（Quotio 使用的）
 const USAGE_URL: &str = "https://chatgpt.com/backend-api/wham/usage";
@@ -12,6 +16,31 @@ const COCKPIT_API_PLAN_TYPE: &str = "Cockpit Api";
 const LEGACY_NEW_API_EXCLUSIVE_PLAN_TYPE: &str = "NEW_API_EXCLUSIVE";
 const COCKPIT_API_BASE_URL: &str = "https://chongcodex.cn/v1";
 const NEW_API_USAGE_PATH: &str = "/api/usage/token/";
+const QUOTA_HTTP_TIMEOUT_SECONDS: u64 = 20;
+const REFRESH_ALL_MAX_CONCURRENT: usize = 5;
+const BACKGROUND_QUOTA_STALE_SECONDS: i64 = 15 * 60;
+const BACKGROUND_QUOTA_ERROR_RETRY_SECONDS: i64 = 10 * 60;
+const QUOTA_RESET_REFRESH_GRACE_SECONDS: i64 = 60;
+const TRANSIENT_QUOTA_ERROR_CODE: &str = "quota_refresh_transient";
+static CODEX_QUOTA_REFRESH_LOCKS: LazyLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn quota_http_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(QUOTA_HTTP_TIMEOUT_SECONDS))
+        .build()
+        .map_err(|err| format!("创建额度查询 HTTP 客户端失败: {}", err))
+}
+
+fn quota_refresh_lock(account_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+    let mut locks = CODEX_QUOTA_REFRESH_LOCKS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    locks
+        .entry(account_id.to_string())
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone()
+}
 
 fn get_header_value(headers: &HeaderMap, name: &str) -> String {
     headers
@@ -70,9 +99,34 @@ fn extract_error_code_from_message(message: &str) -> Option<String> {
     }
 }
 
+fn is_transient_quota_error_message(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("请求失败")
+        || lower.contains("读取响应失败")
+        || lower.contains("timed out")
+        || lower.contains("timeout")
+        || lower.contains("network")
+        || lower.contains("connection")
+        || lower.contains("dns")
+        || lower.contains("超时")
+        || lower.contains("连接")
+        || lower.contains("temporarily unavailable")
+        || lower.contains("too many requests")
+        || lower.contains("429")
+        || lower.contains("api 返回错误 5")
+        || lower.contains("http 5")
+        || lower.contains("http 502")
+        || lower.contains("http 503")
+        || lower.contains("http 504")
+}
+
 fn write_quota_error(account: &mut CodexAccount, message: String) {
+    let code = extract_error_code_from_message(&message).or_else(|| {
+        is_transient_quota_error_message(&message)
+            .then(|| TRANSIENT_QUOTA_ERROR_CODE.to_string())
+    });
     account.quota_error = Some(CodexQuotaErrorInfo {
-        code: extract_error_code_from_message(&message),
+        code,
         message,
         timestamp: chrono::Utc::now().timestamp(),
     });
@@ -161,7 +215,7 @@ async fn refresh_account_tokens(account: &mut CodexAccount, reason: &str) -> Res
 
 /// 查询单个账号的配额
 pub async fn fetch_quota(account: &CodexAccount) -> Result<FetchQuotaResult, String> {
-    let client = reqwest::Client::new();
+    let client = quota_http_client()?;
 
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -426,7 +480,7 @@ async fn fetch_new_api_quota(account: &CodexAccount) -> Result<FetchQuotaResult,
         .filter(|value| !value.is_empty())
         .ok_or("Cockpit Api 账号缺少 OPENAI_API_KEY")?;
     let profile_url = build_new_api_profile_url(account)?;
-    let client = reqwest::Client::new();
+    let client = quota_http_client()?;
     let response = client
         .get(&profile_url)
         .bearer_auth(api_key)
@@ -505,7 +559,7 @@ async fn fetch_new_api_usage_quota(account: &CodexAccount) -> Result<FetchQuotaR
         .filter(|value| !value.is_empty())
         .ok_or("New API 账号缺少 OPENAI_API_KEY")?;
     let usage_url = build_new_api_usage_url(account)?;
-    let client = reqwest::Client::new();
+    let client = quota_http_client()?;
     let response = client
         .get(&usage_url)
         .bearer_auth(api_key)
@@ -698,45 +752,59 @@ async fn refresh_account_quota_once(account_id: &str) -> Result<CodexQuota, Stri
 }
 
 pub async fn refresh_account_quota(account_id: &str) -> Result<CodexQuota, String> {
+    let lock = quota_refresh_lock(account_id);
+    let _guard = lock.lock().await;
     refresh_account_quota_once(account_id).await
 }
 
-/// 刷新所有账号配额
-pub async fn refresh_all_quotas() -> Result<Vec<(String, Result<CodexQuota, String>)>, String> {
-    use futures::future::join_all;
-    use std::sync::Arc;
-    use tokio::sync::Semaphore;
+fn quota_reset_refresh_due(account: &CodexAccount, now: i64) -> bool {
+    let Some(quota) = account.quota.as_ref() else {
+        return false;
+    };
+    let updated_at = account.usage_updated_at.unwrap_or(0);
+    let reset_times = [quota.hourly_reset_time, quota.weekly_reset_time];
+    reset_times.into_iter().flatten().any(|reset_at| {
+        reset_at > 0
+            && reset_at <= now + QUOTA_RESET_REFRESH_GRACE_SECONDS
+            && updated_at < reset_at
+    })
+}
 
-    const MAX_CONCURRENT: usize = 5;
+fn should_refresh_quota_in_background(account: &CodexAccount, now: i64) -> bool {
+    if account.quota.is_none() && account.quota_error.is_none() {
+        return true;
+    }
+    if let Some(quota_error) = account.quota_error.as_ref() {
+        return now.saturating_sub(quota_error.timestamp) >= BACKGROUND_QUOTA_ERROR_RETRY_SECONDS;
+    }
+    if quota_reset_refresh_due(account, now) {
+        return true;
+    }
+    let updated_at = account.usage_updated_at.unwrap_or(0);
+    updated_at <= 0 || now.saturating_sub(updated_at) >= BACKGROUND_QUOTA_STALE_SECONDS
+}
+
+/// 刷新所有账号配额
+pub async fn refresh_all_quotas(
+    force: bool,
+) -> Result<Vec<(String, Result<CodexQuota, String>)>, String> {
+    let now = chrono::Utc::now().timestamp();
     let accounts: Vec<_> = codex_account::list_accounts()
         .into_iter()
         .filter(|account| !account.is_api_key_auth() || is_new_api_account(account))
+        .filter(|account| force || should_refresh_quota_in_background(account, now))
         .collect();
 
-    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT));
-    let tasks: Vec<_> = accounts
-        .into_iter()
-        .map(|account| {
-            let account_id = account.id;
-            let semaphore = semaphore.clone();
-            async move {
-                let _permit = semaphore
-                    .acquire_owned()
-                    .await
-                    .map_err(|e| format!("获取 Codex 刷新并发许可失败: {}", e))?;
-                let result = refresh_account_quota(&account_id).await;
-                Ok::<(String, Result<CodexQuota, String>), String>((account_id, result))
-            }
-        })
-        .collect();
-
-    let mut results = Vec::with_capacity(tasks.len());
-    for task in join_all(tasks).await {
-        match task {
-            Ok(item) => results.push(item),
-            Err(err) => return Err(err),
+    let results = stream::iter(accounts.into_iter().map(|account| {
+        let account_id = account.id;
+        async move {
+            let result = refresh_account_quota(&account_id).await;
+            (account_id, result)
         }
-    }
+    }))
+        .buffer_unordered(REFRESH_ALL_MAX_CONCURRENT)
+        .collect::<Vec<_>>()
+        .await;
 
     Ok(results)
 }

@@ -128,9 +128,17 @@ export async function refreshCodexQuota(accountId: string): Promise<CodexQuota> 
   return await invoke('refresh_codex_quota', { accountId });
 }
 
+export interface RefreshAllCodexQuotaOptions {
+  force?: boolean;
+}
+
 /** 刷新所有账号配额 */
-export async function refreshAllCodexQuotas(): Promise<number> {
-  return await invoke('refresh_all_codex_quotas');
+export async function refreshAllCodexQuotas(
+  options: RefreshAllCodexQuotaOptions = {},
+): Promise<number> {
+  return await invoke('refresh_all_codex_quotas', {
+    force: options.force ?? true,
+  });
 }
 
 /** 新 OAuth 流程：开始登录 */

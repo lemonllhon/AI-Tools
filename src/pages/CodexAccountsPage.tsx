@@ -232,6 +232,8 @@ const CODEX_TOKEN_BATCH_EXAMPLE = `[
 ]`;
 const OPENAI_OFFICIAL_PRESET_ID = "openai_official";
 const COCKPIT_API_BASE_URL = "https://chongcodex.cn/v1";
+const CODEX_PROFILE_VISIBLE_AUTO_LOAD_MAX_ACCOUNTS = 200;
+const CODEX_LOCAL_ACCESS_QUOTA_REFRESH_CONCURRENCY = 4;
 
 function normalizeCodexApiBaseUrl(rawValue?: string | null): string {
   return normalizeHttpBaseUrl(rawValue ?? "") ?? "";
@@ -668,6 +670,8 @@ export function CodexAccountsPage() {
   const [editingAccountNoteValue, setEditingAccountNoteValue] = useState("");
   const [savingAccountNote, setSavingAccountNote] = useState(false);
   const [savingAppSpeedId, setSavingAppSpeedId] = useState<string | null>(null);
+  const [apiServiceSpeedSaving, setApiServiceSpeedSaving] =
+    useState<CodexAppSpeed | null>(null);
   const [apiServiceAppSpeed, setApiServiceAppSpeed] =
     useState<CodexAppSpeed>("standard");
   const [reauthTargetAccount, setReauthTargetAccount] =
@@ -692,7 +696,7 @@ export function CodexAccountsPage() {
       switchAccount: store.switchAccount,
       deleteAccounts: store.deleteAccounts,
       refreshToken: (id) => store.refreshQuota(id).then(() => {}),
-      refreshAllTokens: () => store.refreshAllQuotas().then(() => {}),
+      refreshAllTokens: () => store.refreshAllQuotas({ force: true }).then(() => {}),
       updateAccountTags: store.updateAccountTags,
     },
     dataService: {
@@ -928,10 +932,6 @@ export function CodexAccountsPage() {
     ],
     [t],
   );
-
-  useEffect(() => {
-    void reloadLocalAccessState();
-  }, [reloadLocalAccessState]);
 
   useEffect(() => {
     void reloadLocalAccessEntryVisibility();
@@ -1529,6 +1529,10 @@ export function CodexAccountsPage() {
     updateAccountAppSpeed,
   } = store;
   const localAccessCollection = localAccessState?.collection ?? null;
+  const accountIdsSignature = useMemo(
+    () => accounts.map((account) => account.id).join("\u001f"),
+    [accounts],
+  );
 
   const editingAccountNoteAccount = useMemo(
     () =>
@@ -1589,15 +1593,20 @@ export function CodexAccountsPage() {
     [savingAppSpeedId, setMessage, t, updateAccountAppSpeed],
   );
 
-  const handleApiServiceAppSpeedChange = useCallback(
+  const applyApiServiceAppSpeedToAllAccounts = useCallback(
     async (speed: CodexAppSpeed) => {
-      if (savingAppSpeedId) return;
+      if (savingAppSpeedId || apiServiceSpeedSaving) return;
       const previousSpeed = apiServiceAppSpeed;
       setApiServiceAppSpeed(speed);
+      setApiServiceSpeedSaving(speed);
       setSavingAppSpeedId(CODEX_API_SERVICE_BIND_ID);
       try {
         const saved = await codexService.saveCodexApiServiceAppSpeed(speed);
         setApiServiceAppSpeed(saved.speed);
+        if (accounts.length > 0) {
+          await codexService.updateAllCodexAccountAppSpeeds(speed);
+          await Promise.allSettled([fetchAccounts(), fetchCurrentAccount()]);
+        }
         setMessage({
           text: t("codex.speed.saveSuccess", "速度已更新"),
         });
@@ -1611,10 +1620,25 @@ export function CodexAccountsPage() {
           tone: "error",
         });
       } finally {
+        setApiServiceSpeedSaving(null);
         setSavingAppSpeedId(null);
       }
     },
-    [apiServiceAppSpeed, savingAppSpeedId, setMessage, t],
+    [
+      accounts.length,
+      apiServiceAppSpeed,
+      apiServiceSpeedSaving,
+      fetchAccounts,
+      fetchCurrentAccount,
+      savingAppSpeedId,
+      setMessage,
+      t,
+    ],
+  );
+
+  const handleApiServiceAppSpeedChange = useCallback(
+    (speed: CodexAppSpeed) => applyApiServiceAppSpeedToAllAccounts(speed),
+    [applyApiServiceAppSpeedToAllAccounts],
   );
 
   const renderAccountSpeedSelect = useCallback(
@@ -2063,9 +2087,8 @@ export function CodexAccountsPage() {
   }, [showAddModal, addTab, addStatus]);
 
   useEffect(() => {
-    fetchAccounts();
     fetchCurrentAccount();
-  }, [fetchAccounts, fetchCurrentAccount]);
+  }, [fetchCurrentAccount]);
 
   useEffect(() => {
     const accountIds = new Set(accounts.map((account) => account.id));
@@ -3198,8 +3221,6 @@ export function CodexAccountsPage() {
     page.setAddMessage(t("codex.import.importing", "正在导入本地账号..."));
     try {
       const account = await codexService.importCodexFromLocal();
-      await fetchAccounts();
-      await new Promise((resolve) => setTimeout(resolve, 180));
       await fetchAccounts();
       await emitAccountsChanged({
         platformId: "codex",
@@ -4339,8 +4360,11 @@ export function CodexAccountsPage() {
   ]);
 
   useEffect(() => {
-    void reloadLocalAccessState();
-  }, [accounts, reloadLocalAccessState]);
+    const timer = window.setTimeout(() => {
+      void reloadLocalAccessState();
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [accountIdsSignature, reloadLocalAccessState]);
 
   const localAccessModalSelectedIds = useMemo(
     () => [...(localAccessCollection?.accountIds ?? [])],
@@ -5161,8 +5185,31 @@ export function CodexAccountsPage() {
 
     setLocalAccessRefreshing(true);
     try {
-      const results = await Promise.allSettled(
-        targetIds.map((accountId) => refreshQuota(accountId)),
+      const results: PromiseSettledResult<unknown>[] = new Array(targetIds.length);
+      let nextIndex = 0;
+      const workerCount = Math.min(
+        CODEX_LOCAL_ACCESS_QUOTA_REFRESH_CONCURRENCY,
+        targetIds.length,
+      );
+      await Promise.all(
+        Array.from({ length: workerCount }, async () => {
+          while (nextIndex < targetIds.length) {
+            const currentIndex = nextIndex;
+            nextIndex += 1;
+            const accountId = targetIds[currentIndex];
+            try {
+              results[currentIndex] = {
+                status: "fulfilled",
+                value: await refreshQuota(accountId, { reload: false }),
+              };
+            } catch (reason) {
+              results[currentIndex] = {
+                status: "rejected",
+                reason,
+              };
+            }
+          }
+        }),
       );
       const successCount = results.filter(
         (result) => result.status === "fulfilled",
@@ -5530,6 +5577,7 @@ export function CodexAccountsPage() {
   );
 
   useEffect(() => {
+    if (accounts.length > CODEX_PROFILE_VISIBLE_AUTO_LOAD_MAX_ACCOUNTS) return;
     const teamAccountIds = paginatedAccounts
       .filter(
         (account) =>
@@ -5540,7 +5588,7 @@ export function CodexAccountsPage() {
       .map((account) => account.id);
     if (teamAccountIds.length === 0) return;
     void hydrateAccountProfilesIfNeeded(teamAccountIds);
-  }, [paginatedAccounts, hydrateAccountProfilesIfNeeded]);
+  }, [accounts.length, paginatedAccounts, hydrateAccountProfilesIfNeeded]);
 
   const resolveGroupLabel = (groupKey: string) =>
     groupKey === untaggedKey
@@ -10595,6 +10643,9 @@ export function CodexAccountsPage() {
             onClearStats={handleClearLocalAccessStats}
             onRefreshStats={reloadLocalAccessState}
             onRefreshConfig={handleRefreshLocalAccessConfig}
+            onApplyAllAccountSpeed={applyApiServiceAppSpeedToAllAccounts}
+            apiServiceSpeed={apiServiceAppSpeed}
+            bulkSpeedSaving={apiServiceSpeedSaving}
             onUpdatePort={handleUpdateLocalAccessPort}
             onUpdateRoutingStrategy={handleUpdateLocalAccessRoutingStrategy}
             onUpdateCustomRouting={handleUpdateLocalAccessCustomRouting}

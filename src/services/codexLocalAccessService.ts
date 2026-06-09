@@ -12,6 +12,7 @@ import type {
 } from '../types/codexLocalAccess';
 
 export const CODEX_LOCAL_ACCESS_STATE_UPDATED_EVENT = 'codex-local-access-state-updated';
+let getCodexLocalAccessStatePromise: Promise<CodexLocalAccessState> | null = null;
 
 function dispatchCodexLocalAccessStateUpdated(state: CodexLocalAccessState): void {
   if (typeof window === 'undefined') return;
@@ -32,7 +33,17 @@ async function invokeCodexLocalAccessStateMutation(
 }
 
 export async function getCodexLocalAccessState(): Promise<CodexLocalAccessState> {
-  return await invoke('codex_local_access_get_state');
+  if (getCodexLocalAccessStatePromise) {
+    return getCodexLocalAccessStatePromise;
+  }
+
+  getCodexLocalAccessStatePromise = invoke<CodexLocalAccessState>('codex_local_access_get_state')
+    .finally(() => {
+      globalThis.setTimeout(() => {
+        getCodexLocalAccessStatePromise = null;
+      }, 100);
+    });
+  return getCodexLocalAccessStatePromise;
 }
 
 export async function saveCodexLocalAccessAccounts(

@@ -149,8 +149,9 @@ fn repair_codex_session_visibility_after_provider_change(
 /// 列出所有 Codex 账号
 #[tauri::command]
 pub fn list_codex_accounts() -> Result<Vec<CodexAccount>, String> {
-    codex_account::remove_error_accounts()?;
-    codex_account::list_accounts_checked()
+    let accounts = codex_account::list_accounts_checked()?;
+    let (accounts, _) = codex_account::remove_error_accounts_from_loaded(accounts)?;
+    Ok(accounts)
 }
 
 /// 获取当前激活的 Codex 账号
@@ -561,8 +562,8 @@ pub async fn refresh_current_codex_quota(app: AppHandle) -> Result<(), String> {
 
 /// 刷新所有账号配额
 #[tauri::command]
-pub async fn refresh_all_codex_quotas(app: AppHandle) -> Result<i32, String> {
-    let results = codex_quota::refresh_all_quotas().await?;
+pub async fn refresh_all_codex_quotas(app: AppHandle, force: Option<bool>) -> Result<i32, String> {
+    let results = codex_quota::refresh_all_quotas(force.unwrap_or(true)).await?;
     let success_count = results.iter().filter(|(_, r)| r.is_ok()).count();
     if success_count > 0 {
         run_codex_post_refresh_checks(&app).await;

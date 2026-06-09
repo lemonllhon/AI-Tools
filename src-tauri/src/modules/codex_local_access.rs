@@ -55,6 +55,8 @@ const MAX_RETRY_CREDENTIALS_PER_REQUEST: usize = 8;
 const RESPONSE_AFFINITY_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 const MAX_RESPONSE_AFFINITY_BINDINGS: usize = 4096;
 const PREPARED_ACCOUNT_CACHE_TTL_MS: i64 = 30 * 1000;
+const COLLECTION_SANITIZE_INTERVAL_MS: i64 = 1500;
+const PROVIDER_SOURCE_ACCOUNT_SCAN_LIMIT: usize = 300;
 const DAY_WINDOW_MS: i64 = 24 * 60 * 60 * 1000;
 const WEEK_WINDOW_MS: i64 = 7 * DAY_WINDOW_MS;
 const MONTH_WINDOW_MS: i64 = 30 * DAY_WINDOW_MS;
@@ -111,6 +113,7 @@ struct GatewayRuntime {
     actual_port: Option<u16>,
     actual_bind_host: Option<String>,
     last_error: Option<String>,
+    last_collection_sanitize_ms: i64,
     shutdown_sender: Option<watch::Sender<bool>>,
     task: Option<tokio::task::JoinHandle<()>>,
 }
@@ -3972,6 +3975,65 @@ fn save_collection_to_disk(collection: &CodexLocalAccessCollection) -> Result<()
     write_string_atomic(&path, &content)
 }
 
+pub fn auto_include_new_accounts_if_needed(accounts: &[CodexAccount]) -> Result<usize, String> {
+    if accounts.is_empty() {
+        return Ok(0);
+    }
+    let Some(mut collection) = load_collection_from_disk()? else {
+        return Ok(0);
+    };
+    if !collection.auto_include_new_accounts {
+        return Ok(0);
+    }
+
+    let mut seen_account_ids: HashSet<String> = collection.account_ids.iter().cloned().collect();
+    let mut added_count = 0usize;
+    for account in accounts {
+        if !is_local_access_usable_account(account, collection.restrict_free_accounts) {
+            continue;
+        }
+        if seen_account_ids.insert(account.id.clone()) {
+            collection.account_ids.push(account.id.clone());
+            added_count += 1;
+        }
+    }
+
+    if added_count == 0 {
+        return Ok(0);
+    }
+
+    collection.updated_at = now_ms();
+    save_collection_to_disk(&collection)?;
+
+    if let Err(error) = sync_active_local_access_config_if_needed(&collection) {
+        logger::log_warn(&format!(
+            "新 Codex 账号自动加入 API 服务后同步配置失败: count={}, error={}",
+            added_count, error
+        ));
+    }
+
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        let next_collection = collection.clone();
+        handle.spawn(async move {
+            let mut runtime = gateway_runtime().lock().await;
+            if runtime.loaded {
+                sync_runtime_collection(&mut runtime, next_collection);
+                runtime.last_collection_sanitize_ms = now_ms();
+            }
+        });
+    }
+
+    logger::log_info(&format!(
+        "新 Codex 账号已自动加入 API 服务集合: count={}",
+        added_count
+    ));
+    Ok(added_count)
+}
+
+pub fn auto_include_new_account_if_needed(account: &CodexAccount) -> Result<bool, String> {
+    Ok(auto_include_new_accounts_if_needed(std::slice::from_ref(account))? > 0)
+}
+
 fn normalize_stats(stats: &mut CodexLocalAccessStats) {
     let now = now_ms();
     if stats.since <= 0 {
@@ -4341,6 +4403,45 @@ fn build_provider_runtime_accounts(
     Ok(accounts)
 }
 
+fn count_provider_runtime_accounts(provider_ids: &[String]) -> usize {
+    let selected_provider_ids: HashSet<&str> = provider_ids
+        .iter()
+        .map(String::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .collect();
+    if selected_provider_ids.is_empty() {
+        return 0;
+    }
+
+    load_new_api_model_providers()
+        .map(|providers| {
+            providers
+                .into_iter()
+                .filter(|provider| selected_provider_ids.contains(provider.id.as_str()))
+                .map(|provider| {
+                    provider
+                        .api_keys
+                        .iter()
+                        .filter(|api_key| normalize_provider_api_key(&api_key.api_key).is_some())
+                        .count()
+                })
+                .sum()
+        })
+        .unwrap_or(0)
+}
+
+fn snapshot_collection_member_count(collection: &CodexLocalAccessCollection) -> usize {
+    let account_count = collection.account_ids.len();
+    let provider_count = match collection.source_mode {
+        CodexLocalAccessSourceMode::AccountPool => 0,
+        CodexLocalAccessSourceMode::ProviderFirst | CodexLocalAccessSourceMode::Hybrid => {
+            count_provider_runtime_accounts(&collection.provider_ids)
+        }
+    };
+
+    account_count + provider_count
+}
+
 fn collection_has_available_provider_source(collection: &CodexLocalAccessCollection) -> bool {
     match collection.source_mode {
         CodexLocalAccessSourceMode::ProviderFirst => return true,
@@ -4365,6 +4466,10 @@ fn collection_has_available_provider_source(collection: &CodexLocalAccessCollect
         {
             return true;
         }
+    }
+
+    if collection.account_ids.len() > PROVIDER_SOURCE_ACCOUNT_SCAN_LIMIT {
+        return false;
     }
 
     collection.account_ids.iter().any(|account_id| {
@@ -4440,29 +4545,6 @@ fn is_local_access_usable_account(account: &CodexAccount, restrict_free_accounts
         && is_local_access_account_healthy(account)
 }
 
-fn delete_error_accounts_from_store(accounts: &[CodexAccount]) {
-    let mut deleted_account_ids = Vec::new();
-    for account in accounts {
-        let Some(reason) = codex_account::error_account_auto_delete_reason(account) else {
-            continue;
-        };
-        match codex_account::remove_account(&account.id) {
-            Ok(_) => {
-                logger::log_info(&format!(
-                    "Codex API 服务清理时已物理删除 error 账号: account_id={}, email={}, reason={}",
-                    account.id, account.email, reason
-                ));
-                deleted_account_ids.push(account.id.clone());
-            }
-            Err(error) => logger::log_warn(&format!(
-                "Codex API 服务清理 error 账号失败: account_id={}, email={}, reason={}, error={}",
-                account.id, account.email, reason, error
-            )),
-        }
-    }
-    evict_prepared_account_cache_for_ids(deleted_account_ids);
-}
-
 fn sanitize_collection(
     collection: &mut CodexLocalAccessCollection,
 ) -> Result<(bool, HashSet<String>, Vec<String>), String> {
@@ -4487,7 +4569,7 @@ fn sanitize_collection(
     }
 
     let accounts = codex_account::list_accounts_checked()?;
-    delete_error_accounts_from_store(&accounts);
+    let (accounts, _) = codex_account::remove_error_accounts_from_loaded(accounts)?;
     let valid_bound_oauth_account_ids: HashSet<String> = accounts
         .iter()
         .filter(|account| !account.is_api_key_auth())
@@ -4732,6 +4814,12 @@ async fn delete_error_account_from_runtime(account_id: &str, reason: &str) {
 async fn refresh_runtime_collection_members_from_accounts() -> Result<(), String> {
     let maybe_collection = {
         let runtime = gateway_runtime().lock().await;
+        if runtime.last_collection_sanitize_ms > 0
+            && now_ms().saturating_sub(runtime.last_collection_sanitize_ms)
+                < COLLECTION_SANITIZE_INTERVAL_MS
+        {
+            return Ok(());
+        }
         runtime.collection.clone()
     };
 
@@ -4741,6 +4829,8 @@ async fn refresh_runtime_collection_members_from_accounts() -> Result<(), String
 
     let (changed, _, auto_included_account_ids) = sanitize_collection(&mut collection)?;
     if !changed {
+        let mut runtime = gateway_runtime().lock().await;
+        runtime.last_collection_sanitize_ms = now_ms();
         return Ok(());
     }
 
@@ -4751,6 +4841,7 @@ async fn refresh_runtime_collection_members_from_accounts() -> Result<(), String
     {
         let mut runtime = gateway_runtime().lock().await;
         sync_runtime_collection(&mut runtime, collection);
+        runtime.last_collection_sanitize_ms = now_ms();
     }
 
     Ok(())
@@ -4818,6 +4909,7 @@ async fn ensure_runtime_loaded_without_start() -> Result<(), String> {
             runtime.last_error = None;
             prune_prepared_account_cache(&mut runtime, now_ms());
         }
+        runtime.last_collection_sanitize_ms = now_ms();
     }
 
     Ok(())
@@ -5121,7 +5213,7 @@ fn build_state_snapshot(runtime: &GatewayRuntime) -> CodexLocalAccessState {
     let collection = runtime.collection.clone();
     let member_count = collection
         .as_ref()
-        .map(|item| item.account_ids.len())
+        .map(snapshot_collection_member_count)
         .unwrap_or(0);
     let api_port_url = collection
         .as_ref()
@@ -5562,12 +5654,25 @@ pub async fn test_local_access_with_cli() -> Result<CodexLocalAccessTestResult, 
             None,
         )));
     }
-    if collection.account_ids.is_empty() {
+    let (primary_account_ids, fallback_account_ids) =
+        match resolve_route_account_ids_for_source_mode(&collection).await {
+            Ok(account_ids) => account_ids,
+            Err(error) => {
+                return Ok(build_failure_result(local_access_test_failure(
+                    "账号集合读取失败",
+                    "账号池配置",
+                    &format!("读取 API 服务可路由账号失败: {}", error),
+                    "检查账号集合、供应商 Key 和本地账号文件后再测试。",
+                    None,
+                )));
+            }
+        };
+    if primary_account_ids.is_empty() && fallback_account_ids.is_empty() {
         return Ok(build_failure_result(local_access_test_failure(
             "账号集合为空",
             "账号池配置",
-            "API 服务集合中没有账号，网关没有可路由的上游账号。",
-            "在 API 服务账号集合中加入可用的 Codex OAuth 账号后再测试。",
+            "API 服务集合中没有可路由的上游账号或供应商 Key。",
+            "在 API 服务账号集合中加入可用的 Codex OAuth 账号，或在供应商面板中加入可用的 New API Key 后再测试。",
             None,
         )));
     }

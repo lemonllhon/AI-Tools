@@ -3474,13 +3474,16 @@ export function DashboardPage({
   const renderApiServiceConsole = () => {
     const codexCollection = apiServiceState?.collection ?? null;
     const codexRunning = Boolean(apiServiceState?.running);
-    const codexStatus = !codexCollection
-      ? t('dashboard.apiServices.unconfigured', '待配置')
-      : codexRunning
-        ? t('dashboard.apiServices.running', '运行中')
-        : codexCollection.enabled
-          ? t('dashboard.apiServices.enabledStatus', '已启用')
-          : t('dashboard.apiServices.disabledStatus', '已停用');
+    const codexStatus =
+      apiServiceBusy === 'load' && !apiServiceState
+        ? t('common.loading', '加载中...')
+        : !codexCollection
+          ? t('dashboard.apiServices.unconfigured', '待配置')
+          : codexRunning
+            ? t('dashboard.apiServices.running', '运行中')
+            : codexCollection.enabled
+              ? t('dashboard.apiServices.enabledStatus', '已启用')
+              : t('dashboard.apiServices.disabledStatus', '已停用');
     const codexTone = !codexCollection
       ? 'pending'
       : codexRunning
@@ -3516,7 +3519,9 @@ export function DashboardPage({
         <div className="api-services-grid">
           {apiServicePlatformIds.map((platformId) => {
             const isCodex = platformId === 'codex';
-            const memberCount = isCodex ? apiServiceState?.memberCount ?? 0 : 0;
+            const memberCount = isCodex
+              ? Math.max(apiServiceState?.memberCount ?? 0, codexSpeedSummary.total)
+              : 0;
             const showCodexLanEndpoint =
               isCodex &&
               codexCollection?.accessScope === 'lan' &&
