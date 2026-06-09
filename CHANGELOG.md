@@ -12,7 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 - Account list selection is now pruned when filters change, so batch delete and group actions only apply to the currently filtered scope.
-- Qoder, Antigravity, and Codex account batch delete buttons now use the visible selected account count and scoped selected IDs.
+- Codex's batch delete button now uses the visible number of selected items and the account IDs within the current filter range
 - Codex account deletion now treats already-missing account files as a successful idempotent delete instead of failing with an OS file-not-found error.
 
 ## [0.0.53] - 2026-06-09
