@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 - Deleted Codex accounts are now removed from local API service members, routing rules, bound OAuth references, prepared-account caches, and routing affinity state to prevent stale deleted accounts from slowing later requests.
 - In-flight Codex account list refreshes no longer reinsert recently deleted accounts into the overview.
+- Legacy Antigravity Cockpit data directories are now merged into the configured data directory and removed when empty, preventing stale residual folders after changing the storage location.
 
 ## [0.0.51] - 2026-06-09
 ### Changed
