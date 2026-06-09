@@ -1,6 +1,6 @@
 cask "cockpit-tools" do
-  version "0.0.49"
-  sha256 "d47dbed728c11d32bacacff01b77ef88ceef9161d4a2c951e7850f60c3949a9c"
+  version "0.0.51"
+  sha256 "f35d7ba742ce0107532867314a582ae62531354eee64f8f0a37472635703e47e"
 
   url "https://github.com/lemon-casino/ai-lemon-tools-release/releases/download/#{version}/AI.Lemon.Tools_#{version}_universal.dmg",
       verified: "https://github.com/lemon-casino/ai-lemon-tools-release/"
