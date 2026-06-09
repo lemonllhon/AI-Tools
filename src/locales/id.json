@@ -1425,6 +1425,7 @@
   "pagination": {
     "info": "Menampilkan {{start}} - {{end}} dari {{total}}",
     "perPage": "{{count}} / halaman",
+    "first": "Pertama",
     "prev": "Sebelumnya",
     "next": "Berikutnya",
     "page": "Halaman {{current}} / {{total}}"

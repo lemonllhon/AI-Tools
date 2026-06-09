@@ -1425,6 +1425,7 @@
   "pagination": {
     "info": "عرض {{start}} - {{end}} من إجمالي {{total}}",
     "perPage": "{{count}} / صفحة",
+    "first": "الأولى",
     "prev": "السابق",
     "next": "التالي",
     "page": "صفحة {{current}} / {{total}}"

@@ -1379,6 +1379,7 @@
   "pagination": {
     "info": "Hiển thị {{start}} - {{end}} trong tổng số {{total}} bản ghi",
     "perPage": "{{count}} bản ghi/trang",
+    "first": "Đầu",
     "prev": "Trang trước",
     "next": "Trang sau",
     "page": "Trang {{current}} / {{total}}"

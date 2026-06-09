@@ -60,6 +60,7 @@ export interface UsePaginationReturn<TItem> {
   canGoNext: boolean;
   setCurrentPage: (page: number) => void;
   setPageSize: (pageSize: number) => void;
+  goToFirstPage: () => void;
   goToPreviousPage: () => void;
   goToNextPage: () => void;
 }
@@ -176,6 +177,10 @@ export function usePagination<TItem>({
     setCurrentPageState((prev) => Math.max(1, prev - 1));
   }, []);
 
+  const goToFirstPage = useCallback(() => {
+    setCurrentPageState(1);
+  }, []);
+
   const goToNextPage = useCallback(() => {
     setCurrentPageState((prev) => Math.min(totalPages, prev + 1));
   }, [totalPages]);
@@ -196,6 +201,7 @@ export function usePagination<TItem>({
     canGoNext: currentPage < totalPages,
     setCurrentPage,
     setPageSize,
+    goToFirstPage,
     goToPreviousPage,
     goToNextPage,
   };

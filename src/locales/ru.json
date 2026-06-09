@@ -1379,6 +1379,7 @@
   "pagination": {
     "info": "Показано {{start}} - {{end}} из {{total}}",
     "perPage": "{{count}} / стр",
+    "first": "Первая",
     "prev": "Назад",
     "next": "Вперед",
     "page": "Страница {{current}} / {{total}}"

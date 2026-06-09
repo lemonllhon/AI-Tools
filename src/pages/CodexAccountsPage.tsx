@@ -270,6 +270,7 @@ const CODEX_LOCAL_ACCESS_FALLBACK_API_KEY_MASK = "agt_codex_••••••�
 const CODEX_LOCAL_ACCESS_ACCOUNT_PAGE_ENTRY_ENABLED = false;
 const CODEX_FILTER_PERSISTENCE_SCOPE = normalizeAccountsOverviewScope("Codex");
 const FILTER_TYPES_FIELD = "filter_types";
+const CODEX_ZERO_PRIMARY_QUOTA_FILTER_VALUE = "__zero_primary_quota__";
 const EXPIRY_FILTER_FIELD = "expiry_filter";
 const GROUP_FILTER_FIELD = "group_filter";
 const ACTIVE_GROUP_ID_FIELD = "active_group_id";
@@ -278,6 +279,32 @@ const OAUTH_BINDING_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 type CodexOverviewLayoutMode = "compact" | "list" | "grid";
 type OAuthBindingSortBy = "account" | "created_at" | "last_used" | "plan";
 type OAuthBindingTargetKind = "api_key_account" | "local_access";
+
+function hasZeroPrimaryQuota(account: CodexAccount): boolean {
+  return getCodexPrimaryOrSingleQuotaWindow(account.quota)?.percentage === 0;
+}
+
+function splitCodexAccountFilterValues(values: Iterable<string>): {
+  requireValidAccounts: boolean;
+  requireZeroPrimaryQuota: boolean;
+  selectedTypes: Set<string>;
+} {
+  const tierValues: string[] = [];
+  let requireZeroPrimaryQuota = false;
+
+  for (const value of values) {
+    if (value === CODEX_ZERO_PRIMARY_QUOTA_FILTER_VALUE) {
+      requireZeroPrimaryQuota = true;
+      continue;
+    }
+    tierValues.push(value);
+  }
+
+  return {
+    ...splitValidityFilterValues(tierValues),
+    requireZeroPrimaryQuota,
+  };
+}
 
 function normalizeLocalAccessAddressKind(
   value: string | null | undefined,
@@ -4489,6 +4516,7 @@ export function CodexAccountsPage() {
       TEAM: 0,
       ENTERPRISE: 0,
       ERROR: 0,
+      ZERO_PRIMARY_QUOTA: 0,
     };
     overviewAccounts.forEach((a) => {
       if (!isAbnormalAccount(a)) {
@@ -4497,6 +4525,7 @@ export function CodexAccountsPage() {
       const tier = resolvePlanKey(a);
       if (tier in counts) counts[tier as keyof typeof counts] += 1;
       if (a.quota_error) counts.ERROR += 1;
+      if (hasZeroPrimaryQuota(a)) counts.ZERO_PRIMARY_QUOTA += 1;
     });
     return counts;
   }, [isAbnormalAccount, overviewAccounts, resolvePlanKey]);
@@ -4509,6 +4538,13 @@ export function CodexAccountsPage() {
       { value: "TEAM", label: `TEAM (${tierCounts.TEAM})` },
       { value: "ENTERPRISE", label: `ENTERPRISE (${tierCounts.ENTERPRISE})` },
       { value: "ERROR", label: `ERROR (${tierCounts.ERROR})` },
+      {
+        value: CODEX_ZERO_PRIMARY_QUOTA_FILTER_VALUE,
+        label: t("accounts.filter.zeroPrimaryQuota", {
+          count: tierCounts.ZERO_PRIMARY_QUOTA,
+          defaultValue: "5小时额度为 0 ({{count}})",
+        }),
+      },
       buildValidAccountsFilterOption(t, tierCounts.VALID),
     ],
     [t, tierCounts],
@@ -4524,6 +4560,7 @@ export function CodexAccountsPage() {
       TEAM: 0,
       ENTERPRISE: 0,
       ERROR: 0,
+      ZERO_PRIMARY_QUOTA: 0,
     };
     oauthAccounts.forEach((account) => {
       if (!isAbnormalAccount(account)) {
@@ -4532,6 +4569,7 @@ export function CodexAccountsPage() {
       const tier = resolvePlanKey(account);
       if (tier in counts) counts[tier as keyof typeof counts] += 1;
       if (account.quota_error) counts.ERROR += 1;
+      if (hasZeroPrimaryQuota(account)) counts.ZERO_PRIMARY_QUOTA += 1;
     });
     return counts;
   }, [isAbnormalAccount, oauthAccounts, resolvePlanKey]);
@@ -4547,6 +4585,13 @@ export function CodexAccountsPage() {
         label: `ENTERPRISE (${oauthBindingTierCounts.ENTERPRISE})`,
       },
       { value: "ERROR", label: `ERROR (${oauthBindingTierCounts.ERROR})` },
+      {
+        value: CODEX_ZERO_PRIMARY_QUOTA_FILTER_VALUE,
+        label: t("accounts.filter.zeroPrimaryQuota", {
+          count: oauthBindingTierCounts.ZERO_PRIMARY_QUOTA,
+          defaultValue: "5小时额度为 0 ({{count}})",
+        }),
+      },
       buildValidAccountsFilterOption(t, oauthBindingTierCounts.VALID),
     ],
     [oauthBindingTierCounts, t],
@@ -4604,10 +4649,16 @@ export function CodexAccountsPage() {
     }
 
     if (oauthBindingFilterTypes.length > 0) {
-      const { requireValidAccounts, selectedTypes } =
-        splitValidityFilterValues(oauthBindingFilterTypes);
+      const {
+        requireValidAccounts,
+        requireZeroPrimaryQuota,
+        selectedTypes,
+      } = splitCodexAccountFilterValues(oauthBindingFilterTypes);
       if (requireValidAccounts) {
         result = result.filter((account) => !isAbnormalAccount(account));
+      }
+      if (requireZeroPrimaryQuota) {
+        result = result.filter(hasZeroPrimaryQuota);
       }
       if (selectedTypes.size > 0) {
         result = result.filter((account) => {
@@ -5362,10 +5413,16 @@ export function CodexAccountsPage() {
       );
     }
     if (filterTypes.length > 0) {
-      const { requireValidAccounts, selectedTypes } =
-        splitValidityFilterValues(filterTypes);
+      const {
+        requireValidAccounts,
+        requireZeroPrimaryQuota,
+        selectedTypes,
+      } = splitCodexAccountFilterValues(filterTypes);
       if (requireValidAccounts) {
         result = result.filter((account) => !isAbnormalAccount(account));
+      }
+      if (requireZeroPrimaryQuota) {
+        result = result.filter(hasZeroPrimaryQuota);
       }
       if (selectedTypes.size > 0) {
         result = result.filter((a) => {
@@ -8410,6 +8467,7 @@ export function CodexAccountsPage() {
             canGoPrevious={pagination.canGoPrevious}
             canGoNext={pagination.canGoNext}
             onPageSizeChange={pagination.setPageSize}
+            onFirstPage={pagination.goToFirstPage}
             onPreviousPage={pagination.goToPreviousPage}
             onNextPage={pagination.goToNextPage}
           />
@@ -9523,6 +9581,7 @@ export function CodexAccountsPage() {
                             onPageSizeChange={
                               oauthBindingPagination.setPageSize
                             }
+                            onFirstPage={oauthBindingPagination.goToFirstPage}
                             onPreviousPage={
                               oauthBindingPagination.goToPreviousPage
                             }

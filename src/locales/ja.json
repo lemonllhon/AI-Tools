@@ -1379,6 +1379,7 @@
   "pagination": {
     "info": "{{total}} 件中 {{start}} - {{end}} 件を表示",
     "perPage": "{{count}} 件 / ページ",
+    "first": "最初",
     "prev": "前へ",
     "next": "次へ",
     "page": "{{total}} ページ中 {{current}} ページ目"

@@ -1379,6 +1379,7 @@
   "pagination": {
     "info": "Zobrazuji {{start}} - {{end}} z {{total}}",
     "perPage": "{{count}} / strana",
+    "first": "První",
     "prev": "Předchozí",
     "next": "Další",
     "page": "Strana {{current}} / {{total}}"

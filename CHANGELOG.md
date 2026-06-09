@@ -6,6 +6,14 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.53] - 2026-06-09
+### Added
+- Added a Codex account overview filter for accounts whose 5-hour primary quota, or single available quota window, is 0.
+- Added a first-page pagination action across account lists and the account scope selector.
+
+### Fixed
+- Codex local API access now accepts common LAN client key formats, including case-insensitive Bearer headers with extra spaces, `X-API-Key`, and raw authorization tokens.
+
 ## [0.0.52] - 2026-06-09
 ### Changed
 - Optimized Codex account deletion for large account pools by batching index updates, account file removal, OAuth binding cleanup, and local API service reference cleanup.

@@ -1379,6 +1379,7 @@
   "pagination": {
     "info": "Affichage de {{start}} - {{end}} sur {{total}}",
     "perPage": "{{count}} / page",
+    "first": "Première",
     "prev": "Précédent",
     "next": "Suivant",
     "page": "Page {{current}} / {{total}}"

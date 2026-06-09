@@ -1133,6 +1133,7 @@ export function CursorAccountsPage() {
         canGoPrevious={pagination.canGoPrevious}
         canGoNext={pagination.canGoNext}
         onPageSizeChange={pagination.setPageSize}
+        onFirstPage={pagination.goToFirstPage}
         onPreviousPage={pagination.goToPreviousPage}
         onNextPage={pagination.goToNextPage}
       />

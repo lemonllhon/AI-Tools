@@ -6654,24 +6654,30 @@ fn normalize_proxy_target(target: &str) -> Result<String, String> {
 fn extract_local_api_key(headers: &HashMap<String, String>) -> Option<String> {
     if let Some(value) = headers.get("authorization") {
         let trimmed = value.trim();
-        if let Some(rest) = trimmed.strip_prefix("Bearer ") {
-            let token = rest.trim();
-            if !token.is_empty() {
-                return Some(token.to_string());
-            }
-        }
-        if let Some(rest) = trimmed.strip_prefix("bearer ") {
-            let token = rest.trim();
-            if !token.is_empty() {
-                return Some(token.to_string());
+        let mut parts = trimmed.split_whitespace();
+        if let Some(scheme) = parts.next() {
+            if scheme.eq_ignore_ascii_case("bearer") {
+                let token = parts.collect::<Vec<_>>().join(" ");
+                let token = token.trim();
+                if !token.is_empty() {
+                    return Some(token.to_string());
+                }
             }
         }
     }
 
-    headers
+    if let Some(api_key) = headers
         .get("x-api-key")
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+    {
+        return Some(api_key);
+    }
+
+    headers
+        .get("authorization")
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty() && !value.contains(char::is_whitespace))
 }
 
 fn header_contains_token(value: Option<&String>, token: &str) -> bool {
@@ -9731,6 +9737,43 @@ mod tests {
 
         assert!(!is_local_access_account_healthy(&api_key_account));
         assert!(!is_local_access_usable_account(&api_key_account, false));
+    }
+
+    #[test]
+    fn extracts_local_api_key_from_common_client_headers() {
+        let headers = HashMap::from([(
+            "authorization".to_string(),
+            "BEARER    local-key".to_string(),
+        )]);
+        assert_eq!(extract_local_api_key(&headers).as_deref(), Some("local-key"));
+
+        let headers = HashMap::from([(
+            "x-api-key".to_string(),
+            "  local-key-from-header  ".to_string(),
+        )]);
+        assert_eq!(
+            extract_local_api_key(&headers).as_deref(),
+            Some("local-key-from-header")
+        );
+
+        let headers = HashMap::from([(
+            "authorization".to_string(),
+            "local-key-without-scheme".to_string(),
+        )]);
+        assert_eq!(
+            extract_local_api_key(&headers).as_deref(),
+            Some("local-key-without-scheme")
+        );
+    }
+
+    #[test]
+    fn x_api_key_can_override_non_bearer_authorization() {
+        let headers = HashMap::from([
+            ("authorization".to_string(), "Basic old-token".to_string()),
+            ("x-api-key".to_string(), "local-key".to_string()),
+        ]);
+
+        assert_eq!(extract_local_api_key(&headers).as_deref(), Some("local-key"));
     }
 
     #[test]

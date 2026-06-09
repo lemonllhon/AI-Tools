@@ -412,6 +412,14 @@ export function AutoSwitchAccountScopeSelector({
               type="button"
               className="btn btn-secondary"
               disabled={normalizedAccountListPage <= 1}
+              onClick={() => setAccountListPage(1)}
+            >
+              {t('pagination.first', 'First')}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={normalizedAccountListPage <= 1}
               onClick={() => setAccountListPage((page) => Math.max(1, page - 1))}
             >
               {t('pagination.prev', 'Previous')}

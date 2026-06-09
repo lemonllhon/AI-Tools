@@ -1425,6 +1425,7 @@
   "pagination": {
     "info": "Showing {{start}} - {{end}} of {{total}}",
     "perPage": "{{count}} / page",
+    "first": "First",
     "prev": "Previous",
     "next": "Next",
     "page": "Page {{current}} / {{total}}"

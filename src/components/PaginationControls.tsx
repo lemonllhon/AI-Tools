@@ -13,6 +13,7 @@ interface PaginationControlsProps {
   canGoPrevious: boolean;
   canGoNext: boolean;
   onPageSizeChange: (pageSize: number) => void;
+  onFirstPage: () => void;
   onPreviousPage: () => void;
   onNextPage: () => void;
 }
@@ -28,6 +29,7 @@ export function PaginationControls({
   canGoPrevious,
   canGoNext,
   onPageSizeChange,
+  onFirstPage,
   onPreviousPage,
   onNextPage,
 }: PaginationControlsProps) {
@@ -65,6 +67,14 @@ export function PaginationControls({
           onChange={(value) => onPageSizeChange(Number.parseInt(value, 10))}
         />
         <div className="pagination-buttons">
+          <button
+            type="button"
+            className="pagination-btn"
+            onClick={onFirstPage}
+            disabled={!canGoPrevious}
+          >
+            {t('pagination.first', 'First')}
+          </button>
           <button
             type="button"
             className="pagination-btn"

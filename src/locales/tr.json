@@ -1379,6 +1379,7 @@
   "pagination": {
     "info": "{{total}} öğeden {{start}} - {{end}} arası gösteriliyor",
     "perPage": "{{count}} / sayfa",
+    "first": "İlk",
     "prev": "Önceki",
     "next": "Sonraki",
     "page": "Sayfa {{current}} / {{total}}"
