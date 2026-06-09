@@ -130,6 +130,7 @@ export async function refreshCodexQuota(accountId: string): Promise<CodexQuota> 
 
 export interface RefreshAllCodexQuotaOptions {
   force?: boolean;
+  progressTaskId?: string;
 }
 
 /** 刷新所有账号配额 */
@@ -138,6 +139,7 @@ export async function refreshAllCodexQuotas(
 ): Promise<number> {
   return await invoke('refresh_all_codex_quotas', {
     force: options.force ?? true,
+    progressTaskId: options.progressTaskId ?? null,
   });
 }
 

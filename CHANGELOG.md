@@ -6,6 +6,13 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.56] - 2026-06-09
+### Added
+- The global refresh-all progress card can now be dragged and remembers its position.
+
+### Fixed
+- Codex refresh-all now reports real backend account completion progress instead of using estimated progress that could stall at the final account.
+
 ## [0.0.55] - 2026-06-09
 ### Fixed
 - The global refresh-all progress message now advances the completed account count during background refreshes instead of staying at `0/total` until the task finishes.

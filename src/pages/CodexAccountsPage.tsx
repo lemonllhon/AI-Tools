@@ -723,7 +723,11 @@ export function CodexAccountsPage() {
       switchAccount: store.switchAccount,
       deleteAccounts: store.deleteAccounts,
       refreshToken: (id) => store.refreshQuota(id).then(() => {}),
-      refreshAllTokens: () => store.refreshAllQuotas({ force: true }).then(() => {}),
+      refreshAllTokens: (options) =>
+        store.refreshAllQuotas({
+          force: true,
+          progressTaskId: options?.progressTaskId,
+        }).then(() => {}),
       updateAccountTags: store.updateAccountTags,
     },
     dataService: {

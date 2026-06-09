@@ -584,8 +584,38 @@ pub async fn refresh_current_codex_quota(app: AppHandle) -> Result<(), String> {
 
 /// 刷新所有账号配额
 #[tauri::command]
-pub async fn refresh_all_codex_quotas(app: AppHandle, force: Option<bool>) -> Result<i32, String> {
-    let results = codex_quota::refresh_all_quotas(force.unwrap_or(true)).await?;
+pub async fn refresh_all_codex_quotas(
+    app: AppHandle,
+    force: Option<bool>,
+    progress_task_id: Option<String>,
+) -> Result<i32, String> {
+    let progress_callback = progress_task_id
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(|task_id| {
+            let progress_app = app.clone();
+            let callback: codex_quota::CodexQuotaRefreshAllProgressCallback =
+                std::sync::Arc::new(move |progress: codex_quota::CodexQuotaRefreshAllProgress| {
+                    let _ = progress_app.emit(
+                        "codex://quota-refresh-progress",
+                        serde_json::json!({
+                            "taskId": task_id.as_str(),
+                            "current": progress.current,
+                            "total": progress.total,
+                            "success": progress.success,
+                            "failed": progress.failed,
+                            "accountId": progress.account_id,
+                            "accountEmail": progress.account_email,
+                            "ok": progress.ok,
+                            "error": progress.error,
+                        }),
+                    );
+                });
+            callback
+        });
+    let results =
+        codex_quota::refresh_all_quotas_with_progress(force.unwrap_or(true), progress_callback)
+            .await?;
     let success_count = results.iter().filter(|(_, r)| r.is_ok()).count();
     if success_count > 0 {
         run_codex_post_refresh_checks(&app).await;

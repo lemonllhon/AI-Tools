@@ -13,7 +13,24 @@
   background: color-mix(in srgb, var(--bg-surface) 94%, transparent);
   box-shadow: var(--shadow-lg);
   -webkit-app-region: no-drag;
+  cursor: grab;
+  touch-action: none;
   animation: globalRefreshSlideIn 0.18s ease;
+}
+
+.global-refresh-progress--positioned {
+  right: auto;
+  bottom: auto;
+}
+
+.global-refresh-progress--dragging {
+  cursor: grabbing;
+  user-select: none;
+  animation: none;
+}
+
+.global-refresh-progress--dragging * {
+  cursor: grabbing;
 }
 
 .global-refresh-progress-icon {

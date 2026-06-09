@@ -21,6 +21,7 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   isPrivacyModeEnabledByDefault,
@@ -91,6 +92,15 @@ export type ExternalImportProgressState = {
 export type ViewMode = 'grid' | 'list';
 export type SortDirection = 'asc' | 'desc';
 type BatchDeleteScope = string[] | ReactMouseEvent<HTMLElement>;
+type RefreshAllTokensOptions = {
+  progressTaskId?: string;
+};
+
+interface CodexQuotaRefreshProgressPayload {
+  taskId?: string;
+  current?: number;
+  total?: number;
+}
 
 /** 各平台需要提供的 OAuth 服务函数 */
 export interface OAuthService {
@@ -134,7 +144,7 @@ export interface ProviderStoreActions<TAccount> {
   switchAccount?: (accountId: string) => Promise<unknown>;
   deleteAccounts: (ids: string[]) => Promise<void>;
   refreshToken: (id: string) => Promise<void>;
-  refreshAllTokens: () => Promise<void>;
+  refreshAllTokens: (options?: RefreshAllTokensOptions) => Promise<void>;
   updateAccountTags: (id: string, tags: string[]) => Promise<unknown>;
 }
 
@@ -1172,6 +1182,7 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
   const [message, setMessage] = useState<{ text: string; tone?: 'error' | 'success' } | null>(null);
   const globalRefreshTask = useGlobalRefreshProgressStore((state) => state.task);
   const startGlobalRefreshTask = useGlobalRefreshProgressStore((state) => state.startTask);
+  const updateGlobalRefreshTask = useGlobalRefreshProgressStore((state) => state.updateTask);
   const finishGlobalRefreshTask = useGlobalRefreshProgressStore((state) => state.finishTask);
   const refreshingAll = globalRefreshTask?.status === 'running';
   const setDeleteConfirm = useCallback((value: { ids: string[]; message: string } | null) => {
@@ -1212,9 +1223,56 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
     [refreshToken],
   );
 
+  useEffect(() => {
+    if (platformId !== 'codex') return;
+
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    void listen<CodexQuotaRefreshProgressPayload>(
+      'codex://quota-refresh-progress',
+      (event) => {
+        const payload = event.payload;
+        const taskId = typeof payload.taskId === 'string' ? payload.taskId : '';
+        if (!taskId) return;
+
+        const currentTask = useGlobalRefreshProgressStore.getState().task;
+        if (!currentTask || currentTask.id !== taskId || currentTask.status !== 'running') {
+          return;
+        }
+
+        const total = Math.max(0, Math.floor(Number(payload.total ?? currentTask.total)));
+        const completed = Math.max(
+          0,
+          Math.min(total || Number.MAX_SAFE_INTEGER, Math.floor(Number(payload.current ?? 0))),
+        );
+        updateGlobalRefreshTask(taskId, {
+          total,
+          completed,
+          message: t('messages.refreshingQuota', {
+            done: completed,
+            total,
+            defaultValue: '刷新配额中 {{done}}/{{total}}（可切换菜单，后台继续刷新）',
+          }),
+        });
+      },
+    ).then((dispose) => {
+      if (disposed) {
+        dispose();
+      } else {
+        unlisten = dispose;
+      }
+    });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [platformId, t, updateGlobalRefreshTask]);
+
   const handleRefreshAll = useCallback(async () => {
     if (refreshingAll) return;
     const total = accounts.length;
+    const usesRealProgress = platformId === 'codex';
     const taskId = startGlobalRefreshTask({
       platformId: refreshProgressPlatformId,
       label: platformKey,
@@ -1225,12 +1283,14 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
         total,
         defaultValue: '刷新配额中 {{done}}/{{total}}（可切换菜单，后台继续刷新）',
       }),
+      autoPulse: !usesRealProgress,
     });
     try {
-      await refreshAllTokens();
+      await refreshAllTokens({
+        progressTaskId: usesRealProgress ? taskId : undefined,
+      });
       finishGlobalRefreshTask(taskId, {
         status: 'success',
-        completed: total,
         message: t('messages.quotaRefreshDone', '配额刷新完成'),
       });
     } catch (e) {
@@ -1247,6 +1307,7 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
   }, [
     accounts.length,
     finishGlobalRefreshTask,
+    platformId,
     platformKey,
     refreshProgressPlatformId,
     refreshAllTokens,

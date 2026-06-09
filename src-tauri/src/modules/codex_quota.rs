@@ -5,6 +5,7 @@ use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
@@ -24,6 +25,22 @@ const QUOTA_RESET_REFRESH_GRACE_SECONDS: i64 = 60;
 const TRANSIENT_QUOTA_ERROR_CODE: &str = "quota_refresh_transient";
 static CODEX_QUOTA_REFRESH_LOCKS: LazyLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexQuotaRefreshAllProgress {
+    pub current: usize,
+    pub total: usize,
+    pub success: usize,
+    pub failed: usize,
+    pub account_id: String,
+    pub account_email: Option<String>,
+    pub ok: bool,
+    pub error: Option<String>,
+}
+
+pub type CodexQuotaRefreshAllProgressCallback =
+    Arc<dyn Fn(CodexQuotaRefreshAllProgress) + Send + Sync + 'static>;
 
 fn quota_http_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
@@ -788,17 +805,59 @@ fn should_refresh_quota_in_background(account: &CodexAccount, now: i64) -> bool 
 pub async fn refresh_all_quotas(
     force: bool,
 ) -> Result<Vec<(String, Result<CodexQuota, String>)>, String> {
+    refresh_all_quotas_with_progress(force, None).await
+}
+
+/// 刷新所有账号配额，并在每个账号完成后回传真实进度。
+pub async fn refresh_all_quotas_with_progress(
+    force: bool,
+    progress_callback: Option<CodexQuotaRefreshAllProgressCallback>,
+) -> Result<Vec<(String, Result<CodexQuota, String>)>, String> {
     let now = chrono::Utc::now().timestamp();
     let accounts: Vec<_> = codex_account::list_accounts()
         .into_iter()
         .filter(|account| !account.is_api_key_auth() || is_new_api_account(account))
         .filter(|account| force || should_refresh_quota_in_background(account, now))
         .collect();
+    let total = accounts.len();
+    let completed = Arc::new(AtomicUsize::new(0));
+    let success = Arc::new(AtomicUsize::new(0));
+    let failed = Arc::new(AtomicUsize::new(0));
 
     let results = stream::iter(accounts.into_iter().map(|account| {
-        let account_id = account.id;
+        let account_id = account.id.clone();
+        let account_email = account.email.clone();
+        let completed = Arc::clone(&completed);
+        let success = Arc::clone(&success);
+        let failed = Arc::clone(&failed);
+        let progress_callback = progress_callback.clone();
         async move {
             let result = refresh_account_quota(&account_id).await;
+            if let Some(progress_callback) = progress_callback.as_ref() {
+                let ok = result.is_ok();
+                let error = result.as_ref().err().cloned();
+                let current = completed.fetch_add(1, Ordering::SeqCst) + 1;
+                let success_count = if ok {
+                    success.fetch_add(1, Ordering::SeqCst) + 1
+                } else {
+                    success.load(Ordering::SeqCst)
+                };
+                let failed_count = if ok {
+                    failed.load(Ordering::SeqCst)
+                } else {
+                    failed.fetch_add(1, Ordering::SeqCst) + 1
+                };
+                progress_callback(CodexQuotaRefreshAllProgress {
+                    current,
+                    total,
+                    success: success_count,
+                    failed: failed_count,
+                    account_id: account_id.clone(),
+                    account_email,
+                    ok,
+                    error,
+                });
+            }
             (account_id, result)
         }
     }))
