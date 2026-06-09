@@ -4811,6 +4811,126 @@ async fn delete_error_account_from_runtime(account_id: &str, reason: &str) {
     }
 }
 
+pub async fn remove_deleted_account_references(
+    account_ids: &[String],
+    reason: &str,
+) -> Result<bool, String> {
+    let mut removed_account_ids = Vec::new();
+    let mut removed_account_id_set = HashSet::new();
+    for account_id in account_ids {
+        let account_id = account_id.trim();
+        if account_id.is_empty() {
+            continue;
+        }
+        if removed_account_id_set.insert(account_id.to_string()) {
+            removed_account_ids.push(account_id.to_string());
+        }
+    }
+
+    if removed_account_ids.is_empty() {
+        return Ok(false);
+    }
+
+    evict_prepared_account_cache_for_ids(removed_account_ids.clone());
+
+    let runtime_collection = {
+        let runtime = gateway_runtime().lock().await;
+        if runtime.loaded {
+            runtime.collection.clone()
+        } else {
+            None
+        }
+    };
+    let maybe_collection = match runtime_collection {
+        Some(collection) => Some(collection),
+        None => load_collection_from_disk()?,
+    };
+    let Some(mut collection) = maybe_collection else {
+        let mut runtime = gateway_runtime().lock().await;
+        runtime
+            .response_affinity
+            .retain(|_, binding| !removed_account_id_set.contains(&binding.account_id));
+        runtime.model_cooldowns.retain(|key, _| {
+            key.split('\u{1f}')
+                .next()
+                .map(|account_id| !removed_account_id_set.contains(account_id))
+                .unwrap_or(true)
+        });
+        runtime
+            .prepared_accounts
+            .retain(|account_id, _| !removed_account_id_set.contains(account_id));
+        return Ok(false);
+    };
+
+    let original_account_count = collection.account_ids.len();
+    collection
+        .account_ids
+        .retain(|account_id| !removed_account_id_set.contains(account_id));
+    let removed_account = collection.account_ids.len() != original_account_count;
+
+    let original_rule_count = collection.custom_routing_rules.len();
+    collection
+        .custom_routing_rules
+        .retain(|rule| !removed_account_id_set.contains(&rule.account_id));
+    let removed_rule = collection.custom_routing_rules.len() != original_rule_count;
+
+    let cleared_bound_oauth = collection
+        .bound_oauth_account_id
+        .as_deref()
+        .map(|account_id| removed_account_id_set.contains(account_id))
+        .unwrap_or(false);
+    if cleared_bound_oauth {
+        collection.bound_oauth_account_id = None;
+    }
+
+    {
+        let mut runtime = gateway_runtime().lock().await;
+        runtime
+            .response_affinity
+            .retain(|_, binding| !removed_account_id_set.contains(&binding.account_id));
+        runtime.model_cooldowns.retain(|key, _| {
+            key.split('\u{1f}')
+                .next()
+                .map(|account_id| !removed_account_id_set.contains(account_id))
+                .unwrap_or(true)
+        });
+        runtime
+            .prepared_accounts
+            .retain(|account_id, _| !removed_account_id_set.contains(account_id));
+    }
+
+    if !removed_account && !removed_rule && !cleared_bound_oauth {
+        return Ok(false);
+    }
+
+    collection.updated_at = now_ms();
+    save_collection_to_disk(&collection)?;
+
+    {
+        let mut runtime = gateway_runtime().lock().await;
+        if runtime.loaded {
+            sync_runtime_collection(&mut runtime, collection.clone());
+            runtime.last_collection_sanitize_ms = now_ms();
+        }
+    }
+
+    if let Err(error) = sync_active_local_access_config_if_needed(&collection) {
+        logger::log_warn(&format!(
+            "删除 Codex 账号后同步 API 服务配置失败: removed_count={}, reason={}, error={}",
+            removed_account_ids.len(),
+            reason,
+            error
+        ));
+    }
+
+    logger::log_info(&format!(
+        "删除 Codex 账号后已剥离 API 服务引用: removed_count={}, reason={}",
+        removed_account_ids.len(),
+        reason
+    ));
+    Ok(true)
+}
+
 async fn refresh_runtime_collection_members_from_accounts() -> Result<(), String> {
     let maybe_collection = {
         let runtime = gateway_runtime().lock().await;

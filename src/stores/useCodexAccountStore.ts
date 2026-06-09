@@ -20,6 +20,8 @@ const CODEX_PROFILE_SYNC_LAST_ATTEMPT = new Map<string, number>();
 const CODEX_PROFILE_SYNC_RETRY_INTERVAL_MS = 5 * 60 * 1000;
 const CODEX_PROFILE_SYNC_BATCH_LIMIT = 12;
 const CODEX_PROFILE_SYNC_AUTO_LOAD_MAX_ACCOUNTS = 200;
+const CODEX_DELETED_ACCOUNT_TOMBSTONE_MS = 10 * 1000;
+const CODEX_DELETED_ACCOUNT_TOMBSTONES = new Map<string, number>();
 let allowNextEmptyCodexAccountList = false;
 let allowNextEmptyCodexCurrentAccount = false;
 let fetchAccountsPromise: Promise<void> | null = null;
@@ -77,6 +79,42 @@ const persistCodexCurrentAccountCache = (account: CodexAccount | null) => {
   } catch {
     // ignore cache write failures
   }
+};
+
+const pruneDeletedCodexAccountTombstones = () => {
+  const now = Date.now();
+  for (const [accountId, deletedAt] of CODEX_DELETED_ACCOUNT_TOMBSTONES) {
+    if (now - deletedAt >= CODEX_DELETED_ACCOUNT_TOMBSTONE_MS) {
+      CODEX_DELETED_ACCOUNT_TOMBSTONES.delete(accountId);
+    }
+  }
+};
+
+const markCodexAccountsDeleted = (accountIds: string[]) => {
+  const now = Date.now();
+  for (const accountId of accountIds) {
+    const normalized = accountId.trim();
+    if (normalized) {
+      CODEX_DELETED_ACCOUNT_TOMBSTONES.set(normalized, now);
+      CODEX_PROFILE_SYNC_IN_FLIGHT.delete(normalized);
+      CODEX_PROFILE_SYNC_LAST_ATTEMPT.delete(normalized);
+    }
+  }
+  setTimeout(pruneDeletedCodexAccountTombstones, CODEX_DELETED_ACCOUNT_TOMBSTONE_MS + 1000);
+};
+
+const clearCodexAccountDeletedTombstones = (accountIds: string[]) => {
+  for (const accountId of accountIds) {
+    CODEX_DELETED_ACCOUNT_TOMBSTONES.delete(accountId);
+  }
+};
+
+const filterDeletedCodexAccountTombstones = (accounts: CodexAccount[]) => {
+  pruneDeletedCodexAccountTombstones();
+  if (CODEX_DELETED_ACCOUNT_TOMBSTONES.size === 0) {
+    return accounts;
+  }
+  return accounts.filter((account) => !CODEX_DELETED_ACCOUNT_TOMBSTONES.has(account.id));
 };
 
 const versionPart = (value: unknown) =>
@@ -190,7 +228,9 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
       }
 
       try {
-        const accounts = await codexService.listCodexAccounts();
+        const accounts = filterDeletedCodexAccountTombstones(
+          await codexService.listCodexAccounts(),
+        );
         if (
           accounts.length === 0 &&
           get().accounts.length > 0 &&
@@ -284,34 +324,19 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
   },
   
   deleteAccount: async (accountId: string) => {
-    const previousCurrentAccountId = get().currentAccount?.id ?? null;
-    allowNextEmptyCodexAccountList = get().accounts.length <= 1;
-    allowNextEmptyCodexCurrentAccount = previousCurrentAccountId === accountId;
-    try {
-      await codexService.deleteCodexAccount(accountId);
-      await get().fetchAccounts();
-      await get().fetchCurrentAccount();
-    } finally {
-      allowNextEmptyCodexAccountList = false;
-      allowNextEmptyCodexCurrentAccount = false;
-    }
-    await emitAccountsChanged({
-      platformId: 'codex',
-      reason: 'delete',
-    });
-    const nextCurrentAccountId = get().currentAccount?.id ?? null;
-    if (previousCurrentAccountId !== nextCurrentAccountId) {
-      await emitCurrentAccountChanged({
-        platformId: 'codex',
-        accountId: nextCurrentAccountId,
-        reason: 'delete',
-      });
-    }
+    await get().deleteAccounts([accountId]);
   },
   
   deleteAccounts: async (accountIds: string[]) => {
+    const uniqueAccountIds = Array.from(
+      new Set(accountIds.map((accountId) => accountId.trim()).filter(Boolean)),
+    );
+    if (uniqueAccountIds.length === 0) {
+      return;
+    }
+
     const previousCurrentAccountId = get().currentAccount?.id ?? null;
-    const deleteIdSet = new Set(accountIds);
+    const deleteIdSet = new Set(uniqueAccountIds);
     allowNextEmptyCodexAccountList = get().accounts.every((account) =>
       deleteIdSet.has(account.id),
     );
@@ -319,9 +344,25 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
       ? deleteIdSet.has(previousCurrentAccountId)
       : false;
     try {
-      await codexService.deleteCodexAccounts(accountIds);
-      await get().fetchAccounts();
-      await get().fetchCurrentAccount();
+      await codexService.deleteCodexAccounts(uniqueAccountIds);
+      markCodexAccountsDeleted(uniqueAccountIds);
+      set((state) => {
+        const nextAccounts = state.accounts.filter((account) => !deleteIdSet.has(account.id));
+        const nextCurrentAccount =
+          state.currentAccount && deleteIdSet.has(state.currentAccount.id)
+            ? null
+            : state.currentAccount;
+
+        persistCodexAccountsCache(nextAccounts);
+        persistCodexCurrentAccountCache(nextCurrentAccount);
+
+        return {
+          accounts: nextAccounts,
+          currentAccount: nextCurrentAccount,
+          loading: false,
+          error: null,
+        };
+      });
     } finally {
       allowNextEmptyCodexAccountList = false;
       allowNextEmptyCodexCurrentAccount = false;
@@ -400,6 +441,7 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
   
   importFromLocal: async () => {
     const account = await codexService.importCodexFromLocal();
+    clearCodexAccountDeletedTombstones([account.id]);
     await get().fetchAccounts();
     await emitAccountsChanged({
       platformId: 'codex',
@@ -410,6 +452,7 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
   
   importFromJson: async (jsonContent: string) => {
     const accounts = await codexService.importCodexFromJson(jsonContent);
+    clearCodexAccountDeletedTombstones(accounts.map((account) => account.id));
     await get().fetchAccounts();
     await emitAccountsChanged({
       platformId: 'codex',

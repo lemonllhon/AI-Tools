@@ -2111,11 +2111,16 @@ pub fn error_account_auto_delete_reason(account: &CodexAccount) -> Option<String
 
 /// 删除单个账号
 pub fn delete_account_file(account_id: &str) -> Result<(), String> {
+    delete_account_file_without_cache_invalidation(account_id)?;
+    invalidate_list_accounts_cache();
+    Ok(())
+}
+
+fn delete_account_file_without_cache_invalidation(account_id: &str) -> Result<(), String> {
     let path = get_accounts_dir().join(format!("{}.json", account_id));
     if path.exists() {
         fs::remove_file(&path).map_err(|e| format!("删除文件失败: {}", e))?;
     }
-    invalidate_list_accounts_cache();
     Ok(())
 }
 
@@ -2647,31 +2652,91 @@ pub fn update_account_plan_type_in_index(
 
 /// 删除账号
 pub fn remove_account(account_id: &str) -> Result<(), String> {
+    remove_accounts(&[account_id.to_string()])
+}
+
+/// 批量删除账号
+pub fn remove_accounts(account_ids: &[String]) -> Result<(), String> {
+    let mut removed_account_ids = Vec::new();
+    let mut removed_account_id_set = HashSet::new();
+    for account_id in account_ids {
+        let account_id = account_id.trim();
+        if account_id.is_empty() {
+            continue;
+        }
+        if removed_account_id_set.insert(account_id.to_string()) {
+            removed_account_ids.push(account_id.to_string());
+        }
+    }
+
+    if removed_account_ids.is_empty() {
+        return Ok(());
+    }
+
     let mut index = load_account_index();
 
-    // 从索引中移除
-    index.accounts.retain(|a| a.id != account_id);
+    index
+        .accounts
+        .retain(|a| !removed_account_id_set.contains(&a.id));
 
-    // 如果删除的是当前账号，清除 current_account_id
-    if index.current_account_id.as_deref() == Some(account_id) {
+    if index
+        .current_account_id
+        .as_deref()
+        .map(|account_id| removed_account_id_set.contains(account_id))
+        .unwrap_or(false)
+    {
         index.current_account_id = None;
     }
 
     save_account_index(&index)?;
-    delete_account_file(account_id)?;
 
-    for mut account in list_accounts() {
-        if account.bound_oauth_account_id.as_deref() == Some(account_id) {
+    for account_id in &removed_account_ids {
+        delete_account_file_without_cache_invalidation(account_id)?;
+    }
+
+    let mut remaining_accounts = Vec::with_capacity(index.accounts.len());
+    for summary in &index.accounts {
+        let mut account = match load_account_with_summary(&summary.id, Some(summary)) {
+            Ok(Some(account)) => account,
+            Ok(None) => {
+                logger::log_warn(&format!(
+                    "删除 Codex 账号后跳过缺失账号详情: account_id={}",
+                    summary.id
+                ));
+                continue;
+            }
+            Err(error) => {
+                logger::log_warn(&format!(
+                    "删除 Codex 账号后读取账号详情失败: account_id={}, error={}",
+                    summary.id, error
+                ));
+                continue;
+            }
+        };
+
+        if account
+            .bound_oauth_account_id
+            .as_deref()
+            .map(|bound_id| removed_account_id_set.contains(bound_id))
+            .unwrap_or(false)
+        {
             account.bound_oauth_account_id = None;
             if let Err(err) = save_account(&account) {
                 logger::log_warn(&format!(
                     "清理 Codex API Key 账号 OAuth 绑定失败: api_account_id={}, removed_oauth_account_id={}, error={}",
-                    account.id, account_id, err
+                    account.id,
+                    removed_account_ids.join(","),
+                    err
                 ));
             }
         }
+        remaining_accounts.push(account);
     }
 
+    crate::modules::codex_local_access::evict_prepared_account_cache_for_ids(
+        removed_account_ids.clone(),
+    );
+    write_list_accounts_cache(&remaining_accounts);
     Ok(())
 }
 
@@ -2755,14 +2820,6 @@ pub fn remove_error_accounts() -> Result<Vec<String>, String> {
     let accounts = list_accounts_checked()?;
     let (_, removed_account_ids) = remove_error_accounts_from_loaded(accounts)?;
     Ok(removed_account_ids)
-}
-
-/// 批量删除账号
-pub fn remove_accounts(account_ids: &[String]) -> Result<(), String> {
-    for id in account_ids {
-        remove_account(id)?;
-    }
-    Ok(())
 }
 
 #[derive(Debug, Clone)]

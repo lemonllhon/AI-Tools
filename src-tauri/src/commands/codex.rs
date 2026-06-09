@@ -426,14 +426,36 @@ async fn run_codex_post_refresh_checks(app: &AppHandle) {
 
 /// 删除 Codex 账号
 #[tauri::command]
-pub fn delete_codex_account(account_id: String) -> Result<(), String> {
-    codex_account::remove_account(&account_id)
+pub async fn delete_codex_account(account_id: String) -> Result<(), String> {
+    codex_account::remove_account(&account_id)?;
+    if let Err(error) = codex_local_access::remove_deleted_account_references(
+        std::slice::from_ref(&account_id),
+        "delete",
+    )
+    .await
+    {
+        logger::log_warn(&format!(
+            "删除 Codex 账号后剥离 API 服务引用失败: account_id={}, error={}",
+            account_id, error
+        ));
+    }
+    Ok(())
 }
 
 /// 批量删除 Codex 账号
 #[tauri::command]
-pub fn delete_codex_accounts(account_ids: Vec<String>) -> Result<(), String> {
-    codex_account::remove_accounts(&account_ids)
+pub async fn delete_codex_accounts(account_ids: Vec<String>) -> Result<(), String> {
+    codex_account::remove_accounts(&account_ids)?;
+    if let Err(error) =
+        codex_local_access::remove_deleted_account_references(&account_ids, "delete").await
+    {
+        logger::log_warn(&format!(
+            "批量删除 Codex 账号后剥离 API 服务引用失败: count={}, error={}",
+            account_ids.len(),
+            error
+        ));
+    }
+    Ok(())
 }
 
 async fn refresh_imported_codex_accounts(

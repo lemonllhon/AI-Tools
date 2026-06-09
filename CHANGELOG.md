@@ -6,6 +6,15 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.52] - 2026-06-09
+### Changed
+- Optimized Codex account deletion for large account pools by batching index updates, account file removal, OAuth binding cleanup, and local API service reference cleanup.
+- Codex account overview now removes deleted accounts from the frontend state immediately instead of blocking on a full account reload.
+
+### Fixed
+- Deleted Codex accounts are now removed from local API service members, routing rules, bound OAuth references, prepared-account caches, and routing affinity state to prevent stale deleted accounts from slowing later requests.
+- In-flight Codex account list refreshes no longer reinsert recently deleted accounts into the overview.
+
 ## [0.0.51] - 2026-06-09
 ### Changed
 - Optimized Codex account overview loading for large account pools by deduplicating in-flight account requests, limiting heavy profile hydration, and avoiding oversized local cache writes.
