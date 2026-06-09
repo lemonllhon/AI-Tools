@@ -826,7 +826,7 @@ pub async fn refresh_all_quotas_with_progress(
 
     let results = stream::iter(accounts.into_iter().map(|account| {
         let account_id = account.id.clone();
-        let account_email = account.email.clone();
+        let account_email = Some(account.email.clone());
         let completed = Arc::clone(&completed);
         let success = Arc::clone(&success);
         let failed = Arc::clone(&failed);
