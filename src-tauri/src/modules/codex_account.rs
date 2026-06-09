@@ -64,6 +64,7 @@ const CODEX_PROACTIVE_REFRESH_INTERVAL_SECONDS: i64 = 8 * 24 * 60 * 60;
 const CODEX_AUTH_PROJECTION_FILE_NAME: &str = ".cockpit_codex_auth.json";
 const CODEX_AUTH_PROJECTION_WRITER: &str = "cockpit";
 const CODEX_LIST_ACCOUNTS_CACHE_TTL_MS: u64 = 800;
+pub const CODEX_DEACTIVATED_WORKSPACE_ERROR_CODE: &str = "deactivated_workspace";
 
 #[derive(Clone)]
 struct CodexListAccountsCacheEntry {
@@ -91,6 +92,132 @@ fn read_list_accounts_cache() -> Option<Vec<CodexAccount>> {
     }
 
     Some(entry.accounts.clone())
+}
+
+fn normalize_api_error_code(value: &str) -> Option<String> {
+    let trimmed = value
+        .trim()
+        .trim_matches(|ch| matches!(ch, '"' | '\'' | '`' | ',' | ';' | ']' | '}'));
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn extract_error_code_after_marker(text: &str, marker: &str) -> Option<String> {
+    let start = text.find(marker)?;
+    let code_start = start + marker.len();
+    let tail = &text[code_start..];
+    let end = tail
+        .find(|ch: char| ch == ',' || ch == ']' || ch == '}' || ch.is_whitespace())
+        .unwrap_or(tail.len());
+    normalize_api_error_code(&tail[..end])
+}
+
+fn find_codex_error_code_in_json(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::Object(map) => {
+            for key in ["code", "error_code", "errorCode"] {
+                if let Some(code) = map
+                    .get(key)
+                    .and_then(|item| item.as_str())
+                    .and_then(normalize_api_error_code)
+                {
+                    return Some(code);
+                }
+            }
+
+            for key in ["detail", "error", "cause"] {
+                if let Some(code) = map.get(key).and_then(find_codex_error_code_in_json) {
+                    return Some(code);
+                }
+            }
+
+            map.values().find_map(find_codex_error_code_in_json)
+        }
+        serde_json::Value::Array(items) => items.iter().find_map(find_codex_error_code_in_json),
+        serde_json::Value::String(text) => extract_codex_error_code_from_plain_text(text),
+        _ => None,
+    }
+}
+
+fn extract_json_fragment_error_code(text: &str) -> Option<String> {
+    let start = text.find('{')?;
+    let end = text.rfind('}')?;
+    if end <= start {
+        return None;
+    }
+
+    let fragment = &text[start..=end];
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(fragment) {
+        if let Some(code) = find_codex_error_code_in_json(&value) {
+            return Some(code);
+        }
+    }
+
+    let unescaped = fragment.replace("\\\"", "\"");
+    if unescaped != fragment {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&unescaped) {
+            if let Some(code) = find_codex_error_code_in_json(&value) {
+                return Some(code);
+            }
+        }
+    }
+
+    None
+}
+
+fn extract_codex_error_code_from_plain_text(text: &str) -> Option<String> {
+    extract_error_code_after_marker(text, "[error_code:")
+        .or_else(|| extract_error_code_after_marker(text, "error_code="))
+        .or_else(|| extract_error_code_after_marker(text, "errorCode="))
+        .or_else(|| extract_json_fragment_error_code(text))
+        .or_else(|| {
+            text.to_ascii_lowercase()
+                .contains(CODEX_DEACTIVATED_WORKSPACE_ERROR_CODE)
+                .then(|| CODEX_DEACTIVATED_WORKSPACE_ERROR_CODE.to_string())
+        })
+}
+
+pub fn extract_codex_error_code_from_text(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        if let Some(code) = find_codex_error_code_in_json(&value) {
+            return Some(code);
+        }
+    }
+
+    extract_codex_error_code_from_plain_text(trimmed)
+}
+
+pub fn is_deactivated_workspace_error_message(message: &str) -> bool {
+    extract_codex_error_code_from_text(message)
+        .map(|code| code.eq_ignore_ascii_case(CODEX_DEACTIVATED_WORKSPACE_ERROR_CODE))
+        .unwrap_or(false)
+        || message
+            .to_ascii_lowercase()
+            .contains(CODEX_DEACTIVATED_WORKSPACE_ERROR_CODE)
+}
+
+pub fn codex_account_error_reason_from_upstream_response(
+    status: u16,
+    body: &str,
+) -> Option<String> {
+    if status != reqwest::StatusCode::PAYMENT_REQUIRED.as_u16()
+        && !is_deactivated_workspace_error_message(body)
+    {
+        return None;
+    }
+    if !is_deactivated_workspace_error_message(body) {
+        return None;
+    }
+
+    Some("账号工作区已停用 (deactivated_workspace)".to_string())
 }
 
 fn write_list_accounts_cache(accounts: &[CodexAccount]) {
@@ -5922,6 +6049,31 @@ mod tests {
         });
 
         assert!(looks_like_sub2api_export(&value));
+    }
+
+    #[test]
+    fn extracts_deactivated_workspace_error_code() {
+        assert_eq!(
+            extract_codex_error_code_from_text(
+                r#"{"detail":{"code":"deactivated_workspace"}}"#
+            )
+            .as_deref(),
+            Some("deactivated_workspace")
+        );
+
+        assert_eq!(
+            extract_codex_error_code_from_text(
+                r#"{"error":"402: {\"detail\":{\"code\":\"deactivated_workspace\"}}"}"#
+            )
+            .as_deref(),
+            Some("deactivated_workspace")
+        );
+
+        assert!(codex_account_error_reason_from_upstream_response(
+            402,
+            r#"{"detail":{"code":"deactivated_workspace"}}"#
+        )
+        .is_some());
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use crate::models::codex::{CodexAccount, CodexQuota, CodexQuotaErrorInfo};
-use crate::modules::{codex_account, logger};
+use crate::modules::{codex_account, codex_local_access, logger};
 use futures::stream::{self, StreamExt};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
@@ -68,29 +68,7 @@ fn get_header_value(headers: &HeaderMap, name: &str) -> String {
 }
 
 fn extract_detail_code_from_body(body: &str) -> Option<String> {
-    let value: serde_json::Value = serde_json::from_str(body).ok()?;
-
-    if let Some(code) = value
-        .get("detail")
-        .and_then(|detail| detail.get("code"))
-        .and_then(|code| code.as_str())
-    {
-        return Some(code.to_string());
-    }
-
-    if let Some(code) = value
-        .get("error")
-        .and_then(|error| error.get("code"))
-        .and_then(|code| code.as_str())
-    {
-        return Some(code.to_string());
-    }
-
-    if let Some(code) = value.get("code").and_then(|code| code.as_str()) {
-        return Some(code.to_string());
-    }
-
-    None
+    codex_account::extract_codex_error_code_from_text(body)
 }
 
 fn extract_error_code_from_message(message: &str) -> Option<String> {
@@ -138,15 +116,48 @@ fn is_transient_quota_error_message(message: &str) -> bool {
 }
 
 fn write_quota_error(account: &mut CodexAccount, message: String) {
-    let code = extract_error_code_from_message(&message).or_else(|| {
-        is_transient_quota_error_message(&message)
-            .then(|| TRANSIENT_QUOTA_ERROR_CODE.to_string())
-    });
+    let code = codex_account::extract_codex_error_code_from_text(&message)
+        .or_else(|| extract_error_code_from_message(&message))
+        .or_else(|| {
+            is_transient_quota_error_message(&message)
+                .then(|| TRANSIENT_QUOTA_ERROR_CODE.to_string())
+        });
     account.quota_error = Some(CodexQuotaErrorInfo {
         code,
         message,
         timestamp: chrono::Utc::now().timestamp(),
     });
+}
+
+async fn delete_deactivated_workspace_account_if_needed(account: &CodexAccount, message: &str) {
+    if !codex_account::is_deactivated_workspace_error_message(message) {
+        return;
+    }
+
+    let reason = "账号工作区已停用 (deactivated_workspace)";
+    let account_id = account.id.clone();
+    let removed_account_ids = vec![account_id.clone()];
+    match codex_account::remove_account(&account_id) {
+        Ok(()) => {
+            logger::log_info(&format!(
+                "Codex 配额刷新检测到异常账号并已自动物理删除: account_id={}, email={}, reason={}",
+                account.id, account.email, reason
+            ));
+            if let Err(error) =
+                codex_local_access::remove_deleted_account_references(&removed_account_ids, reason)
+                    .await
+            {
+                logger::log_warn(&format!(
+                    "Codex 配额刷新删除异常账号后剥离 API 服务引用失败: account_id={}, error={}",
+                    account.id, error
+                ));
+            }
+        }
+        Err(error) => logger::log_warn(&format!(
+            "Codex 配额刷新检测到异常账号但自动物理删除失败: account_id={}, email={}, reason={}, error={}",
+            account.id, account.email, reason, error
+        )),
+    }
 }
 
 /// 使用率窗口（5小时/周）
@@ -703,6 +714,7 @@ async fn refresh_account_quota_once(account_id: &str) -> Result<CodexQuota, Stri
                     if let Err(save_err) = codex_account::save_account(&account) {
                         logger::log_warn(&format!("写入 Cockpit Api 配额错误失败: {}", save_err));
                     }
+                    delete_deactivated_workspace_account_if_needed(&account, &e).await;
                     return Err(e);
                 }
             };
@@ -739,6 +751,7 @@ async fn refresh_account_quota_once(account_id: &str) -> Result<CodexQuota, Stri
                 if let Err(save_err) = codex_account::save_account(&account) {
                     logger::log_warn(&format!("写入 Codex 配额错误失败: {}", save_err));
                 }
+                delete_deactivated_workspace_account_if_needed(&account, &message).await;
                 return Err(message);
             }
         }
@@ -751,6 +764,7 @@ async fn refresh_account_quota_once(account_id: &str) -> Result<CodexQuota, Stri
             if let Err(save_err) = codex_account::save_account(&account) {
                 logger::log_warn(&format!("写入 Codex 配额错误失败: {}", save_err));
             }
+            delete_deactivated_workspace_account_if_needed(&account, &e).await;
             return Err(e);
         }
     };

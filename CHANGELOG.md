@@ -6,6 +6,11 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.57] - 2026-06-10
+### Fixed
+- Codex local API access now treats `402 Payment Required` / `deactivated_workspace` responses as account errors, removes the affected account, and continues routing with the next available account.
+- Codex quota refresh now classifies deactivated workspace responses as account errors and removes the affected account from both the account pool and local API service references.
+
 ## [0.0.56] - 2026-06-09
 ### Added
 - The global refresh-all progress card can now be dragged and remembers its position.

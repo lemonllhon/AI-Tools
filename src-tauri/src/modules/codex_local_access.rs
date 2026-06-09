@@ -7212,6 +7212,11 @@ fn summarize_upstream_error(status: StatusCode, body: &str) -> String {
 }
 
 fn should_try_next_account(status: StatusCode, body: &str) -> bool {
+    if codex_account::codex_account_error_reason_from_upstream_response(status.as_u16(), body)
+        .is_some()
+    {
+        return true;
+    }
     if status == StatusCode::UNAUTHORIZED {
         return true;
     }
@@ -9300,6 +9305,20 @@ async fn proxy_request_with_account_pool(
                     format!("上游返回失败: {}", message).as_str(),
                 );
 
+                if let Some(reason) = codex_account::codex_account_error_reason_from_upstream_response(
+                    status.as_u16(),
+                    &body,
+                ) {
+                    invalidate_prepared_account(&account.id).await;
+                    delete_error_account_from_runtime(&account.id, reason.as_str()).await;
+                    last_status = status.as_u16();
+                    last_error = format!(
+                        "账号 {} 状态异常，已自动删除并切换下一个账号: {}",
+                        account.email, reason
+                    );
+                    break;
+                }
+
                 if let Some(retry_after) = parse_codex_retry_after(status, &body) {
                     set_model_cooldown(&account.id, &routing_hint.model_key, retry_after).await;
                     round_cooldown_wait = Some(match round_cooldown_wait {
@@ -10018,6 +10037,14 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
         assert!(should_try_next_account(
             StatusCode::BAD_GATEWAY,
             "gateway error"
+        ));
+    }
+
+    #[test]
+    fn retries_next_account_for_deactivated_workspace() {
+        assert!(should_try_next_account(
+            StatusCode::PAYMENT_REQUIRED,
+            r#"{"detail":{"code":"deactivated_workspace"}}"#
         ));
     }
 

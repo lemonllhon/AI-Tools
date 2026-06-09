@@ -6,6 +6,12 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.0.57] - 2026-06-10
+
+### 修复
+- Codex 本地 API 接入现在会把 `402 Payment Required` / `deactivated_workspace` 响应归类为账号异常，自动删除异常账号，并继续切换到下一个可用账号。
+- Codex 额度刷新现在会把工作区停用响应归类为账号异常，并同步从账号池和本地 API 服务引用中移除该账号。
+
 ## [0.0.56] - 2026-06-09
 
 ### 新增
