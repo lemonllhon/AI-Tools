@@ -19,6 +19,7 @@ import { useTranslation } from 'react-i18next';
 import { FileText, FolderOpen, RefreshCw, X } from 'lucide-react';
 import { SideNav } from './components/layout/SideNav';
 import { GlobalModal } from './components/GlobalModal';
+import { GlobalRefreshProgress } from './components/GlobalRefreshProgress';
 import type { QuickSettingsType } from './components/QuickSettingsPopover';
 import { Page } from './types/navigation';
 import { isPageVisible } from './types/platform';
@@ -2944,6 +2945,7 @@ function MainApp() {
         </Suspense>
       )}
       <GlobalModal />
+      <GlobalRefreshProgress />
 
       {/* 关闭确认对话框 */}
       {showCloseDialog && (

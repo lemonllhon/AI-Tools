@@ -752,6 +752,7 @@ export function CodexAccountsPage() {
     setSelected,
     toggleSelect,
     toggleSelectAll,
+    pruneSelectionToScope,
     tagFilter,
     groupByTag,
     setGroupByTag,
@@ -4795,10 +4796,11 @@ export function CodexAccountsPage() {
     setActiveGroupId(null);
   }, [setSelected]);
 
-  const handleRemoveFromGroup = useCallback(async () => {
-    if (!activeGroupId || selected.size === 0) return;
+  const handleRemoveFromGroup = useCallback(async (accountIds?: string[]) => {
+    const ids = accountIds ?? Array.from(selected);
+    if (!activeGroupId || ids.length === 0) return;
     try {
-      await removeAccountsFromCodexGroup(activeGroupId, Array.from(selected));
+      await removeAccountsFromCodexGroup(activeGroupId, ids);
       setSelected(new Set());
       await reloadCodexGroups();
     } catch (error) {
@@ -5485,7 +5487,17 @@ export function CodexAccountsPage() {
     () => filteredAccounts.map((account) => account.id),
     [filteredAccounts],
   );
-  const exportSelectionCount = getScopedSelectedCount(filteredIds);
+  const scopedSelectedIds = useMemo(
+    () => filteredIds.filter((id) => selected.has(id)),
+    [filteredIds, selected],
+  );
+  const scopedSelectedCount = getScopedSelectedCount(filteredIds);
+  const exportSelectionCount = scopedSelectedCount;
+
+  useEffect(() => {
+    pruneSelectionToScope(filteredIds);
+  }, [filteredIds, pruneSelectionToScope]);
+
   const pagination = usePagination({
     items: filteredAccounts,
     storageKey: buildPaginationPageSizeStorageKey("Codex"),
@@ -7868,7 +7880,7 @@ export function CodexAccountsPage() {
                 <FolderPlus size={14} />
                 {t("accounts.groups.addAccounts")}
               </button>
-              {selected.size > 0 && (
+              {scopedSelectedCount > 0 && (
                 <>
                   <button
                     className="btn btn-secondary breadcrumb-remove-btn"
@@ -7876,15 +7888,15 @@ export function CodexAccountsPage() {
                     title={t("accounts.groups.moveToGroup")}
                   >
                     <FolderPlus size={14} />
-                    {t("accounts.groups.moveToGroup")} ({selected.size})
+                    {t("accounts.groups.moveToGroup")} ({scopedSelectedCount})
                   </button>
                   <button
                     className="btn btn-secondary breadcrumb-remove-btn"
-                    onClick={() => void handleRemoveFromGroup()}
+                    onClick={() => void handleRemoveFromGroup(scopedSelectedIds)}
                     title={t("accounts.groups.removeFromGroup")}
                   >
                     <LogOut size={14} />
-                    {t("accounts.groups.removeFromGroup")} ({selected.size})
+                    {t("accounts.groups.removeFromGroup")} ({scopedSelectedCount})
                   </button>
                 </>
               )}
@@ -8141,7 +8153,7 @@ export function CodexAccountsPage() {
               >
                 <Upload size={14} />
               </button>
-              {selected.size > 0 && (
+              {scopedSelectedCount > 0 && (
                 <>
                   <button
                     className="btn btn-secondary icon-only"
@@ -8156,8 +8168,8 @@ export function CodexAccountsPage() {
                   </button>
                   <button
                     className="btn btn-danger icon-only"
-                    onClick={handleBatchDelete}
-                    title={`${t("common.delete", "删除")} (${selected.size})`}
+                    onClick={() => handleBatchDelete(filteredIds)}
+                    title={`${t("common.delete", "删除")} (${scopedSelectedCount})`}
                   >
                     <Trash2 size={14} />
                   </button>
@@ -10734,7 +10746,7 @@ export function CodexAccountsPage() {
           <CodexAddToGroupModal
             isOpen={showAddToCodexGroupModal}
             onClose={() => setShowAddToCodexGroupModal(false)}
-            accountIds={Array.from(selected)}
+            accountIds={scopedSelectedIds}
             sourceGroupId={activeGroupId ?? undefined}
             onAdded={reloadCodexGroups}
           />

@@ -41,6 +41,7 @@ import {
 } from 'lucide-react'
 import { useTranslation, Trans } from 'react-i18next'
 import { useAccountStore } from '../stores/useAccountStore'
+import { useGlobalRefreshProgressStore } from '../stores/useGlobalRefreshProgressStore'
 import * as accountService from '../services/accountService'
 import { FingerprintWithStats, Account } from '../types/account'
 import { Page } from '../types/navigation'
@@ -375,13 +376,17 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
   const [showAddModal, setShowAddModal] = useState(false)
   const [addTab, setAddTab] = useState<'oauth' | 'token' | 'import'>('oauth')
   const [refreshing, setRefreshing] = useState<Set<string>>(new Set())
-  const [refreshingAll, setRefreshingAll] = useState(false)
   const [switching, setSwitching] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
   const [refreshWarnings, setRefreshWarnings] = useState<
     Record<string, { kind: 'auth' | 'error'; message: string }>
   >({})
   const [refreshResult, setRefreshResult] = useState<Record<string, 'success' | 'error'>>({})
+  const globalRefreshTask = useGlobalRefreshProgressStore((state) => state.task)
+  const startGlobalRefreshTask = useGlobalRefreshProgressStore((state) => state.startTask)
+  const updateGlobalRefreshTask = useGlobalRefreshProgressStore((state) => state.updateTask)
+  const finishGlobalRefreshTask = useGlobalRefreshProgressStore((state) => state.finishTask)
+  const refreshingAll = globalRefreshTask?.status === 'running'
   const [message, setMessage] = useState<{
     text: string
     tone?: 'error'
@@ -937,6 +942,35 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
     () => paginatedAccounts.map((account) => account.id),
     [paginatedAccounts]
   )
+  const filteredIds = useMemo(
+    () => filteredAccounts.map((account) => account.id),
+    [filteredAccounts]
+  )
+  const scopedSelectedIds = useMemo(
+    () => filteredIds.filter((id) => selected.has(id)),
+    [filteredIds, selected]
+  )
+  const scopedSelectedCount = scopedSelectedIds.length
+
+  useEffect(() => {
+    const scopeIdSet = new Set(filteredIds)
+    setSelected((prev) => {
+      if (prev.size === 0) return prev
+
+      let changed = false
+      const next = new Set<string>()
+      prev.forEach((id) => {
+        if (scopeIdSet.has(id)) {
+          next.add(id)
+        } else {
+          changed = true
+        }
+      })
+
+      return changed ? next : prev
+    })
+  }, [filteredIds])
+
   const paginatedGroupedAccounts = useMemo(
     () => buildPaginatedGroups(groupedAccounts, paginatedAccounts),
     [groupedAccounts, paginatedAccounts]
@@ -1278,24 +1312,70 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
   }
 
   const handleRefreshAll = async () => {
-    setRefreshingAll(true)
+    if (refreshingAll) return
+    const groupAccountIds = activeGroup ? new Set(activeGroup.accountIds) : null
+    const targetAccounts = groupAccountIds
+      ? accounts.filter((acc) => groupAccountIds.has(acc.id))
+      : accounts
+    const total = targetAccounts.length
+    const taskId = startGlobalRefreshTask({
+      platformId: 'antigravity',
+      label: 'Antigravity',
+      title: t('accounts.refreshAll'),
+      total,
+      message: t('messages.refreshingQuota', {
+        done: 0,
+        total,
+        defaultValue: '刷新配额中 {{done}}/{{total}}（可切换菜单，后台继续刷新）',
+      }),
+      autoPulse: !activeGroup,
+    })
     try {
       if (activeGroup) {
-        // 分组内刷新：只刷新该组的账号
-        const groupAccountIds = new Set(activeGroup.accountIds)
-        const groupAccounts = accounts.filter((acc) => groupAccountIds.has(acc.id))
+        let completed = 0
         await Promise.allSettled(
-          groupAccounts.map((acc) => refreshQuota(acc.id))
+          targetAccounts.map(async (acc) => {
+            try {
+              await refreshQuota(acc.id)
+            } finally {
+              completed += 1
+              updateGlobalRefreshTask(taskId, {
+                completed,
+                message: t('messages.refreshingQuota', {
+                  done: completed,
+                  total,
+                  defaultValue: '刷新配额中 {{done}}/{{total}}（可切换菜单，后台继续刷新）',
+                }),
+              })
+            }
+          })
         )
+        finishGlobalRefreshTask(taskId, {
+          status: 'success',
+          completed: total,
+          message: t('messages.quotaRefreshDone', '配额刷新完成'),
+        })
       } else {
         const stats = await refreshAllQuotas()
         setRefreshWarnings(buildWarningMapFromDetails(stats.details || []))
+        finishGlobalRefreshTask(taskId, {
+          status: 'success',
+          completed: stats.success ?? total,
+          message: t('messages.quotaRefreshDone', '配额刷新完成'),
+        })
       }
     } catch (e) {
       console.error(e)
+      finishGlobalRefreshTask(taskId, {
+        status: 'error',
+        completed: total,
+        message: t('accounts.refreshAllFailed', '批量刷新失败：{{error}}', {
+          error: String(e).replace(/^Error:\s*/, ''),
+        }),
+        error: String(e).replace(/^Error:\s*/, ''),
+      })
     } finally {
       await loadVerificationHistory()
-      setRefreshingAll(false)
     }
   }
 
@@ -1307,12 +1387,15 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
     })
   }
 
-  const handleBatchDelete = () => {
-    if (selected.size === 0) return
+  const handleBatchDelete = (scopeIds?: string[]) => {
+    const scopeIdSet = Array.isArray(scopeIds) ? new Set(scopeIds.filter(Boolean)) : null
+    const ids = Array.from(selected).filter((id) => !scopeIdSet || scopeIdSet.has(id))
+    if (ids.length === 0) return
+
     setDeleteConfirmError(null)
     setDeleteConfirm({
-      ids: Array.from(selected),
-      message: t('messages.batchDeleteConfirm', { count: selected.size })
+      ids,
+      message: t('messages.batchDeleteConfirm', { count: ids.length })
     })
   }
 
@@ -1906,17 +1989,12 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
   }
 
   const handleExport = async () => {
-    const visibleIdSet = new Set(filteredAccounts.map((account) => account.id))
-    const selectedVisibleIds = Array.from(selected).filter((id) => visibleIdSet.has(id))
-    const ids = selectedVisibleIds.length > 0 ? selectedVisibleIds : filteredAccounts.map((account) => account.id)
+    const ids = scopedSelectedIds.length > 0 ? scopedSelectedIds : filteredIds
     if (ids.length === 0) return
     await exportModal.startExport(ids)
   }
 
-  const exportSelectionCount = filteredAccounts.reduce(
-    (count, account) => count + (selected.has(account.id) ? 1 : 0),
-    0,
-  )
+  const exportSelectionCount = scopedSelectedCount
 
   const toggleSelect = (id: string) => {
     const next = new Set(selected)
@@ -1940,9 +2018,10 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
   }
 
   // 从当前分组中移除选中账号
-  const handleRemoveFromGroup = async () => {
-    if (!activeGroupId || selected.size === 0) return
-    await removeAccountsFromGroup(activeGroupId, Array.from(selected))
+  const handleRemoveFromGroup = async (accountIds?: string[]) => {
+    const ids = accountIds ?? Array.from(selected)
+    if (!activeGroupId || ids.length === 0) return
+    await removeAccountsFromGroup(activeGroupId, ids)
     setSelected(new Set())
     await reloadAccountGroups()
   }
@@ -3283,7 +3362,7 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
               {activeGroup.name}
               <span className="breadcrumb-count">({filteredAccounts.length})</span>
             </span>
-            {selected.size > 0 && (
+            {scopedSelectedCount > 0 && (
               <>
                 <button
                   className="btn btn-secondary breadcrumb-remove-btn"
@@ -3299,19 +3378,19 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
                   title={t('accounts.groups.moveToGroup')}
                 >
                   <FolderPlus size={14} />
-                  {t('accounts.groups.moveToGroup')} ({selected.size})
+                  {t('accounts.groups.moveToGroup')} ({scopedSelectedCount})
                 </button>
                 <button
                   className="btn btn-secondary breadcrumb-remove-btn"
-                  onClick={handleRemoveFromGroup}
+                  onClick={() => void handleRemoveFromGroup(scopedSelectedIds)}
                   title={t('accounts.groups.removeFromGroup')}
                 >
                   <LogOut size={14} />
-                  {t('accounts.groups.removeFromGroup')} ({selected.size})
+                  {t('accounts.groups.removeFromGroup')} ({scopedSelectedCount})
                 </button>
               </>
             )}
-            {selected.size === 0 && (
+            {scopedSelectedCount === 0 && (
               <button
                 className="btn btn-secondary breadcrumb-remove-btn"
                 onClick={() => setGroupQuickAddGroupId(activeGroup.id)}
@@ -3497,7 +3576,7 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
             >
               <Upload size={14} />
             </button>
-            {selected.size > 0 && (
+            {scopedSelectedCount > 0 && (
               <>
                 <button
                   className="btn btn-secondary icon-only"
@@ -3509,9 +3588,9 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
                 </button>
                 <button
                   className="btn btn-danger icon-only"
-                  onClick={handleBatchDelete}
-                  title={`${t('common.delete')} (${selected.size})`}
-                  aria-label={`${t('common.delete')} (${selected.size})`}
+                  onClick={() => handleBatchDelete(filteredIds)}
+                  title={`${t('common.delete')} (${scopedSelectedCount})`}
+                  aria-label={`${t('common.delete')} (${scopedSelectedCount})`}
                 >
                   <Trash2 size={14} />
                 </button>
@@ -4654,7 +4733,7 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
       <AddToGroupModal
         isOpen={showAddToGroupModal}
         onClose={() => setShowAddToGroupModal(false)}
-        accountIds={Array.from(selected)}
+        accountIds={scopedSelectedIds}
         sourceGroupId={activeGroupId || undefined}
         onAdded={async () => {
           await reloadAccountGroups()

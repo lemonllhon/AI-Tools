@@ -17,6 +17,7 @@ import {
   type RefObject,
   type Dispatch,
   type SetStateAction,
+  type MouseEvent as ReactMouseEvent,
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
@@ -52,6 +53,7 @@ import {
   setAccountsOverviewFilterPersistenceEnabled,
   writeAccountsOverviewFilterField,
 } from '../utils/accountsOverviewFilterPersistence';
+import { useGlobalRefreshProgressStore } from '../stores/useGlobalRefreshProgressStore';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -88,6 +90,7 @@ export type ExternalImportProgressState = {
 };
 export type ViewMode = 'grid' | 'list';
 export type SortDirection = 'asc' | 'desc';
+type BatchDeleteScope = string[] | ReactMouseEvent<HTMLElement>;
 
 /** 各平台需要提供的 OAuth 服务函数 */
 export interface OAuthService {
@@ -609,6 +612,7 @@ export interface UseProviderAccountsPageReturn {
   setSelected: Dispatch<SetStateAction<Set<string>>>;
   toggleSelect: (id: string) => void;
   toggleSelectAll: (filteredIds: string[]) => void;
+  pruneSelectionToScope: (scopeIds: string[]) => void;
 
   // Tags
   tagFilter: string[];
@@ -643,7 +647,7 @@ export interface UseProviderAccountsPageReturn {
   handleRefresh: (accountId: string) => Promise<void>;
   handleRefreshAll: () => Promise<void>;
   handleDelete: (accountId: string) => void;
-  handleBatchDelete: () => void;
+  handleBatchDelete: (scopeIdsOrEvent?: BatchDeleteScope) => void;
   deleteConfirm: { ids: string[]; message: string } | null;
   deleteConfirmError: string | null;
   deleteConfirmErrorScrollKey: number;
@@ -781,6 +785,7 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
     () => normalizeProviderPagePlatformId(platformKey),
     [platformKey],
   );
+  const refreshProgressPlatformId = platformId ?? platformKey.toLowerCase();
 
   const {
     accounts,
@@ -954,9 +959,9 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
       if (scopedIds.length === 0) {
         return;
       }
-      const allSelected = scopedIds.every((id) => selected.has(id));
       setSelected((prev) => {
         const next = new Set(prev);
+        const allSelected = scopedIds.every((id) => next.has(id));
         if (allSelected) {
           scopedIds.forEach((id) => next.delete(id));
         } else {
@@ -965,8 +970,27 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
         return next;
       });
     },
-    [selected],
+    [],
   );
+
+  const pruneSelectionToScope = useCallback((scopeIds: string[]) => {
+    const scopeIdSet = new Set(scopeIds.filter(Boolean));
+    setSelected((prev) => {
+      if (prev.size === 0) return prev;
+
+      let changed = false;
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (scopeIdSet.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      });
+
+      return changed ? next : prev;
+    });
+  }, []);
 
   // ─── Tags ─────────────────────────────────────────────────────────────
   const [tagFilter, setTagFilter] = useState<string[]>(() => {
@@ -1134,7 +1158,6 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
 
   // ─── CRUD ─────────────────────────────────────────────────────────────
   const [refreshing, setRefreshing] = useState<string | null>(null);
-  const [refreshingAll, setRefreshingAll] = useState(false);
   const [injecting, setInjecting] = useState<string | null>(null);
   const [deleteConfirm, rawSetDeleteConfirm] = useState<{
     ids: string[];
@@ -1147,6 +1170,10 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
   } = useModalErrorState();
   const [deleting, setDeleting] = useState(false);
   const [message, setMessage] = useState<{ text: string; tone?: 'error' | 'success' } | null>(null);
+  const globalRefreshTask = useGlobalRefreshProgressStore((state) => state.task);
+  const startGlobalRefreshTask = useGlobalRefreshProgressStore((state) => state.startTask);
+  const finishGlobalRefreshTask = useGlobalRefreshProgressStore((state) => state.finishTask);
+  const refreshingAll = globalRefreshTask?.status === 'running';
   const setDeleteConfirm = useCallback((value: { ids: string[]; message: string } | null) => {
     setDeleteConfirmError(null);
     rawSetDeleteConfirm(value);
@@ -1186,14 +1213,47 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
   );
 
   const handleRefreshAll = useCallback(async () => {
-    setRefreshingAll(true);
+    if (refreshingAll) return;
+    const total = accounts.length;
+    const taskId = startGlobalRefreshTask({
+      platformId: refreshProgressPlatformId,
+      label: platformKey,
+      title: t('common.shared.refreshAll', '刷新全部'),
+      total,
+      message: t('messages.refreshingQuota', {
+        done: 0,
+        total,
+        defaultValue: '刷新配额中 {{done}}/{{total}}（可切换菜单，后台继续刷新）',
+      }),
+    });
     try {
       await refreshAllTokens();
+      finishGlobalRefreshTask(taskId, {
+        status: 'success',
+        completed: total,
+        message: t('messages.quotaRefreshDone', '配额刷新完成'),
+      });
     } catch (e) {
       console.error(e);
+      finishGlobalRefreshTask(taskId, {
+        status: 'error',
+        completed: total,
+        message: t('accounts.refreshAllFailed', '批量刷新失败：{{error}}', {
+          error: String(e).replace(/^Error:\s*/, ''),
+        }),
+        error: String(e).replace(/^Error:\s*/, ''),
+      });
     }
-    setRefreshingAll(false);
-  }, [refreshAllTokens]);
+  }, [
+    accounts.length,
+    finishGlobalRefreshTask,
+    platformKey,
+    refreshProgressPlatformId,
+    refreshAllTokens,
+    refreshingAll,
+    startGlobalRefreshTask,
+    t,
+  ]);
 
   const handleDelete = useCallback(
     (accountId: string) => {
@@ -1205,11 +1265,16 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
     [t],
   );
 
-  const handleBatchDelete = useCallback(() => {
-    if (selected.size === 0) return;
+  const handleBatchDelete = useCallback((scopeIdsOrEvent?: BatchDeleteScope) => {
+    const scopeIdSet = Array.isArray(scopeIdsOrEvent)
+      ? new Set(scopeIdsOrEvent.filter(Boolean))
+      : null;
+    const ids = Array.from(selected).filter((id) => !scopeIdSet || scopeIdSet.has(id));
+    if (ids.length === 0) return;
+
     setDeleteConfirm({
-      ids: Array.from(selected),
-      message: t('messages.batchDeleteConfirm', { count: selected.size }),
+      ids,
+      message: t('messages.batchDeleteConfirm', { count: ids.length }),
     });
   }, [selected, t]);
 
@@ -2397,6 +2462,7 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
     setSelected,
     toggleSelect,
     toggleSelectAll,
+    pruneSelectionToScope,
     tagFilter,
     setTagFilter,
     groupByTag,

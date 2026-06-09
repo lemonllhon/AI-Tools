@@ -42,6 +42,7 @@ import {
 } from '../components/platform/PlatformOverviewTabsHeader';
 import { QoderInstancesContent } from './QoderInstancesPage';
 import { useQoderAccountStore } from '../stores/useQoderAccountStore';
+import { useGlobalRefreshProgressStore } from '../stores/useGlobalRefreshProgressStore';
 import * as qoderService from '../services/qoderService';
 import {
   QoderAccount,
@@ -315,7 +316,10 @@ export function QoderAccountsPage() {
   const handlePrepareOauthRef = useRef<(() => Promise<void>) | undefined>(undefined);
   const [message, setMessage] = useState<{ text: string; tone?: 'error' } | null>(null);
   const [refreshing, setRefreshing] = useState<string | null>(null);
-  const [refreshingAll, setRefreshingAll] = useState(false);
+  const globalRefreshTask = useGlobalRefreshProgressStore((state) => state.task);
+  const startGlobalRefreshTask = useGlobalRefreshProgressStore((state) => state.startTask);
+  const finishGlobalRefreshTask = useGlobalRefreshProgressStore((state) => state.finishTask);
+  const refreshingAll = globalRefreshTask?.status === 'running';
   const [injecting, setInjecting] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [showTagModal, setShowTagModal] = useState<string | null>(null);
@@ -796,10 +800,31 @@ export function QoderAccountsPage() {
     () => buildPaginatedGroups(groupedAccounts, paginatedAccounts),
     [groupedAccounts, paginatedAccounts],
   );
-  const visibleSelectedCount = useMemo(
-    () => filteredIds.filter((id) => selected.has(id)).length,
+  const scopedSelectedIds = useMemo(
+    () => filteredIds.filter((id) => selected.has(id)),
     [filteredIds, selected],
   );
+  const visibleSelectedCount = scopedSelectedIds.length;
+
+  useEffect(() => {
+    const scopeIdSet = new Set(filteredIds);
+    setSelected((prev) => {
+      if (prev.size === 0) return prev;
+
+      let changed = false;
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (scopeIdSet.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      });
+
+      return changed ? next : prev;
+    });
+  }, [filteredIds]);
+
   const allSelected = isEveryIdSelected(selected, paginatedIds);
 
   const toggleSelect = useCallback((id: string) => {
@@ -854,19 +879,48 @@ export function QoderAccountsPage() {
 
   const handleRefreshAll = useCallback(async () => {
     if (refreshingAll) return;
-    setRefreshingAll(true);
+    const total = accounts.length;
+    const taskId = startGlobalRefreshTask({
+      platformId: 'qoder',
+      label: 'Qoder',
+      title: t('accounts.actions.refreshAll', '刷新全部'),
+      total,
+      message: t('messages.refreshingQuota', {
+        done: 0,
+        total,
+        defaultValue: '刷新配额中 {{done}}/{{total}}（可切换菜单，后台继续刷新）',
+      }),
+    });
     try {
       await store.refreshAllTokens();
+      finishGlobalRefreshTask(taskId, {
+        status: 'success',
+        completed: total,
+        message: t('messages.quotaRefreshDone', '配额刷新完成'),
+      });
       setMessage({ text: t('accounts.refreshAllSuccess', '已刷新全部账号') });
     } catch (error) {
+      finishGlobalRefreshTask(taskId, {
+        status: 'error',
+        completed: total,
+        message: t('accounts.refreshAllFailed', '批量刷新失败：{{error}}', {
+          error: String(error).replace(/^Error:\s*/, ''),
+        }),
+        error: String(error).replace(/^Error:\s*/, ''),
+      });
       setMessage({
         tone: 'error',
         text: t('accounts.refreshAllFailed', '批量刷新失败：{{error}}', { error: String(error) }),
       });
-    } finally {
-      setRefreshingAll(false);
     }
-  }, [refreshingAll, store, t]);
+  }, [
+    accounts.length,
+    finishGlobalRefreshTask,
+    refreshingAll,
+    startGlobalRefreshTask,
+    store,
+    t,
+  ]);
 
   const handleSwitch = useCallback(
     async (accountId: string) => {
@@ -2085,12 +2139,12 @@ export function QoderAccountsPage() {
               >
                 <Upload size={14} />
               </button>
-              {selected.size > 0 && (
+              {visibleSelectedCount > 0 && (
                 <button
                   className="btn btn-danger icon-only"
-                  onClick={() => void handleDeleteAccounts(Array.from(selected))}
+                  onClick={() => void handleDeleteAccounts(scopedSelectedIds)}
                   disabled={deleting}
-                  title={t('accounts.actions.deleteSelected', '删除选中')}
+                  title={`${t('accounts.actions.deleteSelected', '删除选中')} (${visibleSelectedCount})`}
                 >
                   <Trash2 size={14} />
                 </button>

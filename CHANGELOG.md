@@ -6,6 +6,15 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.54] - 2026-06-09
+### Added
+- Added a global refresh-all progress indicator that stays visible while switching between menus.
+
+### Fixed
+- Account list selection is now pruned when filters change, so batch delete and group actions only apply to the currently filtered scope.
+- Qoder, Antigravity, and Codex account batch delete buttons now use the visible selected account count and scoped selected IDs.
+- Codex account deletion now treats already-missing account files as a successful idempotent delete instead of failing with an OS file-not-found error.
+
 ## [0.0.53] - 2026-06-09
 ### Added
 - Added a Codex account overview filter for accounts whose 5-hour primary quota, or single available quota window, is 0.

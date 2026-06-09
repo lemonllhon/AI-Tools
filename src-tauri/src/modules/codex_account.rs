@@ -2118,8 +2118,16 @@ pub fn delete_account_file(account_id: &str) -> Result<(), String> {
 
 fn delete_account_file_without_cache_invalidation(account_id: &str) -> Result<(), String> {
     let path = get_accounts_dir().join(format!("{}.json", account_id));
-    if path.exists() {
-        fs::remove_file(&path).map_err(|e| format!("删除文件失败: {}", e))?;
+    match fs::remove_file(&path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            logger::log_warn(&format!(
+                "删除 Codex 账号文件时文件已不存在，按已删除处理: account_id={}, path={}",
+                account_id,
+                path.display()
+            ));
+        }
+        Err(error) => return Err(format!("删除文件失败: {}", error)),
     }
     Ok(())
 }
