@@ -431,6 +431,7 @@ fn now_ms() -> i64 {
 fn is_prepared_account_cache_valid(entry: &CachedPreparedAccount, now: i64) -> bool {
     let within_ttl = now.saturating_sub(entry.cached_at_ms) <= PREPARED_ACCOUNT_CACHE_TTL_MS;
     within_ttl
+        && is_local_access_account_healthy(&entry.account)
         && (entry.account.is_api_key_auth()
             || !codex_oauth::is_token_expired(&entry.account.tokens.access_token))
 }
@@ -2649,6 +2650,7 @@ fn build_ordered_account_ids(
 fn partition_account_ids_for_source_mode(
     account_ids: &[String],
     source_mode: CodexLocalAccessSourceMode,
+    restrict_free_accounts: bool,
 ) -> (Vec<String>, Vec<String>) {
     let mut provider_account_ids = Vec::new();
     let mut pool_account_ids = Vec::new();
@@ -2656,11 +2658,13 @@ fn partition_account_ids_for_source_mode(
     for account_id in account_ids {
         let account = try_get_cached_account_for_routing(account_id)
             .or_else(|| codex_account::load_account(account_id));
-        if account
-            .as_ref()
-            .map(is_new_api_provider_account)
-            .unwrap_or(false)
-        {
+        let Some(account) = account else {
+            continue;
+        };
+        if !is_local_access_usable_account(&account, restrict_free_accounts) {
+            continue;
+        }
+        if is_new_api_provider_account(&account) {
             provider_account_ids.push(account_id.clone());
         } else {
             pool_account_ids.push(account_id.clone());
@@ -2685,7 +2689,11 @@ async fn resolve_route_account_ids_for_source_mode(
     cache_provider_runtime_accounts(&provider_runtime_accounts).await;
 
     let (mut account_provider_ids, account_pool_ids) =
-        partition_account_ids_for_source_mode(&collection.account_ids, CodexLocalAccessSourceMode::Hybrid);
+        partition_account_ids_for_source_mode(
+            &collection.account_ids,
+            CodexLocalAccessSourceMode::Hybrid,
+            collection.restrict_free_accounts,
+        );
     provider_account_ids.append(&mut account_provider_ids);
 
     let mut deduped_provider_ids = Vec::new();
@@ -4363,7 +4371,9 @@ fn collection_has_available_provider_source(collection: &CodexLocalAccessCollect
         try_get_cached_account_for_routing(account_id)
             .or_else(|| codex_account::load_account(account_id))
             .as_ref()
-            .map(is_new_api_provider_account)
+            .map(|account| {
+                is_local_access_account_healthy(account) && is_new_api_provider_account(account)
+            })
             .unwrap_or(false)
     })
 }
@@ -4417,6 +4427,42 @@ fn is_local_access_eligible_account(account: &CodexAccount, restrict_free_accoun
     true
 }
 
+fn local_access_account_unusable_reason(account: &CodexAccount) -> Option<String> {
+    codex_account::error_account_auto_delete_reason(account)
+}
+
+fn is_local_access_account_healthy(account: &CodexAccount) -> bool {
+    local_access_account_unusable_reason(account).is_none()
+}
+
+fn is_local_access_usable_account(account: &CodexAccount, restrict_free_accounts: bool) -> bool {
+    is_local_access_eligible_account(account, restrict_free_accounts)
+        && is_local_access_account_healthy(account)
+}
+
+fn delete_error_accounts_from_store(accounts: &[CodexAccount]) {
+    let mut deleted_account_ids = Vec::new();
+    for account in accounts {
+        let Some(reason) = codex_account::error_account_auto_delete_reason(account) else {
+            continue;
+        };
+        match codex_account::remove_account(&account.id) {
+            Ok(_) => {
+                logger::log_info(&format!(
+                    "Codex API 服务清理时已物理删除 error 账号: account_id={}, email={}, reason={}",
+                    account.id, account.email, reason
+                ));
+                deleted_account_ids.push(account.id.clone());
+            }
+            Err(error) => logger::log_warn(&format!(
+                "Codex API 服务清理 error 账号失败: account_id={}, email={}, reason={}, error={}",
+                account.id, account.email, reason, error
+            )),
+        }
+    }
+    evict_prepared_account_cache_for_ids(deleted_account_ids);
+}
+
 fn sanitize_collection(
     collection: &mut CodexLocalAccessCollection,
 ) -> Result<(bool, HashSet<String>, Vec<String>), String> {
@@ -4441,16 +4487,16 @@ fn sanitize_collection(
     }
 
     let accounts = codex_account::list_accounts_checked()?;
+    delete_error_accounts_from_store(&accounts);
     let valid_bound_oauth_account_ids: HashSet<String> = accounts
         .iter()
         .filter(|account| !account.is_api_key_auth())
+        .filter(|account| is_local_access_account_healthy(account))
         .map(|account| account.id.clone())
         .collect();
     let eligible_account_ids: Vec<String> = accounts
         .iter()
-        .filter(|account| {
-            is_local_access_eligible_account(account, collection.restrict_free_accounts)
-        })
+        .filter(|account| is_local_access_usable_account(account, collection.restrict_free_accounts))
         .map(|account| account.id.clone())
         .collect();
     let valid_account_ids: HashSet<String> = eligible_account_ids.iter().cloned().collect();
@@ -4595,6 +4641,91 @@ fn format_codex_app_speed_label(speed: &CodexAppSpeed) -> &'static str {
     match speed {
         CodexAppSpeed::Standard => "standard",
         CodexAppSpeed::Fast | CodexAppSpeed::Flex => "2x",
+    }
+}
+
+async fn remove_local_access_account_from_runtime(account_id: &str, reason: &str) {
+    let account_id = account_id.trim();
+    if account_id.is_empty() {
+        return;
+    }
+
+    let next_collection = {
+        let mut runtime = gateway_runtime().lock().await;
+        let Some(collection) = runtime.collection.as_mut() else {
+            return;
+        };
+
+        let original_account_count = collection.account_ids.len();
+        collection
+            .account_ids
+            .retain(|candidate_id| candidate_id != account_id);
+        let removed_account = collection.account_ids.len() != original_account_count;
+
+        let original_rule_count = collection.custom_routing_rules.len();
+        collection
+            .custom_routing_rules
+            .retain(|rule| rule.account_id != account_id);
+        let removed_rule = collection.custom_routing_rules.len() != original_rule_count;
+
+        let cleared_bound_oauth =
+            collection.bound_oauth_account_id.as_deref() == Some(account_id);
+        if cleared_bound_oauth {
+            collection.bound_oauth_account_id = None;
+        }
+
+        if !removed_account && !removed_rule && !cleared_bound_oauth {
+            return;
+        }
+
+        collection.updated_at = now_ms();
+        let next_collection = collection.clone();
+        prune_prepared_account_cache(&mut runtime, now_ms());
+        next_collection
+    };
+
+    if let Err(error) = save_collection_to_disk(&next_collection) {
+        logger::log_warn(&format!(
+            "异常 Codex 账号自动剥离后保存 API 服务集合失败: account_id={}, error={}",
+            account_id, error
+        ));
+    }
+
+    if let Err(error) = sync_active_local_access_config_if_needed(&next_collection) {
+        logger::log_warn(&format!(
+            "异常 Codex 账号自动剥离后同步 API 服务配置失败: account_id={}, error={}",
+            account_id, error
+        ));
+    }
+
+    logger::log_info(&format!(
+        "Codex API 服务已自动剥离异常账号: account_id={}, reason={}",
+        account_id, reason
+    ));
+}
+
+async fn delete_error_account_from_runtime(account_id: &str, reason: &str) {
+    let account_id = account_id.trim();
+    if account_id.is_empty() {
+        return;
+    }
+
+    remove_local_access_account_from_runtime(account_id, reason).await;
+    evict_prepared_account_cache_for_account(account_id);
+
+    if is_provider_runtime_account_id(account_id) {
+        return;
+    }
+
+    match codex_account::remove_account(account_id) {
+        Ok(_) => logger::log_info(&format!(
+            "Codex API 服务已自动物理删除 error 账号: account_id={}, reason={}",
+            account_id, reason
+        )),
+        Err(error) => logger::log_warn(&format!(
+            "Codex API 服务自动物理删除 error 账号失败: account_id={}, reason={}, error={}",
+            account_id, reason, error
+        )),
     }
 }
 
@@ -5595,7 +5726,7 @@ pub async fn save_local_access_accounts(
 
     let valid_account_ids: HashSet<String> = codex_account::list_accounts_checked()?
         .into_iter()
-        .filter(|account| is_local_access_eligible_account(account, restrict_free_accounts))
+        .filter(|account| is_local_access_usable_account(account, restrict_free_accounts))
         .map(|account| account.id)
         .collect();
 
@@ -8667,13 +8798,49 @@ async fn proxy_request_with_account_pool(
                 continue;
             }
 
-            attempted_in_round = true;
-            attempts += 1;
-
             let mut account = match get_prepared_account(&account_id).await {
                 Ok(account) => account,
                 Err(err) => {
                     invalidate_prepared_account(&account_id).await;
+                    match codex_account::load_account(&account_id) {
+                        Some(account) => {
+                            if let Some(reason) = local_access_account_unusable_reason(&account) {
+                                delete_error_account_from_runtime(
+                                    &account_id,
+                                    reason.as_str(),
+                                )
+                                .await;
+                                log_codex_api_failure(
+                                    None,
+                                    Some(request),
+                                    None,
+                                    Some(account_id.as_str()),
+                                    Some(account.email.as_str()),
+                                    None,
+                                    format!("账号状态异常，已自动删除: {}", reason).as_str(),
+                                );
+                                last_error = format!("账号状态异常，已自动删除: {}", reason);
+                                continue;
+                            }
+                        }
+                        None => {
+                            remove_local_access_account_from_runtime(&account_id, "账号不存在")
+                                .await;
+                            log_codex_api_failure(
+                                None,
+                                Some(request),
+                                None,
+                                Some(account_id.as_str()),
+                                None,
+                                None,
+                                "账号不存在，已从本地接入服务自动剥离",
+                            );
+                            last_error = "账号不存在，已从本地接入服务自动剥离".to_string();
+                            continue;
+                        }
+                    }
+                    attempted_in_round = true;
+                    attempts += 1;
                     log_codex_api_failure(
                         None,
                         Some(request),
@@ -8688,7 +8855,29 @@ async fn proxy_request_with_account_pool(
                 }
             };
 
+            if let Some(reason) = local_access_account_unusable_reason(&account) {
+                invalidate_prepared_account(&account_id).await;
+                delete_error_account_from_runtime(&account_id, reason.as_str()).await;
+                log_codex_api_failure(
+                    None,
+                    Some(request),
+                    None,
+                    Some(account.id.as_str()),
+                    Some(account.email.as_str()),
+                    None,
+                    format!("账号状态异常，已自动删除: {}", reason).as_str(),
+                );
+                last_error = format!("账号状态异常，已自动删除: {}", reason);
+                continue;
+            }
+
             if account.is_api_key_auth() && !is_new_api_provider_account(&account) {
+                invalidate_prepared_account(&account_id).await;
+                remove_local_access_account_from_runtime(
+                    &account_id,
+                    "仅 New API API Key 账号支持加入本地接入",
+                )
+                .await;
                 log_codex_api_failure(
                     None,
                     Some(request),
@@ -8725,6 +8914,12 @@ async fn proxy_request_with_account_pool(
             }
             if collection.restrict_free_accounts && is_free_plan_type(account.plan_type.as_deref())
             {
+                invalidate_prepared_account(&account_id).await;
+                remove_local_access_account_from_runtime(
+                    &account_id,
+                    "Free 账号不支持加入本地接入",
+                )
+                .await;
                 log_codex_api_failure(
                     None,
                     Some(request),
@@ -8738,6 +8933,8 @@ async fn proxy_request_with_account_pool(
                 continue;
             }
 
+            attempted_in_round = true;
+            attempts += 1;
             last_account_id = Some(account.id.clone());
             last_account_email = Some(account.email.clone());
 
@@ -9239,14 +9436,17 @@ mod tests {
         is_websocket_upgrade_request,
         compare_routing_candidates, normalize_custom_routing_rules, parse_codex_retry_after,
         parse_responses_payload_from_upstream, prepare_gateway_request,
-        prepare_responses_websocket_request,
+        prepare_responses_websocket_request, is_local_access_account_healthy,
+        is_local_access_usable_account,
         resolve_supported_model_alias, build_openai_compatible_upstream_url,
         should_retry_single_account_upstream_status, should_treat_response_as_stream,
         should_try_next_account, websocket_accept_key, GatewayResponseAdapter, ParsedRequest,
         ResponseUsageCollector, ResponsesWebSocketRequest, ResponsesWebSocketSessionState,
         RoutingCandidate, SseWebSocketForwarder,
     };
-    use crate::models::codex::CodexAppSpeed;
+    use crate::models::codex::{
+        CodexAccount, CodexApiProviderMode, CodexAppSpeed, CodexQuotaErrorInfo, CodexTokens,
+    };
     use crate::models::codex_local_access::{
         CodexLocalAccessCustomRoutingRule, CodexLocalAccessRoutingStrategy,
     };
@@ -9254,6 +9454,59 @@ mod tests {
     use serde_json::{json, Value};
     use std::collections::HashMap;
     use tokio::time::Duration;
+
+    fn test_codex_oauth_account(id: &str) -> CodexAccount {
+        CodexAccount::new(
+            id.to_string(),
+            format!("{}@example.com", id),
+            CodexTokens {
+                id_token: "id-token".to_string(),
+                access_token: "access-token".to_string(),
+                refresh_token: Some("refresh-token".to_string()),
+            },
+        )
+    }
+
+    #[test]
+    fn local_access_rejects_reauth_and_quota_error_accounts() {
+        let mut reauth_account = test_codex_oauth_account("reauth");
+        reauth_account.requires_reauth = true;
+        reauth_account.reauth_reason = Some("需要重新登录".to_string());
+
+        assert!(!is_local_access_account_healthy(&reauth_account));
+        assert!(!is_local_access_usable_account(&reauth_account, false));
+
+        let mut quota_error_account = test_codex_oauth_account("quota-error");
+        quota_error_account.quota_error = Some(CodexQuotaErrorInfo {
+            code: Some("usage_error".to_string()),
+            message: "配额读取失败".to_string(),
+            timestamp: 1,
+        });
+
+        assert!(!is_local_access_account_healthy(&quota_error_account));
+        assert!(!is_local_access_usable_account(&quota_error_account, false));
+    }
+
+    #[test]
+    fn local_access_rejects_empty_credentials() {
+        let mut oauth_account = test_codex_oauth_account("empty-oauth");
+        oauth_account.tokens.access_token.clear();
+
+        assert!(!is_local_access_account_healthy(&oauth_account));
+
+        let api_key_account = CodexAccount::new_api_key(
+            "empty-api-key".to_string(),
+            "empty-api-key@example.com".to_string(),
+            String::new(),
+            CodexApiProviderMode::Custom,
+            Some("https://new-api.example.com/v1".to_string()),
+            Some("new_api".to_string()),
+            Some("New API".to_string()),
+        );
+
+        assert!(!is_local_access_account_healthy(&api_key_account));
+        assert!(!is_local_access_usable_account(&api_key_account, false));
+    }
 
     #[test]
     fn detects_responses_websocket_upgrade_request() {

@@ -2038,7 +2038,46 @@ pub fn save_account(account: &CodexAccount) -> Result<(), String> {
         serde_json::to_string_pretty(account).map_err(|e| format!("序列化失败: {}", e))?;
     write_string_atomic(&path, &content).map_err(|e| format!("写入账号详情失败: {}", e))?;
     invalidate_list_accounts_cache();
+    crate::modules::codex_local_access::evict_prepared_account_cache_for_account(&account.id);
     Ok(())
+}
+
+pub fn error_account_auto_delete_reason(account: &CodexAccount) -> Option<String> {
+    if account.requires_reauth {
+        return Some(
+            account
+                .reauth_reason
+                .clone()
+                .filter(|reason| !reason.trim().is_empty())
+                .unwrap_or_else(|| "账号需要重新登录".to_string()),
+        );
+    }
+
+    if let Some(quota_error) = account.quota_error.as_ref() {
+        return Some(if quota_error.message.trim().is_empty() {
+            "账号配额状态异常".to_string()
+        } else {
+            format!("账号配额状态异常: {}", quota_error.message)
+        });
+    }
+
+    if account.is_api_key_auth() {
+        if account
+            .openai_api_key
+            .as_deref()
+            .map(|api_key| api_key.trim().is_empty())
+            .unwrap_or(true)
+        {
+            return Some("API Key 为空".to_string());
+        }
+        return None;
+    }
+
+    if account.tokens.access_token.trim().is_empty() {
+        return Some("OAuth access_token 为空".to_string());
+    }
+
+    None
 }
 
 /// 删除单个账号
@@ -2557,6 +2596,25 @@ pub fn remove_account(account_id: &str) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+pub fn remove_error_accounts() -> Result<Vec<String>, String> {
+    let accounts = list_accounts_checked()?;
+    let mut removed_account_ids = Vec::new();
+
+    for account in accounts {
+        let Some(reason) = error_account_auto_delete_reason(&account) else {
+            continue;
+        };
+        remove_account(&account.id)?;
+        logger::log_info(&format!(
+            "已自动物理删除 Codex error 账号: account_id={}, email={}, reason={}",
+            account.id, account.email, reason
+        ));
+        removed_account_ids.push(account.id);
+    }
+
+    Ok(removed_account_ids)
 }
 
 /// 批量删除账号

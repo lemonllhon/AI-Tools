@@ -149,6 +149,7 @@ fn repair_codex_session_visibility_after_provider_change(
 /// 列出所有 Codex 账号
 #[tauri::command]
 pub fn list_codex_accounts() -> Result<Vec<CodexAccount>, String> {
+    codex_account::remove_error_accounts()?;
     codex_account::list_accounts_checked()
 }
 

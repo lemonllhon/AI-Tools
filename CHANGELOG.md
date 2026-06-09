@@ -6,6 +6,11 @@ All notable changes to Cockpit Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.50] - 2026-06-09
+### Changed
+- Codex account overview now automatically physically deletes error accounts and removes them from the local API service pool.
+- Codex local API service routing now skips deleted or unhealthy accounts and continues dispatching requests with remaining valid accounts.
+
 ## [0.0.49] - 2026-06-09
 ### Changed
 - Codex 2x speed indicators now use blue instead of yellow.
