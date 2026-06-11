@@ -9,7 +9,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [0.0.58] - 2026-06-11
 ### Changed
 - Linux AppImage builds now derive the default `tools` data directory from the `APPIMAGE` location first, preventing data from landing in the AppImage temporary mount directory.
-- The default data directory is now the `tools` folder next to the app; legacy `~/.antigravity_cockpit` is only used as a migration source, so deleting that old directory no longer affects new-version startup or continued use.
 
 ### Fixed
 - Codex API service startup no longer fails when the saved speed preference is corrupted; the app falls back to the default speed, repairs the preference file, and later user speed changes overwrite that repaired default.
