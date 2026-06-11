@@ -10,6 +10,8 @@
 
 ### 变更
 - Linux AppImage 下现在优先使用 `APPIMAGE` 所在目录推导默认 `tools` 数据目录，避免数据落到 AppImage 临时挂载目录。
+- Linux 系统安装路径不可写时会自动回退到 XDG 用户数据目录下的 `ai-lemon-tools/tools`，避免从 `/usr/bin` 推导出不可写的 `/usr/bin/tools`。
+- 默认数据目录统一为软件所在目录下的 `tools`；旧版 `~/.antigravity_cockpit` 仅作为迁移来源，删除该旧目录不会影响新版本启动或继续使用。
 
 ### 修复
 - Codex API 服务读取速度偏好失败时不再启动失败，会自动回退并修复为默认速度；用户之后重新设置速度时会覆盖该默认修复值。

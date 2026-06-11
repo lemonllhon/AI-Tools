@@ -23,6 +23,7 @@ const USER_CONFIG_FILE: &str = "config.json";
 
 /// 数据目录名
 const DATA_DIR: &str = "tools";
+const APP_CONFIG_DIR_NAME: &str = "ai-lemon-tools";
 
 /// 服务状态（写入共享文件供其他客户端读取）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -969,13 +970,61 @@ fn app_base_dir() -> Result<PathBuf, String> {
 }
 
 pub fn default_data_dir() -> Result<PathBuf, String> {
-    Ok(app_base_dir()?.join(DATA_DIR))
+    let base_dir = app_base_dir()?;
+    #[cfg(target_os = "linux")]
+    {
+        if is_linux_system_app_dir(&base_dir) {
+            return linux_user_data_dir();
+        }
+    }
+    Ok(base_dir.join(DATA_DIR))
+}
+
+#[cfg(target_os = "linux")]
+fn linux_user_data_dir() -> Result<PathBuf, String> {
+    if let Some(data_dir) = dirs::data_local_dir() {
+        return Ok(data_dir.join(APP_CONFIG_DIR_NAME).join(DATA_DIR));
+    }
+
+    let home = dirs::home_dir().ok_or("无法获取用户主目录")?;
+    Ok(home
+        .join(".local")
+        .join("share")
+        .join(APP_CONFIG_DIR_NAME)
+        .join(DATA_DIR))
+}
+
+#[cfg(target_os = "linux")]
+fn is_linux_system_app_dir(path: &Path) -> bool {
+    let normalized = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_string();
+    matches!(
+        normalized.as_str(),
+        "/bin" | "/sbin" | "/usr/bin" | "/usr/sbin" | "/usr/local/bin" | "/snap/bin" | "/app/bin"
+    )
 }
 
 pub fn get_data_dir() -> Result<PathBuf, String> {
     let data_dir = default_data_dir()?;
     if !data_dir.exists() {
-        fs::create_dir_all(&data_dir).map_err(|e| format!("创建数据目录失败: {}", e))?;
+        match fs::create_dir_all(&data_dir) {
+            Ok(()) => {}
+            Err(err) => {
+                #[cfg(target_os = "linux")]
+                {
+                    if err.kind() == std::io::ErrorKind::PermissionDenied {
+                        let fallback_dir = linux_user_data_dir()?;
+                        fs::create_dir_all(&fallback_dir)
+                            .map_err(|e| format!("创建数据目录失败: {}", e))?;
+                        return Ok(fallback_dir);
+                    }
+                }
+                return Err(format!("创建数据目录失败: {}", err));
+            }
+        }
     }
     Ok(data_dir)
 }

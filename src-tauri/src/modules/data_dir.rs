@@ -36,7 +36,38 @@ fn app_base_dir() -> Result<PathBuf, String> {
 }
 
 pub fn default_data_dir() -> Result<PathBuf, String> {
-    Ok(app_base_dir()?.join(DEFAULT_DATA_DIR_NAME))
+    let base_dir = app_base_dir()?;
+    #[cfg(target_os = "linux")]
+    {
+        if is_linux_system_app_dir(&base_dir) {
+            return linux_user_data_dir();
+        }
+    }
+    Ok(base_dir.join(DEFAULT_DATA_DIR_NAME))
+}
+
+#[cfg(target_os = "linux")]
+fn linux_user_data_dir() -> Result<PathBuf, String> {
+    if let Some(data_dir) = dirs::data_local_dir() {
+        return Ok(data_dir
+            .join(APP_CONFIG_DIR_NAME)
+            .join(DEFAULT_DATA_DIR_NAME));
+    }
+
+    let home = dirs::home_dir().ok_or("无法获取用户主目录")?;
+    Ok(home
+        .join(".local")
+        .join("share")
+        .join(APP_CONFIG_DIR_NAME)
+        .join(DEFAULT_DATA_DIR_NAME))
+}
+
+#[cfg(target_os = "linux")]
+fn is_linux_system_app_dir(path: &Path) -> bool {
+    matches!(
+        normalize_path_text(path).as_str(),
+        "/bin" | "/sbin" | "/usr/bin" | "/usr/sbin" | "/usr/local/bin" | "/snap/bin" | "/app/bin"
+    )
 }
 
 fn legacy_home_data_dir() -> Result<PathBuf, String> {
@@ -131,9 +162,25 @@ fn configured_data_dir() -> Result<Option<PathBuf>, String> {
 }
 
 pub fn get_data_dir() -> Result<PathBuf, String> {
-    let data_dir = configured_data_dir()?.unwrap_or(default_data_dir()?);
+    let configured = configured_data_dir()?;
+    let data_dir = configured.clone().unwrap_or(default_data_dir()?);
     if !data_dir.exists() {
-        fs::create_dir_all(&data_dir).map_err(|e| format!("创建数据目录失败: {}", e))?;
+        match fs::create_dir_all(&data_dir) {
+            Ok(()) => {}
+            Err(err) => {
+                #[cfg(target_os = "linux")]
+                {
+                    if configured.is_none() && err.kind() == std::io::ErrorKind::PermissionDenied {
+                        let fallback_dir = linux_user_data_dir()?;
+                        fs::create_dir_all(&fallback_dir)
+                            .map_err(|e| format!("创建数据目录失败: {}", e))?;
+                        merge_legacy_data_dirs_into(&fallback_dir);
+                        return Ok(fallback_dir);
+                    }
+                }
+                return Err(format!("创建数据目录失败: {}", err));
+            }
+        }
     }
     merge_legacy_data_dirs_into(&data_dir);
     Ok(data_dir)
