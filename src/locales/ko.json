@@ -1341,7 +1341,7 @@
       "importBtn": "가져오기",
       "oauthAction": "OAuth 인증",
       "fromExtension": "플러그인에서 가져오기",
-      "syncBadge": "Antigravity Cockpit 플러그인 계정 동기화",
+      "syncBadge": "AI Lemon Tools 플러그인 계정 동기화",
       "fromLocalDB": "로컬 DB에서 가져오기",
       "localDBDesc": "이 기기의 Antigravity IDE 클라이언트에서 로그인 계정 읽기",
       "toolsDescMigrate": "~/.antigravity_tools/에서 계정 마이그레이션",
@@ -1749,7 +1749,7 @@
     },
     "exportFormat": {
       "label": "내보내기 형식",
-      "cockpitTools": "AI Lemon Tools",
+      "aiLemonTools": "AI Lemon Tools",
       "sub2api": "sub2api 형식",
       "cpa": "cpa 형식",
       "downloadAll": "모두 다운로드",
@@ -3852,7 +3852,7 @@
       "backToCurrent": "돌아가기",
       "switchToThisAccount": "전환",
       "openDetails": "상세 열기",
-      "openCockpitTools": "AI Lemon Tools 열기"
+      "openAiLemonTools": "AI Lemon Tools 열기"
     },
     "empty": {
       "title": "계정 없음",

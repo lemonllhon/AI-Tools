@@ -89,7 +89,7 @@ const PLATFORM_ADAPTERS: Record<PlatformId, TransferAdapter> = {
   },
 };
 
-export const ACCOUNT_TRANSFER_SCHEMA = 'cockpit-tools.account-transfer';
+export const ACCOUNT_TRANSFER_SCHEMA = 'ai-lemon-tools.account-transfer';
 export const ACCOUNT_TRANSFER_VERSION = 1;
 
 export interface AccountTransferPlatformPayload {

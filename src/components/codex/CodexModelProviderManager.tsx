@@ -29,6 +29,7 @@ import {
   type CodexModelProviderApiKey,
   updateCodexModelProvider,
 } from "../../services/codexModelProviderService";
+import { getDataDirPath } from "../../services/accountService";
 import {
   CODEX_API_PROVIDER_CUSTOM_ID,
   CODEX_API_PROVIDER_PRESETS,
@@ -80,7 +81,7 @@ interface ProviderPreviewPaths {
 }
 
 const DEFAULT_PROVIDER_PREVIEW_PATHS: ProviderPreviewPaths = {
-  providerStorePath: "~/.antigravity_cockpit/codex_model_providers.json",
+  providerStorePath: "tools/codex_model_providers.json",
   codexConfigPath: "~/.codex/config.toml",
   codexAuthPath: "~/.codex/auth.json",
 };
@@ -166,10 +167,10 @@ export function CodexModelProviderManager({
 
     void (async () => {
       try {
-        const home = await homeDir();
+        const [dataDir, home] = await Promise.all([getDataDirPath(), homeDir()]);
         const [providerStorePath, codexConfigPath, codexAuthPath] =
           await Promise.all([
-            join(home, ".antigravity_cockpit", "codex_model_providers.json"),
+            join(dataDir, "codex_model_providers.json"),
             join(home, ".codex", "config.toml"),
             join(home, ".codex", "auth.json"),
           ]);

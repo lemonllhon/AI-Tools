@@ -4,8 +4,6 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 const DEFAULT_DATA_DIR_NAME: &str = "tools";
-const LEGACY_HOME_DATA_DIR_NAME: &str = ".antigravity_cockpit";
-const LEGACY_APP_DATA_DIR_NAME: &str = "com.antigravity.cockpit-tools";
 const APP_CONFIG_DIR_NAME: &str = "ai-lemon-tools";
 const DATA_DIR_OVERRIDE_FILE: &str = "data-dir.json";
 
@@ -70,11 +68,6 @@ fn is_linux_system_app_dir(path: &Path) -> bool {
     )
 }
 
-fn legacy_home_data_dir() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or("无法获取用户主目录")?;
-    Ok(home.join(LEGACY_HOME_DATA_DIR_NAME))
-}
-
 fn normalize_path_text(path: &Path) -> String {
     let normalized = path
         .to_string_lossy()
@@ -91,15 +84,6 @@ fn normalize_path_text(path: &Path) -> String {
     {
         normalized
     }
-}
-
-fn is_legacy_home_data_dir_path(path: &Path) -> bool {
-    let Ok(legacy_home_dir) = legacy_home_data_dir() else {
-        return false;
-    };
-
-    path_eq(path, &legacy_home_dir)
-        || normalize_path_text(path) == normalize_path_text(&legacy_home_dir)
 }
 
 #[cfg(target_os = "linux")]
@@ -170,9 +154,6 @@ fn configured_data_dir() -> Result<Option<PathBuf>, String> {
     }
 
     let configured = PathBuf::from(trimmed);
-    if is_legacy_home_data_dir_path(&configured) {
-        return Ok(None);
-    }
     #[cfg(target_os = "linux")]
     {
         if is_linux_system_tools_data_dir(&configured) {
@@ -247,17 +228,7 @@ fn path_nested(left: &Path, right: &Path) -> bool {
 }
 
 fn legacy_data_dir_candidates() -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-
-    if let Ok(legacy_home_dir) = legacy_home_data_dir() {
-        candidates.push(legacy_home_dir);
-    }
-
-    if let Some(data_local_dir) = dirs::data_local_dir() {
-        candidates.push(data_local_dir.join(LEGACY_APP_DATA_DIR_NAME));
-    }
-
-    candidates
+    Vec::new()
 }
 
 fn files_have_same_content(left: &Path, right: &Path) -> bool {

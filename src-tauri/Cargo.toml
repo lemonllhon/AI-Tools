@@ -1,5 +1,5 @@
 [package]
-name = "cockpit-tools"
+name = "ai-lemon-tools"
 version = "0.0.58"
 description = "AI Lemon Tools"
 authors = ["jlcodes"]
@@ -7,7 +7,7 @@ license = "CC-BY-NC-SA-4.0"
 edition = "2021"
 
 [lib]
-name = "antigravity_cockpit_tools_lib"
+name = "ai_lemon_tools_lib"
 crate-type = ["staticlib", "rlib"]
 
 [build-dependencies]

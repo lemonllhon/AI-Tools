@@ -687,7 +687,7 @@ fn build_auto_backup_zip_bytes(file_name: &str, content: &str) -> Result<Vec<u8>
         .map_err(|err| format!("自动备份 JSON 解析失败，无法生成 ZIP: {}", err))?;
     let platforms = collect_auto_backup_platforms_from_value(&root);
     let manifest = serde_json::json!({
-        "schema": "cockpit-tools.auto-backup-archive",
+        "schema": "ai-lemon-tools.auto-backup-archive",
         "version": 1,
         "source_file_name": file_name,
         "platforms": &platforms,

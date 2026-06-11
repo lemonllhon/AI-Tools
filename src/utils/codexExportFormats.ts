@@ -1,6 +1,6 @@
 import type { CodexAccount } from '../types/codex';
 
-export type CodexExportFormat = 'cockpit_tools' | 'sub2api' | 'cpa';
+export type CodexExportFormat = 'ai_lemon_tools' | 'sub2api' | 'cpa';
 
 type JsonRecord = Record<string, unknown>;
 const INVALID_FILE_CHARS_REGEX = /[<>:"/\\|?*\x00-\x1F]/g;
@@ -273,14 +273,14 @@ function toPortableApiKeyStorage(account: CodexAccount): JsonRecord {
   return payload;
 }
 
-function toCockpitToolsPortableStorage(account: CodexAccount): CodexPortableTokenStorage | JsonRecord {
+function toAiLemonToolsPortableStorage(account: CodexAccount): CodexPortableTokenStorage | JsonRecord {
   if (isCodexApiKeyAccount(account)) {
     return toPortableApiKeyStorage(account);
   }
   return toPortableTokenStorage(account);
 }
 
-export function parseCockpitToolsCodexExport(rawJson: string): CodexAccount[] {
+export function parseAiLemonToolsCodexExport(rawJson: string): CodexAccount[] {
   const parsed = JSON.parse(rawJson) as unknown;
   if (Array.isArray(parsed)) {
     return parsed as CodexAccount[];
@@ -295,10 +295,10 @@ export function transformCodexExportJson(
   rawJson: string,
   format: CodexExportFormat,
 ): string {
-  const accounts = parseCockpitToolsCodexExport(rawJson);
+  const accounts = parseAiLemonToolsCodexExport(rawJson);
 
-  if (format === 'cockpit_tools') {
-    return JSON.stringify(accounts.map(toCockpitToolsPortableStorage), null, 2);
+  if (format === 'ai_lemon_tools') {
+    return JSON.stringify(accounts.map(toAiLemonToolsPortableStorage), null, 2);
   }
 
   if (format === 'sub2api') {
@@ -321,7 +321,7 @@ export function buildCodexExportFileNameBase(
   baseName: string,
   format: CodexExportFormat,
 ): string {
-  if (format === 'cockpit_tools') {
+  if (format === 'ai_lemon_tools') {
     return baseName;
   }
   return `${baseName}_${format}`;
@@ -358,7 +358,7 @@ export function buildCodexExportContent(
   baseName: string,
 ): CodexExportContent {
   const fileNameBase = buildCodexExportFileNameBase(baseName, format);
-  const accounts = parseCockpitToolsCodexExport(rawJson);
+  const accounts = parseAiLemonToolsCodexExport(rawJson);
 
   if (format !== 'cpa' || accounts.length <= 1) {
     return {

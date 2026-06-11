@@ -4,7 +4,7 @@
 
 ## 目标
 
-在 `cockpit-tools` 的“网络服务”中提供自带代理能力，使用户无需再依赖 Clash、v2rayN、浏览器代理插件等外部软件，就能完成代理节点、节点池、订阅、测速、IP 健康检查、订阅刷新和全局代理接入。
+在 `ai-lemon-tools` 的“网络服务”中提供自带代理能力，使用户无需再依赖 Clash、v2rayN、浏览器代理插件等外部软件，就能完成代理节点、节点池、订阅、测速、IP 健康检查、订阅刷新和全局代理接入。
 
 目标平台必须覆盖当前项目支持的桌面平台：
 
@@ -29,9 +29,9 @@ Trace-Browser 的代理能力集中在这些模块：
 - `publish/runtime-manifest.json` 与 `publish/runtime-sources.json`：xray/sing-box 的多平台运行时清单和校验思路。
 - `frontend/src/modules/browser/pages/ProxyPoolPage.tsx`：代理池、订阅管理、添加资源、测试全部、检查 IP、刷新订阅等交互形态。
 
-本地检查显示 Trace-Browser 仓库已有 `bin/darwin-amd64` 和 `bin/darwin-arm64` 的 xray/sing-box 文件及 manifest 记录。但当前 `cockpit-tools` 没有这些代理运行时资源，也没有代理池模块。
+本地检查显示 Trace-Browser 仓库已有 `bin/darwin-amd64` 和 `bin/darwin-arm64` 的 xray/sing-box 文件及 manifest 记录。但当前 `ai-lemon-tools` 没有这些代理运行时资源，也没有代理池模块。
 
-### cockpit-tools 当前现状
+### ai-lemon-tools 当前现状
 
 当前项目是 Tauri 2 + Rust + React/Vite：
 
@@ -39,7 +39,7 @@ Trace-Browser 的代理能力集中在这些模块：
 - 全局代理配置保存在 `src-tauri/src/modules/config.rs` 的 `UserConfig` 中。
 - `src-tauri/src/modules/process.rs` 已把全局代理注入到受管进程的环境变量。
 - `src-tauri/src/modules/codex_local_access.rs` 已支持 API 服务上游模式：直连或跟随全局代理。
-- 当前数据目录由 `src-tauri/src/modules/data_dir.rs` 管理，默认位于用户目录下 `.antigravity_cockpit`。
+- 当前数据目录由 `src-tauri/src/modules/data_dir.rs` 管理，默认位于软件所在目录下的 `tools`。
 - 项目已有 `rusqlite`、`reqwest`、`tokio`、`serde_json` 等依赖，可支撑代理池数据库和异步网络测试。
 
 因此实现路线不是直接复制 Wails/Go 代码，而是把 Trace-Browser 的能力重新落到 Rust/Tauri 架构中。

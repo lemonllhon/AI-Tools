@@ -1,11 +1,11 @@
-# Design Spec: CLI Implementation for Cockpit Tools
+# Design Spec: CLI Implementation for AI Lemon Tools
 
 **Date:** 2026-04-16
 **Status:** Draft
 **Author:** Gemini CLI & User
 
 ## 1. Overview
-The goal is to extend Cockpit Tools from a GUI-only application into a multi-interface tool by adding a Command Line Interface (CLI). The CLI will allow for headless management, scripting, and faster workflows for power users, while sharing 100% of the logic and state with the existing GUI application.
+The goal is to extend AI Lemon Tools from a GUI-only application into a multi-interface tool by adding a Command Line Interface (CLI). The CLI will allow for headless management, scripting, and faster workflows for power users, while sharing 100% of the logic and state with the existing GUI application.
 
 ## 2. Architecture
 We will migrate the project to a **Cargo Workspace** to enable code sharing between the Tauri GUI and the new CLI.
@@ -16,7 +16,7 @@ We will migrate the project to a **Cargo Workspace** to enable code sharing betw
 - **`crates/cockpit-cli` (Binary):** A consumer of `cockpit-core`. It provides the terminal interface using `clap`.
 
 ### 2.2 Shared State
-Both interfaces will interact with the same data directory: `~/.antigravity_cockpit`. This ensures that an account switch in the CLI is immediately reflected in the GUI and vice versa.
+Both interfaces will interact with the same configured AI Lemon Tools data directory. This ensures that an account switch in the CLI is immediately reflected in the GUI and vice versa.
 
 ## 3. CLI Design
 The CLI will be named `cockpit`.

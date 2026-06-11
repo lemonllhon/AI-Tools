@@ -1341,7 +1341,7 @@
       "importBtn": "Importovat",
       "oauthAction": "OAuth autorizace",
       "fromExtension": "Import z pluginu",
-      "syncBadge": "Synchronizovat účty pluginu Antigravity Cockpit",
+      "syncBadge": "Synchronizovat účty pluginu AI Lemon Tools",
       "fromLocalDB": "Import z lokální DB",
       "localDBDesc": "Načte přihlašovací účty z Antigravity IDE klienta v tomto zařízení",
       "toolsDescMigrate": "Migrace účtů z ~/.antigravity_tools/",
@@ -1749,7 +1749,7 @@
     },
     "exportFormat": {
       "label": "Formát exportu",
-      "cockpitTools": "AI Lemon Tools",
+      "aiLemonTools": "AI Lemon Tools",
       "sub2api": "sub2api formát",
       "cpa": "cpa formát",
       "downloadAll": "Stáhnout vše",
@@ -3852,7 +3852,7 @@
       "backToCurrent": "Zpět",
       "switchToThisAccount": "Přepnout",
       "openDetails": "Otevřít detail",
-      "openCockpitTools": "Otevřít AI Lemon Tools"
+      "openAiLemonTools": "Otevřít AI Lemon Tools"
     },
     "empty": {
       "title": "Žádné účty",

@@ -250,7 +250,7 @@
       "backToCurrent": "Kembali",
       "switchToThisAccount": "Ganti",
       "openDetails": "Buka detail",
-      "openCockpitTools": "Buka AI Lemon Tools"
+      "openAiLemonTools": "Buka AI Lemon Tools"
     },
     "empty": {
       "title": "Belum ada akun",
@@ -1387,7 +1387,7 @@
       "importBtn": "Impor",
       "oauthAction": "Otorisasi OAuth",
       "fromExtension": "Impor dari Plugin",
-      "syncBadge": "Sinkronkan akun plugin Antigravity Cockpit",
+      "syncBadge": "Sinkronkan akun plugin AI Lemon Tools",
       "fromLocalDB": "Impor dari DB Lokal",
       "localDBDesc": "Baca akun login dari Antigravity IDE Client di mesin ini",
       "toolsDescMigrate": "Migrasi akun dari ~/.antigravity_tools/",
@@ -1798,7 +1798,7 @@
     },
     "exportFormat": {
       "label": "Format ekspor",
-      "cockpitTools": "AI Lemon Tools",
+      "aiLemonTools": "AI Lemon Tools",
       "sub2api": "Format sub2api",
       "cpa": "Format cpa",
       "downloadAll": "Unduh semua",

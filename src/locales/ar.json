@@ -249,7 +249,7 @@
       "backToCurrent": "رجوع",
       "switchToThisAccount": "تبديل",
       "openDetails": "فتح التفاصيل",
-      "openCockpitTools": "فتح AI Lemon Tools"
+      "openAiLemonTools": "فتح AI Lemon Tools"
     },
     "empty": {
       "title": "لا توجد حسابات",
@@ -1387,7 +1387,7 @@
       "importBtn": "استيراد",
       "oauthAction": "تفويض OAuth",
       "fromExtension": "استيراد من الملحق",
-      "syncBadge": "مزامنة حسابات ملحق Antigravity Cockpit",
+      "syncBadge": "مزامنة حسابات ملحق AI Lemon Tools",
       "fromLocalDB": "استيراد من قاعدة البيانات المحلية",
       "localDBDesc": "قراءة حسابات تسجيل الدخول من عميل Antigravity IDE على هذا الجهاز",
       "toolsDescMigrate": "ترحيل الحسابات من ~/.antigravity_tools/",
@@ -1795,7 +1795,7 @@
     },
     "exportFormat": {
       "label": "تنسيق التصدير",
-      "cockpitTools": "AI Lemon Tools",
+      "aiLemonTools": "AI Lemon Tools",
       "sub2api": "تنسيق sub2api",
       "cpa": "تنسيق cpa",
       "downloadAll": "تنزيل الكل",

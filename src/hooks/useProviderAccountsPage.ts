@@ -225,7 +225,7 @@ const CODEX_REFRESH_TOKEN_PATTERN = /rt_[A-Za-z0-9._-]+/g;
 const COCKPIT_API_PROVIDER_ID = 'cockpit_api';
 const COCKPIT_API_PROVIDER_NAME = 'Cockpit Api';
 const COCKPIT_TOOLS_IMPORT_PATH_MARKERS = [
-  '/api/cockpit-tools/import/',
+  '/api/ai-lemon-tools/import/',
   '/user/api/toolsimport/',
 ];
 
@@ -456,7 +456,7 @@ const deriveApiBaseUrlFromImportUrl = (importUrl?: string | null): string | null
   }
 };
 
-const isCockpitToolsImportUrl = (importUrl?: string | null): boolean => {
+const isAiLemonToolsImportUrl = (importUrl?: string | null): boolean => {
   const trimmed = (importUrl || '').trim();
   if (!trimmed) return false;
   try {
@@ -486,7 +486,7 @@ const isCockpitApiImportItem = (item: Record<string, unknown>): boolean => {
 const withCockpitApiBaseUrl = (
   item: unknown,
   apiBaseUrl: string | null,
-  isCockpitToolsImport: boolean,
+  isAiLemonToolsImport: boolean,
 ): unknown => {
   if (!apiBaseUrl || !item || typeof item !== 'object' || Array.isArray(item)) {
     return item;
@@ -497,7 +497,7 @@ const withCockpitApiBaseUrl = (
   if (authMode?.toLowerCase() !== 'apikey' || !apiKey) {
     return item;
   }
-  if (!isCockpitToolsImport && !isCockpitApiImportItem(payload)) {
+  if (!isAiLemonToolsImport && !isCockpitApiImportItem(payload)) {
     return item;
   }
 
@@ -526,9 +526,9 @@ const applyCockpitApiBaseUrlToExternalImportItems = (
     deriveApiBaseUrlFromImportUrl(request.importUrl);
   if (!apiBaseUrl) return items;
 
-  const isCockpitToolsImport =
-    Boolean(request.apiBaseUrl?.trim()) || isCockpitToolsImportUrl(request.importUrl);
-  return items.map((item) => withCockpitApiBaseUrl(item, apiBaseUrl, isCockpitToolsImport));
+  const isAiLemonToolsImport =
+    Boolean(request.apiBaseUrl?.trim()) || isAiLemonToolsImportUrl(request.importUrl);
+  return items.map((item) => withCockpitApiBaseUrl(item, apiBaseUrl, isAiLemonToolsImport));
 };
 
 const buildInitialExternalImportProgress = (): ExternalImportProgressState => ({

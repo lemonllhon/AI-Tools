@@ -1145,7 +1145,7 @@ async fn request_login_guidance(login_trace_id: &str) -> Result<String, String> 
             .post(endpoint)
             .header("Accept", "application/json")
             .header("Content-Type", "application/json")
-            .header("User-Agent", "Trae/1.0.0 antigravity-cockpit-tools")
+            .header("User-Agent", "Trae/1.0.0 ai-lemon-tools")
             .json(&body);
 
         let response = match request.send().await {

@@ -18,7 +18,7 @@ const DEFAULT_INSTANCE_ID: &str = "__default__";
 const DEFAULT_INSTANCE_NAME: &str = "默认实例";
 const STATE_DB_FILE: &str = "state_5.sqlite";
 const SESSION_INDEX_FILE: &str = "session_index.jsonl";
-const SESSION_TRASH_ROOT_DIR: &str = "cockpit-tools-codex-session-trash";
+const SESSION_TRASH_ROOT_DIR: &str = "ai-lemon-tools-codex-session-trash";
 const TOKEN_STATS_READ_CHUNK_BYTES: usize = 64 * 1024;
 
 static TOKEN_STATS_CACHE: LazyLock<Mutex<HashMap<PathBuf, TokenStatsCacheEntry>>> =

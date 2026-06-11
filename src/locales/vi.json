@@ -1341,7 +1341,7 @@
       "importBtn": "Nhập",
       "oauthAction": "Ủy quyền OAuth",
       "fromExtension": "Nhập từ Plugin",
-      "syncBadge": "Đồng bộ tài khoản plugin Antigravity Cockpit",
+      "syncBadge": "Đồng bộ tài khoản plugin AI Lemon Tools",
       "fromLocalDB": "Nhập từ DB cục bộ",
       "localDBDesc": "Đọc tài khoản đăng nhập từ Antigravity IDE Client trên máy này",
       "toolsDescMigrate": "Di chuyển tài khoản từ ~/.antigravity_tools/",
@@ -1749,7 +1749,7 @@
     },
     "exportFormat": {
       "label": "Định dạng xuất",
-      "cockpitTools": "AI Lemon Tools",
+      "aiLemonTools": "AI Lemon Tools",
       "sub2api": "Định dạng sub2api",
       "cpa": "Định dạng cpa",
       "downloadAll": "Tải xuống tất cả",
@@ -3852,7 +3852,7 @@
       "backToCurrent": "Quay lại",
       "switchToThisAccount": "Chuyển",
       "openDetails": "Mở chi tiết",
-      "openCockpitTools": "Mở AI Lemon Tools"
+      "openAiLemonTools": "Mở AI Lemon Tools"
     },
     "empty": {
       "title": "Không có tài khoản",

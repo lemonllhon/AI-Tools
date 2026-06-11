@@ -1341,7 +1341,7 @@
       "importBtn": "Импортировать",
       "oauthAction": "OAuth авторизация",
       "fromExtension": "Импорт из плагина",
-      "syncBadge": "Синхронизировать аккаунты плагина Antigravity Cockpit",
+      "syncBadge": "Синхронизировать аккаунты плагина AI Lemon Tools",
       "fromLocalDB": "Импорт из локальной БД",
       "localDBDesc": "Чтение аккаунтов из клиента Antigravity IDE на этом устройстве",
       "toolsDescMigrate": "Миграция аккаунтов из ~/.antigravity_tools/",
@@ -1749,7 +1749,7 @@
     },
     "exportFormat": {
       "label": "Формат экспорта",
-      "cockpitTools": "AI Lemon Tools",
+      "aiLemonTools": "AI Lemon Tools",
       "sub2api": "Формат sub2api",
       "cpa": "Формат cpa",
       "downloadAll": "Скачать все",
@@ -3852,7 +3852,7 @@
       "backToCurrent": "Назад",
       "switchToThisAccount": "Сменить",
       "openDetails": "Открыть подробности",
-      "openCockpitTools": "Открыть AI Lemon Tools"
+      "openAiLemonTools": "Открыть AI Lemon Tools"
     },
     "empty": {
       "title": "Нет аккаунтов",

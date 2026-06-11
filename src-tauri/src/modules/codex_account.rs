@@ -1209,11 +1209,11 @@ fn write_api_key_provider_to_config_toml_with_websocket_override(
         .map_err(|e| format!("写入 config.toml 失败: {}", e))
 }
 
-/// 旧版数据目录（~/Library/Application Support/com.antigravity.cockpit-tools/）
+/// 旧版数据目录（~/Library/Application Support/com.jlcodes.ai-lemon-tools/）
 fn get_old_codex_data_dir() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| dirs::home_dir().expect("无法获取用户目录"))
-        .join("com.antigravity.cockpit-tools")
+        .join("com.jlcodes.ai-lemon-tools")
 }
 
 /// 将旧目录中的 codex 数据迁移到新目录（一次性，迁移成功后删除旧文件）

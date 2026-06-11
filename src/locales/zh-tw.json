@@ -1341,7 +1341,7 @@
       "importBtn": "匯入",
       "oauthAction": "OAuth 授權",
       "fromExtension": "從插件匯入",
-      "syncBadge": "同步 Antigravity Cockpit 插件帳號",
+      "syncBadge": "同步 AI Lemon Tools 插件帳號",
       "fromLocalDB": "從本地資料庫匯入",
       "localDBDesc": "從此機器的 Antigravity IDE 客戶端讀取登入帳號",
       "toolsDescMigrate": "從 ~/.antigravity_tools/ 遷移帳號",
@@ -1749,7 +1749,7 @@
     },
     "exportFormat": {
       "label": "匯出格式",
-      "cockpitTools": "AI Lemon Tools",
+      "aiLemonTools": "AI Lemon Tools",
       "sub2api": "sub2api 格式",
       "cpa": "cpa 格式",
       "downloadAll": "一鍵下載全部",
@@ -3859,7 +3859,7 @@
       "backToCurrent": "返回",
       "switchToThisAccount": "切換",
       "openDetails": "打開詳情頁",
-      "openCockpitTools": "打開 AI Lemon Tools"
+      "openAiLemonTools": "打開 AI Lemon Tools"
     },
     "empty": {
       "title": "暫無帳號",

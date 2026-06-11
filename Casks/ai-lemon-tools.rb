@@ -1,4 +1,4 @@
-cask "cockpit-tools" do
+cask "ai-lemon-tools" do
   version "0.0.57"
   sha256 "cb0b574e68cf938ce606897b550a57c82c4db93f3de6f21af662b5666614065d"
 
@@ -19,10 +19,10 @@ cask "cockpit-tools" do
   app "AI Lemon Tools.app"
 
   zap trash: [
-    "~/Library/Application Support/com.jlcodes.cockpit-tools",
-    "~/Library/Caches/com.jlcodes.cockpit-tools",
-    "~/Library/Preferences/com.jlcodes.cockpit-tools.plist",
-    "~/Library/Saved Application State/com.jlcodes.cockpit-tools.savedState",
+    "~/Library/Application Support/com.jlcodes.ai-lemon-tools",
+    "~/Library/Caches/com.jlcodes.ai-lemon-tools",
+    "~/Library/Preferences/com.jlcodes.ai-lemon-tools.plist",
+    "~/Library/Saved Application State/com.jlcodes.ai-lemon-tools.savedState",
   ]
 
   caveats <<~EOS

@@ -1341,7 +1341,7 @@
       "importBtn": "インポート",
       "oauthAction": "OAuth 認証",
       "fromExtension": "プラグインからインポート",
-      "syncBadge": "Antigravity Cockpit プラグインのアカウントを同期",
+      "syncBadge": "AI Lemon Tools プラグインのアカウントを同期",
       "fromLocalDB": "ローカル DB からインポート",
       "localDBDesc": "このマシンの Antigravity IDE クライアントからログインアカウントを読み込む",
       "toolsDescMigrate": "~/.antigravity_tools/ からアカウントを移行",
@@ -1749,7 +1749,7 @@
     },
     "exportFormat": {
       "label": "エクスポート形式",
-      "cockpitTools": "AI Lemon Tools",
+      "aiLemonTools": "AI Lemon Tools",
       "sub2api": "sub2api 形式",
       "cpa": "cpa 形式",
       "downloadAll": "すべてダウンロード",
@@ -3852,7 +3852,7 @@
       "backToCurrent": "戻る",
       "switchToThisAccount": "切替",
       "openDetails": "詳細を開く",
-      "openCockpitTools": "AI Lemon Tools を開く"
+      "openAiLemonTools": "AI Lemon Tools を開く"
     },
     "empty": {
       "title": "アカウントがありません",

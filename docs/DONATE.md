@@ -1,6 +1,6 @@
 # ☕ 赞助支持
 
-感谢您使用 **Cockpit Tools**！
+感谢您使用 **AI Lemon Tools**！
 
 如果这个项目对您有帮助，欢迎通过以下方式赞助项目的持续开发和维护：
 
@@ -39,4 +39,4 @@
 ## 📝 说明
 
 - 赞助完全自愿，不影响您使用本项目的任何功能
-- 如有任何问题或建议，欢迎通过 [GitHub Issues](https://github.com/jlcodes99/cockpit-tools/issues) 反馈
+- 如有任何问题或建议，欢迎通过 [GitHub Issues](https://github.com/jlcodes99/ai-lemon-tools/issues) 反馈

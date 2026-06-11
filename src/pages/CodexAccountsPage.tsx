@@ -526,7 +526,7 @@ export function CodexAccountsPage() {
       : [],
   );
   const [exportFormat, setExportFormat] =
-    useState<CodexExportFormat>("cockpit_tools");
+    useState<CodexExportFormat>("ai_lemon_tools");
   const [exportFileNameBase, setExportFileNameBase] =
     useState("codex_accounts");
   const [formattedExportJsonCopied, setFormattedExportJsonCopied] =
@@ -950,8 +950,8 @@ export function CodexAccountsPage() {
   const exportFormatOptions = useMemo<SingleSelectFilterOption[]>(
     () => [
       {
-        value: "cockpit_tools",
-        label: t("codex.exportFormat.cockpitTools", "AI Lemon Tools"),
+        value: "ai_lemon_tools",
+        label: t("codex.exportFormat.aiLemonTools", "AI Lemon Tools"),
       },
       {
         value: "sub2api",
@@ -1022,7 +1022,7 @@ export function CodexAccountsPage() {
     if (!showExportModal) {
       return;
     }
-    setExportFormat("cockpit_tools");
+    setExportFormat("ai_lemon_tools");
     setFormattedExportJsonCopied(false);
     setFormattedSavingExportJson(false);
     setFormattedExportSavedPath(null);
@@ -1067,7 +1067,7 @@ export function CodexAccountsPage() {
       console.error("[CodexExport] transform failed:", error);
       return buildCodexExportContent(
         exportJsonContent,
-        "cockpit_tools",
+        "ai_lemon_tools",
         exportFileNameBase,
       );
     }
@@ -1104,7 +1104,7 @@ export function CodexAccountsPage() {
 
   const handleCloseExportModal = useCallback(() => {
     closeExportModal();
-    setExportFormat("cockpit_tools");
+    setExportFormat("ai_lemon_tools");
     setFormattedExportJsonCopied(false);
     setFormattedSavingExportJson(false);
     setFormattedExportSavedPath(null);

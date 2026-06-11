@@ -1341,7 +1341,7 @@
       "importBtn": "İçe Aktar",
       "oauthAction": "OAuth Yetkilendirme",
       "fromExtension": "Eklentiden İçe Aktar",
-      "syncBadge": "Antigravity Cockpit eklenti hesaplarını senkronize et",
+      "syncBadge": "AI Lemon Tools eklenti hesaplarını senkronize et",
       "fromLocalDB": "Yerel Veritabanından İçe Aktar",
       "localDBDesc": "Bu makinedeki Antigravity IDE İstemcisinden giriş hesaplarını oku",
       "toolsDescMigrate": "Hesapları ~/.antigravity_tools/ dizininden taşı",
@@ -1749,7 +1749,7 @@
     },
     "exportFormat": {
       "label": "Dışa aktarma biçimi",
-      "cockpitTools": "AI Lemon Tools",
+      "aiLemonTools": "AI Lemon Tools",
       "sub2api": "sub2api biçimi",
       "cpa": "cpa biçimi",
       "downloadAll": "Tümünü indir",
@@ -3852,7 +3852,7 @@
       "backToCurrent": "Geri",
       "switchToThisAccount": "Geç",
       "openDetails": "Ayrıntıları aç",
-      "openCockpitTools": "AI Lemon Tools'u aç"
+      "openAiLemonTools": "AI Lemon Tools'u aç"
     },
     "empty": {
       "title": "Hesap yok",

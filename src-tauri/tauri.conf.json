@@ -3,7 +3,7 @@
   "productName": "AI Lemon Tools",
   "mainBinaryName": "ai-lemon-tools",
   "version": "0.0.58",
-  "identifier": "com.jlcodes.cockpit-tools",
+  "identifier": "com.jlcodes.ai-lemon-tools",
   "build": {
     "beforeDevCommand": "node scripts/prepare-tauri.cjs && node scripts/prepare-proxy-runtime.cjs && npm run dev",
     "devUrl": "http://localhost:1420",
@@ -82,8 +82,8 @@
     "deep-link": {
       "desktop": {
         "schemes": [
-          "cockpit-tools",
-          "cockpittools"
+          "ai-lemon-tools",
+          "ailemontools"
         ]
       }
     },

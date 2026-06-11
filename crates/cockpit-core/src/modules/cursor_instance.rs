@@ -1109,7 +1109,7 @@ pub fn ensure_cursor_launch_path_configured() -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 fn sanitize_macos_gui_launch_env(cmd: &mut Command) {
-    // Avoid inheriting Cockpit bundle identity into child GUI apps.
+    // Avoid inheriting app bundle identity into child GUI apps.
     cmd.env_remove("__CFBundleIdentifier");
     cmd.env_remove("XPC_SERVICE_NAME");
 }

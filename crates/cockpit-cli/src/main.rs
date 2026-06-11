@@ -4,7 +4,7 @@ use colored::*;
 use tabled::{Table, Tabled};
 
 #[derive(Parser)]
-#[command(author, version, about = "Cockpit Tools CLI", long_about = None)]
+#[command(author, version, about = "AI Lemon Tools CLI", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -108,7 +108,7 @@ async fn main() -> anyhow::Result<()> {
              }
         }
         None => {
-            println!("Welcome to Cockpit CLI! Use --help for commands.");
+            println!("Welcome to AI Lemon Tools CLI! Use --help for commands.");
         }
     }
 

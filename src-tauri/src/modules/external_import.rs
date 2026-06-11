@@ -73,7 +73,7 @@ fn resolve_provider_and_page(value: &str) -> Option<(&'static str, &'static str)
 }
 
 fn is_supported_scheme(scheme: &str) -> bool {
-    matches!(scheme, "cockpit-tools" | "cockpittools")
+    matches!(scheme, "ai-lemon-tools" | "ailemontools")
 }
 
 fn is_import_action(url: &Url) -> bool {
@@ -316,7 +316,7 @@ pub fn handle_external_import_args<R: Runtime>(
             continue;
         }
         let candidate_is_deep_link =
-            candidate.starts_with("cockpit-tools://") || candidate.starts_with("cockpittools://");
+            candidate.starts_with("ai-lemon-tools://") || candidate.starts_with("ailemontools://");
         if candidate_is_deep_link {
             saw_deep_link = true;
         }
@@ -374,7 +374,7 @@ mod tests {
 
     #[test]
     fn parse_basic_import_link() {
-        let raw = "cockpit-tools://import?provider=codex&token=abc123";
+        let raw = "ai-lemon-tools://import?provider=codex&token=abc123";
         let payload = parse_external_import_url(raw).expect("payload");
         assert_eq!(payload.provider_id, "codex");
         assert_eq!(payload.page, "codex");
@@ -388,7 +388,7 @@ mod tests {
     #[test]
     fn parse_alias_and_boolean() {
         let raw =
-            "cockpit-tools://provider-import?platform=codebuddy-cn&payload=%7B%7D&auto_import=true";
+            "ai-lemon-tools://provider-import?platform=codebuddy-cn&payload=%7B%7D&auto_import=true";
         let payload = parse_external_import_url(raw).expect("payload");
         assert_eq!(payload.provider_id, "codebuddy_cn");
         assert_eq!(payload.page, "codebuddy-cn");
@@ -401,7 +401,7 @@ mod tests {
 
     #[test]
     fn parse_antigravity_overview_alias() {
-        let raw = "cockpittools://account-import?page=overview&token=1%2F%2F0gTokenDemo";
+        let raw = "ailemontools://account-import?page=overview&token=1%2F%2F0gTokenDemo";
         let payload = parse_external_import_url(raw).expect("payload");
         assert_eq!(payload.provider_id, "antigravity");
         assert_eq!(payload.page, "overview");
@@ -414,7 +414,7 @@ mod tests {
 
     #[test]
     fn parse_import_url_link() {
-        let raw = "cockpit-tools://import?provider=codex&import_url=https%3A%2F%2Fexample.com%2Fuser%2Fapi%2FtoolsImport%2Ffetch%3Fid%3Dabc%26token%3Ddef&auto_import=true";
+        let raw = "ai-lemon-tools://import?provider=codex&import_url=https%3A%2F%2Fexample.com%2Fuser%2Fapi%2FtoolsImport%2Ffetch%3Fid%3Dabc%26token%3Ddef&auto_import=true";
         let payload = parse_external_import_url(raw).expect("payload");
         assert_eq!(payload.provider_id, "codex");
         assert_eq!(payload.page, "codex");
@@ -430,7 +430,7 @@ mod tests {
 
     #[test]
     fn parse_import_link_with_api_base_url() {
-        let raw = "cockpit-tools://provider-import?platform=codex&import_url=https%3A%2F%2Fchongflow.cn%2Fapi%2Fcockpit-tools%2Fimport%2Fabc&api_base_url=https%3A%2F%2Fchongflow.cn%2Fv1&auto_import=true";
+        let raw = "ai-lemon-tools://provider-import?platform=codex&import_url=https%3A%2F%2Fchongflow.cn%2Fapi%2Fai-lemon-tools%2Fimport%2Fabc&api_base_url=https%3A%2F%2Fchongflow.cn%2Fv1&auto_import=true";
         let payload = parse_external_import_url(raw).expect("payload");
         assert_eq!(payload.provider_id, "codex");
         assert_eq!(
@@ -441,7 +441,7 @@ mod tests {
 
     #[test]
     fn parse_activate_flag() {
-        let raw = "cockpit-tools://provider-import?platform=codex&import_url=https%3A%2F%2Fexample.com%2Fbundle&auto_import=true&activate=true";
+        let raw = "ai-lemon-tools://provider-import?platform=codex&import_url=https%3A%2F%2Fexample.com%2Fbundle&auto_import=true&activate=true";
         let payload = parse_external_import_url(raw).expect("payload");
         assert_eq!(payload.provider_id, "codex");
         assert!(payload.auto_import);
@@ -450,7 +450,7 @@ mod tests {
 
     #[test]
     fn parse_min_app_version() {
-        let raw = "cockpit-tools://import?provider=codex&token=abc123&min_app_version=v0.22.21";
+        let raw = "ai-lemon-tools://import?provider=codex&token=abc123&min_app_version=v0.22.21";
         let payload = parse_external_import_url(raw).expect("payload");
         assert_eq!(payload.provider_id, "codex");
         assert_eq!(payload.min_app_version, Some("0.22.21".to_string()));

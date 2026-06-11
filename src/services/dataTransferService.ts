@@ -59,7 +59,7 @@ import * as traeService from './traeService';
 import * as workbuddyService from './workbuddyService';
 import type { InstanceLaunchMode } from '../types/instance';
 
-const DATA_TRANSFER_SCHEMA = 'cockpit-tools.data-transfer';
+const DATA_TRANSFER_SCHEMA = 'ai-lemon-tools.data-transfer';
 const DATA_TRANSFER_VERSION = 1;
 const WAKEUP_ENABLED_KEY = 'agtools.wakeup.enabled';
 const WAKEUP_TASKS_KEY = 'agtools.wakeup.tasks';

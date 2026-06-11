@@ -815,7 +815,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          FILE="Casks/cockpit-tools.rb"
+          FILE="Casks/ai-lemon-tools.rb"
           if [ ! -f "$FILE" ]; then
             echo "Missing $FILE. Create it first."
             exit 1
@@ -824,7 +824,7 @@ jobs:
           node <<'NODE'
           const fs = require('node:fs');
 
-          const file = 'Casks/cockpit-tools.rb';
+          const file = 'Casks/ai-lemon-tools.rb';
           const version = process.env.VERSION;
           const sha256 = process.env.SHA256;
           const caskUrl = process.env.CASK_URL;

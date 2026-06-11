@@ -444,7 +444,7 @@ fn build_new_api_profile_url(account: &CodexAccount) -> Result<String, String> {
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err("Cockpit Api Base URL 仅支持 http/https".to_string());
     }
-    parsed.set_path("/api/cockpit-tools/token-profile");
+    parsed.set_path("/api/ai-lemon-tools/token-profile");
     parsed.set_query(None);
     parsed.set_fragment(None);
     Ok(parsed.to_string())

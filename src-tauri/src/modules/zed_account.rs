@@ -550,7 +550,7 @@ fn pick_first_i64(candidates: &[Option<i64>]) -> Option<i64> {
 fn build_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
-        .user_agent("cockpit-tools/zed")
+        .user_agent("ai-lemon-tools/zed")
         .build()
         .map_err(|e| format!("创建 Zed HTTP 客户端失败: {}", e))
 }

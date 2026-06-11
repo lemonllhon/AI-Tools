@@ -250,7 +250,7 @@
       "backToCurrent": "Back",
       "switchToThisAccount": "Switch",
       "openDetails": "Open details",
-      "openCockpitTools": "Open AI Lemon Tools"
+      "openAiLemonTools": "Open AI Lemon Tools"
     },
     "empty": {
       "title": "No accounts",
@@ -1387,7 +1387,7 @@
       "importBtn": "Import",
       "oauthAction": "OAuth Authorization",
       "fromExtension": "Import from Plugin",
-      "syncBadge": "Sync Antigravity Cockpit plugin accounts",
+      "syncBadge": "Sync AI Lemon Tools plugin accounts",
       "fromLocalDB": "Import from Local DB",
       "localDBDesc": "Read login accounts from Antigravity IDE Client on this machine",
       "toolsDescMigrate": "Migrate accounts from ~/.antigravity_tools/",
@@ -1809,7 +1809,7 @@
     },
     "exportFormat": {
       "label": "Export Format",
-      "cockpitTools": "AI Lemon Tools",
+      "aiLemonTools": "AI Lemon Tools",
       "sub2api": "sub2api",
       "cpa": "cpa",
       "downloadAll": "Download All",

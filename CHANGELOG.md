@@ -2,7 +2,7 @@
 
 English · [简体中文](CHANGELOG.zh-CN.md)
 
-All notable changes to Cockpit Tools will be documented in this file.
+All notable changes to AI Lemon Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
@@ -10,6 +10,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 - Linux AppImage builds now derive the default `tools` data directory from the `APPIMAGE` location first, preventing data from landing in the AppImage temporary mount directory.
 - Linux installs now fall back to the XDG user data directory at `ai-lemon-tools/tools` when the system install path is not writable, avoiding permission errors from deriving `/usr/bin/tools`.
+- Application package name, main binary name, bundle identifier, deep link protocol, Homebrew Cask, release script, update cache directory, import/export format identifier.
+- The default data directory is the app-adjacent `tools` folder; the previous home-directory predecessor folder is no longer a default runtime dependency.
+
 ### Fixed
 - Codex API service startup no longer fails when the saved speed preference is corrupted; the app falls back to the default speed, repairs the preference file, and later user speed changes overwrite that repaired default.
 
@@ -54,7 +57,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 - Deleted Codex accounts are now removed from local API service members, routing rules, bound OAuth references, prepared-account caches, and routing affinity state to prevent stale deleted accounts from slowing later requests.
 - In-flight Codex account list refreshes no longer reinsert recently deleted accounts into the overview.
-- Legacy Antigravity Cockpit data directories are now merged into the configured data directory and removed when empty, preventing stale residual folders after changing the storage location.
+- Legacy predecessor data directories are now merged into the configured data directory and removed when empty, preventing stale residual folders after changing the storage location.
 
 ## [0.0.51] - 2026-06-09
 ### Changed

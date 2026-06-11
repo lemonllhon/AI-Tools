@@ -347,7 +347,7 @@ function download(url, destination, redirects = 0) {
       parsed,
       {
         headers: {
-          'User-Agent': 'cockpit-tools-proxy-runtime-preparer',
+          'User-Agent': 'ai-lemon-tools-proxy-runtime-preparer',
         },
       },
       (response) => {

@@ -16,7 +16,7 @@ const GITHUB_COPILOT_TOKEN_ENDPOINT: &str = "https://api.github.com/copilot_inte
 const GITHUB_COPILOT_USER_INFO_ENDPOINT: &str = "https://api.github.com/copilot_internal/user";
 const GITHUB_OAUTH_CLIENT_ID: &str = "01ab8ac9400c4e429b23";
 const GITHUB_OAUTH_SCOPE: &str = "read:user user:email repo workflow";
-const APP_USER_AGENT: &str = "antigravity-cockpit-tools";
+const APP_USER_AGENT: &str = "ai-lemon-tools";
 
 #[derive(Debug, Clone)]
 struct PendingDeviceLogin {

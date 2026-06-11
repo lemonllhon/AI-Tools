@@ -17,7 +17,7 @@ const WINDSURF_AUTH_BASE_URL: &str = "https://www.windsurf.com";
 const WINDSURF_REGISTER_API_BASE_URL: &str = "https://register.windsurf.com";
 const WINDSURF_DEFAULT_API_SERVER_URL: &str = "https://server.codeium.com";
 const WINDSURF_CLIENT_ID: &str = "3GUryQ7ldAeKEuD2obYnppsnmj58eP5u";
-const APP_USER_AGENT: &str = "antigravity-cockpit-tools";
+const APP_USER_AGENT: &str = "ai-lemon-tools";
 const OAUTH_TIMEOUT_SECONDS: u64 = 600;
 const OAUTH_STATE_FILE: &str = "windsurf_oauth_pending.json";
 const FIREBASE_API_KEY: &str = "AIzaSyDsOl-1XpT5err0Tcnx8FFod1H8gVGIycY";
@@ -421,7 +421,7 @@ fn oauth_success_html() -> &'static str {
 <body>
   <div class="box">
     <h1>授权成功</h1>
-    <p>你可以关闭此页面并返回 Antigravity Cockpit Tools。</p>
+    <p>你可以关闭此页面并返回 AI Lemon Tools。</p>
   </div>
 </body>
 </html>"#

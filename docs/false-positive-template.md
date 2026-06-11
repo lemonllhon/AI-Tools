@@ -4,7 +4,7 @@
 
 ### 基本信息
 
-- 产品名称：Cockpit Tools
+- 产品名称：AI Lemon Tools
 - 项目地址：
 - 下载地址：
 - 版本号：
@@ -15,7 +15,7 @@
 
 ### 说明正文
 
-你好，我们是开源项目 Cockpit Tools 的维护者。  
+你好，我们是开源项目 AI Lemon Tools 的维护者。
 我们发现最新发布文件被贵司引擎判定为恶意，但该文件为官方发布构建产物，未包含恶意行为。
 
 请协助复核以下样本是否为误报：
@@ -32,16 +32,16 @@
 
 ## English Template (submit to AV vendors)
 
-Subject: False Positive Report - Cockpit Tools
+Subject: False Positive Report - AI Lemon Tools
 
 Hello Security Team,
 
-We are the maintainers of an open-source project called **Cockpit Tools**.  
+We are the maintainers of an open-source project called **AI Lemon Tools**.
 One of our official release binaries appears to be flagged by your engine as malicious, and we believe this is a false positive.
 
 Sample details:
 
-- Product: Cockpit Tools
+- Product: AI Lemon Tools
 - Version:
 - File name:
 - SHA256:

@@ -2665,7 +2665,7 @@ async fn request_trae_json(
     let mut request = client
         .request(method, url)
         .header("Accept", "application/json")
-        .header("User-Agent", "Trae/1.0.0 antigravity-cockpit-tools")
+        .header("User-Agent", "Trae/1.0.0 ai-lemon-tools")
         .header("Authorization", format!("Bearer {}", access_token))
         .header("x-cloudide-token", access_token);
 
@@ -2729,7 +2729,7 @@ async fn request_trae_pay_json(
     let mut request = client
         .request(method, url)
         .header("Accept", "application/json")
-        .header("User-Agent", "Trae/1.0.0 antigravity-cockpit-tools")
+        .header("User-Agent", "Trae/1.0.0 ai-lemon-tools")
         .header("Authorization", format!("Cloud-IDE-JWT {}", access_token));
 
     if let Some(cookie_header) = cookie.and_then(|value| normalize_non_empty(Some(value))) {
