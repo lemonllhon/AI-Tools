@@ -8,6 +8,9 @@
 
 ## [0.0.58] - 2026-06-11
 
+### 注意
+-- 此次更新注意先进行数据资源备份
+
 ### 变更
 - Linux AppImage 下现在优先使用 `APPIMAGE` 所在目录推导默认 `tools` 数据目录，避免数据落到 AppImage 临时挂载目录。
 - Linux 系统安装路径不可写时会自动回退到 XDG 用户数据目录下的 `ai-lemon-tools/tools`，避免从 `/usr/bin` 推导出不可写的 `/usr/bin/tools`。
