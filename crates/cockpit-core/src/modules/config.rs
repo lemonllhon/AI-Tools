@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
 
 /// 默认 WebSocket 端口
@@ -22,7 +22,7 @@ const SERVER_STATUS_FILE: &str = "server.json";
 const USER_CONFIG_FILE: &str = "config.json";
 
 /// 数据目录名
-const DATA_DIR: &str = ".antigravity_cockpit";
+const DATA_DIR: &str = "tools";
 
 /// 服务状态（写入共享文件供其他客户端读取）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -948,17 +948,43 @@ pub fn sync_global_proxy_env(config: &UserConfig) {
 }
 
 /// 获取数据目录路径
+fn app_base_dir() -> Result<PathBuf, String> {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(appimage) = std::env::var("APPIMAGE") {
+            let appimage_path = PathBuf::from(appimage.trim());
+            if !appimage_path.as_os_str().is_empty() {
+                if let Some(parent) = appimage_path.parent() {
+                    return Ok(parent.to_path_buf());
+                }
+            }
+        }
+    }
+
+    let exe_path = std::env::current_exe().map_err(|e| format!("无法获取软件路径: {}", e))?;
+    exe_path
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| format!("无法解析软件所在目录: {}", exe_path.display()))
+}
+
+pub fn default_data_dir() -> Result<PathBuf, String> {
+    Ok(app_base_dir()?.join(DATA_DIR))
+}
+
 pub fn get_data_dir() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or("无法获取 Home 目录")?;
-    Ok(home.join(DATA_DIR))
+    let data_dir = default_data_dir()?;
+    if !data_dir.exists() {
+        fs::create_dir_all(&data_dir).map_err(|e| format!("创建数据目录失败: {}", e))?;
+    }
+    Ok(data_dir)
 }
 
 /// 获取共享目录路径（供其他模块使用）
 /// 与 get_data_dir 相同，但不返回 Result
 pub fn get_shared_dir() -> PathBuf {
-    dirs::home_dir()
-        .map(|h| h.join(DATA_DIR))
-        .unwrap_or_else(|| PathBuf::from(DATA_DIR))
+    get_data_dir()
+        .unwrap_or_else(|_| default_data_dir().unwrap_or_else(|_| PathBuf::from(DATA_DIR)))
 }
 
 /// 获取服务状态文件路径

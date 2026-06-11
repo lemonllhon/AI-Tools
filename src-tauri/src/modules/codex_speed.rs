@@ -101,6 +101,10 @@ fn read_official_app_speed_config() -> Result<CodexAppSpeedConfig, String> {
 
 fn read_preferred_speed() -> Result<Option<CodexAppSpeed>, String> {
     let path = get_preference_path()?;
+    read_preferred_speed_from_path(&path)
+}
+
+fn read_preferred_speed_from_path(path: &Path) -> Result<Option<CodexAppSpeed>, String> {
     let content = match fs::read_to_string(&path) {
         Ok(content) => content,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -109,23 +113,56 @@ fn read_preferred_speed() -> Result<Option<CodexAppSpeed>, String> {
     if content.trim().is_empty() {
         return Ok(None);
     }
-    let preference = serde_json::from_str::<AppSpeedPreference>(&content)
-        .map_err(|err| format!("解析 Codex 速度启动配置失败: {}", err))?;
+    let preference = match serde_json::from_str::<AppSpeedPreference>(&content) {
+        Ok(preference) => preference,
+        Err(err) => {
+            let fallback_speed = CodexAppSpeed::default();
+            repair_preferred_speed_file(path, &err.to_string(), &fallback_speed);
+            return Ok(Some(fallback_speed));
+        }
+    };
     Ok(Some(normalize_app_speed(preference.speed)))
+}
+
+fn serialize_preferred_speed(speed: &CodexAppSpeed) -> Result<String, String> {
+    let normalized_speed = normalize_app_speed(speed.clone());
+    serde_json::to_string_pretty(&AppSpeedPreference {
+        speed: normalized_speed,
+    })
+    .map_err(|err| format!("序列化 Codex 速度启动配置失败: {}", err))
+}
+
+fn write_preferred_speed_to_path(path: &Path, speed: &CodexAppSpeed) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| format!("创建配置目录失败: {}", err))?;
+    }
+    let content = serialize_preferred_speed(speed)?;
+    crate::modules::atomic_write::write_string_atomic(&path, &content)
+        .map_err(|err| format!("写入 Codex 速度启动配置失败: {}", err))
 }
 
 fn write_preferred_speed(speed: &CodexAppSpeed) -> Result<(), String> {
     let path = get_preference_path()?;
-    let normalized_speed = normalize_app_speed(speed.clone());
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|err| format!("创建配置目录失败: {}", err))?;
+    write_preferred_speed_to_path(&path, speed)
+}
+
+fn repair_preferred_speed_file(path: &Path, parse_error: &str, fallback_speed: &CodexAppSpeed) {
+    crate::modules::logger::log_warn(&format!(
+        "Codex 速度启动配置损坏，已安全退回默认速度: path={}, error={}",
+        path.display(),
+        parse_error
+    ));
+    match write_preferred_speed_to_path(path, fallback_speed) {
+        Ok(()) => crate::modules::logger::log_warn(&format!(
+            "Codex 速度启动配置已修复为默认速度: path={}",
+            path.display()
+        )),
+        Err(err) => crate::modules::logger::log_warn(&format!(
+            "Codex 速度启动配置修复失败，继续使用默认速度: path={}, error={}",
+            path.display(),
+            err
+        )),
     }
-    let content = serde_json::to_string_pretty(&AppSpeedPreference {
-        speed: normalized_speed,
-    })
-    .map_err(|err| format!("序列化 Codex 速度启动配置失败: {}", err))?;
-    crate::modules::atomic_write::write_string_atomic(&path, &content)
-        .map_err(|err| format!("写入 Codex 速度启动配置失败: {}", err))
 }
 
 fn build_config_with_speed(path: &Path, speed: CodexAppSpeed) -> CodexAppSpeedConfig {
@@ -238,12 +275,27 @@ pub fn apply_api_service_speed_to_official_state() -> Result<CodexAppSpeedConfig
 mod tests {
     use super::{
         build_config, is_supported_codex_service_tier, normalize_app_speed, normalize_speed,
-        upstream_service_tier_value_for_app_speed, DEFAULT_SERVICE_TIER_KEY,
-        PERSISTED_ATOM_STATE_KEY,
+        read_preferred_speed_from_path, upstream_service_tier_value_for_app_speed,
+        write_preferred_speed_to_path, DEFAULT_SERVICE_TIER_KEY, PERSISTED_ATOM_STATE_KEY,
     };
     use crate::models::codex::CodexAppSpeed;
     use serde_json::{Map, Value};
-    use std::path::Path;
+    use std::{
+        fs,
+        path::Path,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    fn make_temp_dir(prefix: &str) -> std::path::PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("{}_{}_{}", prefix, std::process::id(), unique));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
 
     #[test]
     fn reads_fast_and_legacy_flex_as_fast_speed() {
@@ -323,5 +375,30 @@ mod tests {
 
         let config = build_config(Path::new("/tmp/.codex-global-state.json"), &state);
         assert_eq!(config.speed, CodexAppSpeed::Standard);
+    }
+
+    #[test]
+    fn repairs_invalid_preferred_speed_and_falls_back_to_default() {
+        let dir = make_temp_dir("codex_speed_preference");
+        let path = dir.join("codex_api_service_speed.json");
+        fs::write(&path, "{\n  \"speed\":\n}\n").expect("write corrupted speed preference");
+
+        let speed = read_preferred_speed_from_path(&path).expect("read repaired speed preference");
+
+        assert_eq!(speed, Some(CodexAppSpeed::Standard));
+        let repaired_content = fs::read_to_string(&path).expect("read repaired speed preference");
+        let repaired: Value =
+            serde_json::from_str(&repaired_content).expect("repaired preference should be JSON");
+        assert_eq!(
+            repaired.get("speed").and_then(Value::as_str),
+            Some("standard")
+        );
+
+        write_preferred_speed_to_path(&path, &CodexAppSpeed::Fast)
+            .expect("user-selected speed should overwrite repaired default");
+        assert_eq!(
+            read_preferred_speed_from_path(&path).expect("read user-selected speed"),
+            Some(CodexAppSpeed::Fast)
+        );
     }
 }

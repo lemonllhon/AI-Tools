@@ -1036,7 +1036,7 @@ pub fn get_data_dir() -> Result<PathBuf, String> {
 pub fn get_shared_dir() -> PathBuf {
     get_data_dir().unwrap_or_else(|_| {
         crate::modules::data_dir::default_data_dir()
-            .unwrap_or_else(|_| PathBuf::from(".antigravity_cockpit"))
+            .unwrap_or_else(|_| PathBuf::from("tools"))
     })
 }
 

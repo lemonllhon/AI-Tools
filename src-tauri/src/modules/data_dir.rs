@@ -3,7 +3,8 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-const DEFAULT_DATA_DIR_NAME: &str = ".antigravity_cockpit";
+const DEFAULT_DATA_DIR_NAME: &str = "tools";
+const LEGACY_HOME_DATA_DIR_NAME: &str = ".antigravity_cockpit";
 const LEGACY_APP_DATA_DIR_NAME: &str = "com.antigravity.cockpit-tools";
 const APP_CONFIG_DIR_NAME: &str = "ai-lemon-tools";
 const DATA_DIR_OVERRIDE_FILE: &str = "data-dir.json";
@@ -14,9 +15,60 @@ struct DataDirOverride {
     path: Option<String>,
 }
 
+fn app_base_dir() -> Result<PathBuf, String> {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(appimage) = std::env::var("APPIMAGE") {
+            let appimage_path = PathBuf::from(appimage.trim());
+            if !appimage_path.as_os_str().is_empty() {
+                if let Some(parent) = appimage_path.parent() {
+                    return Ok(parent.to_path_buf());
+                }
+            }
+        }
+    }
+
+    let exe_path = std::env::current_exe().map_err(|e| format!("无法获取软件路径: {}", e))?;
+    exe_path
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| format!("无法解析软件所在目录: {}", exe_path.display()))
+}
+
 pub fn default_data_dir() -> Result<PathBuf, String> {
+    Ok(app_base_dir()?.join(DEFAULT_DATA_DIR_NAME))
+}
+
+fn legacy_home_data_dir() -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or("无法获取用户主目录")?;
-    Ok(home.join(DEFAULT_DATA_DIR_NAME))
+    Ok(home.join(LEGACY_HOME_DATA_DIR_NAME))
+}
+
+fn normalize_path_text(path: &Path) -> String {
+    let normalized = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_string();
+
+    #[cfg(target_os = "windows")]
+    {
+        return normalized.to_ascii_lowercase();
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        normalized
+    }
+}
+
+fn is_legacy_home_data_dir_path(path: &Path) -> bool {
+    let Ok(legacy_home_dir) = legacy_home_data_dir() else {
+        return false;
+    };
+
+    path_eq(path, &legacy_home_dir)
+        || normalize_path_text(path) == normalize_path_text(&legacy_home_dir)
 }
 
 fn override_config_dir() -> Result<PathBuf, String> {
@@ -70,7 +122,12 @@ fn configured_data_dir() -> Result<Option<PathBuf>, String> {
         return Ok(None);
     }
 
-    Ok(Some(PathBuf::from(trimmed)))
+    let configured = PathBuf::from(trimmed);
+    if is_legacy_home_data_dir_path(&configured) {
+        return Ok(None);
+    }
+
+    Ok(Some(configured))
 }
 
 pub fn get_data_dir() -> Result<PathBuf, String> {
@@ -123,8 +180,8 @@ fn path_nested(left: &Path, right: &Path) -> bool {
 fn legacy_data_dir_candidates() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
 
-    if let Ok(default_dir) = default_data_dir() {
-        candidates.push(default_dir);
+    if let Ok(legacy_home_dir) = legacy_home_data_dir() {
+        candidates.push(legacy_home_dir);
     }
 
     if let Some(data_local_dir) = dirs::data_local_dir() {
