@@ -11,6 +11,7 @@
 ### 变更
 - Linux AppImage 下现在优先使用 `APPIMAGE` 所在目录推导默认 `tools` 数据目录，避免数据落到 AppImage 临时挂载目录。
 - Linux 系统安装路径不可写时会自动回退到 XDG 用户数据目录下的 `ai-lemon-tools/tools`，避免从 `/usr/bin` 推导出不可写的 `/usr/bin/tools`。
+- Linux 打包后的主程序文件名明确为 `ai-lemon-tools`，并会忽略旧配置里误写的 `/usr/bin/tools` 这类系统目录数据路径。
 - 默认数据目录统一为软件所在目录下的 `tools`；旧版 `~/.antigravity_cockpit` 仅作为迁移来源，删除该旧目录不会影响新版本启动或继续使用。
 
 ### 修复

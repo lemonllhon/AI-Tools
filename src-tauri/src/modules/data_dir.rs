@@ -102,6 +102,22 @@ fn is_legacy_home_data_dir_path(path: &Path) -> bool {
         || normalize_path_text(path) == normalize_path_text(&legacy_home_dir)
 }
 
+#[cfg(target_os = "linux")]
+fn is_linux_system_tools_data_dir(path: &Path) -> bool {
+    let has_default_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name == DEFAULT_DATA_DIR_NAME)
+        .unwrap_or(false);
+    if !has_default_name {
+        return false;
+    }
+
+    path.parent()
+        .map(is_linux_system_app_dir)
+        .unwrap_or(false)
+}
+
 fn override_config_dir() -> Result<PathBuf, String> {
     if let Some(config_dir) = dirs::config_dir() {
         return Ok(config_dir.join(APP_CONFIG_DIR_NAME));
@@ -156,6 +172,12 @@ fn configured_data_dir() -> Result<Option<PathBuf>, String> {
     let configured = PathBuf::from(trimmed);
     if is_legacy_home_data_dir_path(&configured) {
         return Ok(None);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if is_linux_system_tools_data_dir(&configured) {
+            return Ok(None);
+        }
     }
 
     Ok(Some(configured))
