@@ -6,7 +6,7 @@ All notable changes to AI Lemon Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [0.0.58] - 2026-06-11
+## [0.0.59] - 2026-06-11
 ### Changed
 - Linux AppImage builds now derive the default `tools` data directory from the `APPIMAGE` location first, preventing data from landing in the AppImage temporary mount directory.
 - Linux installs now fall back to the XDG user data directory at `ai-lemon-tools/tools` when the system install path is not writable, avoiding permission errors from deriving `/usr/bin/tools`.
