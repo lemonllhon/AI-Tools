@@ -610,6 +610,7 @@ export function CodexAccountsPage() {
   const [localAccessConfigRefreshing, setLocalAccessConfigRefreshing] =
     useState(false);
   const [localAccessPortKilling, setLocalAccessPortKilling] = useState(false);
+  const [apiServiceSwitching, setApiServiceSwitching] = useState(false);
   const [showLocalAccessHideConfirm, setShowLocalAccessHideConfirm] =
     useState(false);
   const [localAccessHideSubmitting, setLocalAccessHideSubmitting] =
@@ -2978,6 +2979,41 @@ export function CodexAccountsPage() {
     }
   };
 
+  const handleSwitchToApiService = useCallback(async () => {
+    setMessage(null);
+    setApiServiceSwitching(true);
+    try {
+      const state = await codexLocalAccessService.activateCodexLocalAccess();
+      setLocalAccessState(state);
+      setLocalAccessLaunchCurrent(true);
+      await Promise.all([
+        fetchCurrentAccount(),
+        reloadLocalAccessLaunchCurrent(),
+      ]);
+      setMessage({
+        text: t(
+          "codex.localAccess.switchSuccess",
+          "已切换到 API 服务，Codex 将由 API 服务提供账号。",
+        ),
+      });
+    } catch (error) {
+      setMessage({
+        text: t("codex.localAccess.switchFailed", {
+          defaultValue: "切换 API 服务失败：{{error}}",
+          error: String(error).replace(/^Error:\s*/, ""),
+        }),
+        tone: "error",
+      });
+    } finally {
+      setApiServiceSwitching(false);
+    }
+  }, [
+    fetchCurrentAccount,
+    reloadLocalAccessLaunchCurrent,
+    setMessage,
+    t,
+  ]);
+
   const handleSubmitOAuthBinding = useCallback(async () => {
     if (oauthBindingTargetKind === "api_key_account" && !oauthBindingAccount) {
       return;
@@ -4270,7 +4306,8 @@ export function CodexAccountsPage() {
     localAccessTesting ||
     localAccessRefreshing ||
     localAccessConfigRefreshing ||
-    localAccessPortKilling;
+    localAccessPortKilling ||
+    apiServiceSwitching;
   const selectedLocalAccessAddressKind: CodexLocalAccessAddressKind =
     localAccessAddressKind === "lan" && localAccessState?.lanBaseUrl
       ? "lan"
@@ -8144,6 +8181,25 @@ export function CodexAccountsPage() {
                 }
               >
                 {privacyModeEnabled ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+              <button
+                className={`btn btn-secondary icon-only ${localAccessLaunchCurrent ? "active" : ""}`}
+                onClick={() => void handleSwitchToApiService()}
+                disabled={localAccessBusy}
+                title={t(
+                  "codex.localAccess.switchToApiService",
+                  "切换 API",
+                )}
+                aria-label={t(
+                  "codex.localAccess.switchToApiService",
+                  "切换 API",
+                )}
+              >
+                {apiServiceSwitching ? (
+                  <RefreshCw size={14} className="loading-spinner" />
+                ) : (
+                  <Server size={14} />
+                )}
               </button>
               <button
                 className="btn btn-secondary export-btn icon-only"
