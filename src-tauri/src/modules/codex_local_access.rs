@@ -195,6 +195,8 @@ struct CodexModelProviderEntry {
     name: String,
     base_url: String,
     #[serde(default)]
+    wire_api: Option<String>,
+    #[serde(default)]
     api_keys: Vec<CodexModelProviderApiKeyEntry>,
 }
 
@@ -216,6 +218,7 @@ struct ProxyDispatchSuccess {
     upstream: reqwest::Response,
     account_id: String,
     account_email: String,
+    response_adapter: Option<GatewayResponseAdapter>,
 }
 
 #[derive(Debug)]
@@ -224,6 +227,13 @@ struct ProxyDispatchError {
     message: String,
     account_id: Option<String>,
     account_email: Option<String>,
+}
+
+struct AccountUpstreamRequest {
+    target: String,
+    headers: HashMap<String, String>,
+    body: Vec<u8>,
+    response_adapter: GatewayResponseAdapter,
 }
 
 struct ResponseUsageCollector {
@@ -4343,6 +4353,22 @@ fn provider_runtime_account_id(provider_id: &str, api_key_id: &str) -> String {
     format!("provider:{}:{}", provider_id, api_key_id)
 }
 
+fn normalize_provider_wire_api(value: Option<&str>) -> String {
+    match value.map(str::trim) {
+        Some("chat_completions") => "chat_completions".to_string(),
+        _ => "responses".to_string(),
+    }
+}
+
+fn account_uses_chat_completions_wire_api(account: &CodexAccount) -> bool {
+    account.is_api_key_auth()
+        && account
+            .api_wire_api
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|value| value == "chat_completions")
+}
+
 fn is_provider_runtime_account_id(account_id: &str) -> bool {
     account_id.starts_with("provider:")
 }
@@ -4370,6 +4396,7 @@ fn build_provider_runtime_account(
         Some(NEW_API_PROVIDER_NAME.to_string()),
     );
     account.account_name = Some(provider.name.clone());
+    account.api_wire_api = Some(normalize_provider_wire_api(provider.wire_api.as_deref()));
     Some(account)
 }
 
@@ -8595,8 +8622,8 @@ async fn handle_responses_websocket_create(
         }
     };
 
-    let request_is_stream = match response_adapter {
-        GatewayResponseAdapter::Passthrough { request_is_stream } => request_is_stream,
+    let request_is_stream = match &response_adapter {
+        GatewayResponseAdapter::Passthrough { request_is_stream } => *request_is_stream,
         _ => {
             let message = "Responses WebSocket 仅支持 /v1/responses 请求";
             send_responses_websocket_error(ws_stream, 400, message).await?;
@@ -8605,7 +8632,7 @@ async fn handle_responses_websocket_create(
     };
     let session_request_body = parse_request_body_json(&prepared_request.body);
 
-    match proxy_request_with_account_pool(&prepared_request, collection).await {
+    match proxy_request_with_account_pool(&prepared_request, &response_adapter, collection).await {
         Ok(success) => {
             let response_capture = forward_upstream_response_to_responses_websocket(
                 ws_stream,
@@ -8817,6 +8844,43 @@ fn should_retry_single_account_upstream_status(status: StatusCode) -> bool {
     )
 }
 
+fn build_chat_completions_upstream_request_for_account(
+    request: &ParsedRequest,
+    response_adapter: &GatewayResponseAdapter,
+    account: &CodexAccount,
+) -> Option<AccountUpstreamRequest> {
+    if !account_uses_chat_completions_wire_api(account) {
+        return None;
+    }
+    let GatewayResponseAdapter::ChatCompletions {
+        stream,
+        original_request_body,
+        ..
+    } = response_adapter
+    else {
+        return None;
+    };
+    let target = resolve_upstream_target(CHAT_COMPLETIONS_PATH).ok()?;
+    let mut headers = request.headers.clone();
+    headers.insert("content-type".to_string(), "application/json".to_string());
+    headers.insert(
+        "accept".to_string(),
+        if *stream {
+            "text/event-stream".to_string()
+        } else {
+            "application/json".to_string()
+        },
+    );
+    Some(AccountUpstreamRequest {
+        target,
+        headers,
+        body: original_request_body.clone(),
+        response_adapter: GatewayResponseAdapter::Passthrough {
+            request_is_stream: *stream,
+        },
+    })
+}
+
 fn single_account_status_retry_delay(retry_attempt: usize) -> Duration {
     let multiplier = match retry_attempt {
         0 | 1 => 1u32,
@@ -8937,6 +9001,7 @@ async fn send_upstream_request(
 
 async fn proxy_request_with_account_pool(
     request: &ParsedRequest,
+    response_adapter: &GatewayResponseAdapter,
     collection: &CodexLocalAccessCollection,
 ) -> Result<ProxyDispatchSuccess, ProxyDispatchError> {
     let upstream_target =
@@ -9176,11 +9241,33 @@ async fn proxy_request_with_account_pool(
 
             let mut single_account_status_retry_attempt = 0usize;
             loop {
+                let chat_upstream = build_chat_completions_upstream_request_for_account(
+                    request,
+                    response_adapter,
+                    &account,
+                );
+                let (request_target, request_headers, request_body, response_adapter_override) =
+                    chat_upstream.as_ref().map_or(
+                        (
+                            upstream_target.as_str(),
+                            &request.headers,
+                            request.body.as_slice(),
+                            None,
+                        ),
+                        |prepared| {
+                            (
+                                prepared.target.as_str(),
+                                &prepared.headers,
+                                prepared.body.as_slice(),
+                                Some(prepared.response_adapter.clone()),
+                            )
+                        },
+                    );
                 let first_response = send_upstream_request(
                     &request.method,
-                    &upstream_target,
-                    &request.headers,
-                    &request.body,
+                    request_target,
+                    request_headers,
+                    request_body,
                     &account,
                     collection.upstream_proxy_mode,
                 )
@@ -9225,9 +9312,9 @@ async fn proxy_request_with_account_pool(
                             account = refreshed_account;
                             response = match send_upstream_request(
                                 &request.method,
-                                &upstream_target,
-                                &request.headers,
-                                &request.body,
+                                request_target,
+                                request_headers,
+                                request_body,
                                 &account,
                                 collection.upstream_proxy_mode,
                             )
@@ -9289,6 +9376,7 @@ async fn proxy_request_with_account_pool(
                         upstream: response,
                         account_id: account.id.clone(),
                         account_email: account.email.clone(),
+                        response_adapter: response_adapter_override,
                     });
                 }
 
@@ -9602,8 +9690,9 @@ async fn handle_connection(
         }
     };
 
-    match proxy_request_with_account_pool(&prepared_request, &collection).await {
+    match proxy_request_with_account_pool(&prepared_request, &response_adapter, &collection).await {
         Ok(success) => {
+            let response_adapter = success.response_adapter.unwrap_or(response_adapter);
             let response_capture =
                 write_gateway_response(&mut stream, success.upstream, response_adapter).await?;
             if let Some(response_id) = response_capture.response_id.as_deref() {
@@ -10428,6 +10517,107 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             }
             _ => panic!("expected chat completions adapter"),
         }
+    }
+
+    #[test]
+    fn provider_runtime_account_inherits_wire_api() {
+        let provider = CodexModelProviderEntry {
+            id: "provider-1".to_string(),
+            name: "Relay".to_string(),
+            base_url: "https://relay.example/v1".to_string(),
+            wire_api: Some("chat_completions".to_string()),
+            api_keys: Vec::new(),
+        };
+        let api_key = CodexModelProviderApiKeyEntry {
+            id: "key-1".to_string(),
+            name: "default".to_string(),
+            api_key: "sk-test".to_string(),
+        };
+
+        let account = build_provider_runtime_account(&provider, &api_key)
+            .expect("runtime account should build");
+
+        assert_eq!(account.api_wire_api.as_deref(), Some("chat_completions"));
+    }
+
+    #[test]
+    fn chat_completions_provider_uses_original_chat_request() {
+        let request = ParsedRequest {
+            method: "POST".to_string(),
+            target: "/v1/chat/completions".to_string(),
+            headers: HashMap::new(),
+            body: br#"{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],"tool_choice":{"type":"function","function":{"name":"lookup"}},"stream":false}"#
+                .to_vec(),
+        };
+        let (prepared, adapter) = prepare_gateway_request(request).expect("request should map");
+        let mut account = CodexAccount::new_api_key(
+            "api-1".to_string(),
+            "api@example.com".to_string(),
+            "sk-test".to_string(),
+            CodexApiProviderMode::Custom,
+            Some("https://relay.example/v1".to_string()),
+            Some("relay".to_string()),
+            Some("Relay".to_string()),
+        );
+        account.api_wire_api = Some("chat_completions".to_string());
+
+        let upstream = build_chat_completions_upstream_request_for_account(
+            &prepared,
+            &adapter,
+            &account,
+        )
+        .expect("chat provider should use chat upstream");
+        let body: Value = serde_json::from_slice(&upstream.body).expect("json body");
+
+        assert_eq!(upstream.target, "/chat/completions");
+        assert_eq!(upstream.headers.get("accept").map(String::as_str), Some("application/json"));
+        assert_eq!(body.get("messages").and_then(Value::as_array).map(Vec::len), Some(1));
+        assert_eq!(body.get("tools").and_then(Value::as_array).map(Vec::len), Some(1));
+        assert!(body.get("tool_choice").is_some());
+        assert_eq!(body.get("stream").and_then(Value::as_bool), Some(false));
+        assert!(matches!(
+            upstream.response_adapter,
+            GatewayResponseAdapter::Passthrough {
+                request_is_stream: false
+            }
+        ));
+    }
+
+    #[test]
+    fn chat_completions_provider_preserves_streaming_mode() {
+        let request = ParsedRequest {
+            method: "POST".to_string(),
+            target: "/v1/chat/completions".to_string(),
+            headers: HashMap::new(),
+            body: br#"{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}],"stream":true}"#
+                .to_vec(),
+        };
+        let (prepared, adapter) = prepare_gateway_request(request).expect("request should map");
+        let mut account = CodexAccount::new_api_key(
+            "api-1".to_string(),
+            "api@example.com".to_string(),
+            "sk-test".to_string(),
+            CodexApiProviderMode::Custom,
+            Some("https://relay.example/v1".to_string()),
+            Some("relay".to_string()),
+            Some("Relay".to_string()),
+        );
+        account.api_wire_api = Some("chat_completions".to_string());
+
+        let upstream = build_chat_completions_upstream_request_for_account(
+            &prepared,
+            &adapter,
+            &account,
+        )
+        .expect("chat provider should use chat upstream");
+
+        assert_eq!(upstream.headers.get("accept").map(String::as_str), Some("text/event-stream"));
+        assert!(matches!(
+            upstream.response_adapter,
+            GatewayResponseAdapter::Passthrough {
+                request_is_stream: true
+            }
+        ));
     }
 
     #[test]

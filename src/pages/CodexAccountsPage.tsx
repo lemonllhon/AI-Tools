@@ -96,6 +96,7 @@ import {
   isCodexNewApiAccount,
   isCodexTeamLikePlan,
   type CodexApiProviderMode,
+  type CodexProviderWireApi,
   type CodexQuotaErrorInfo,
 } from "../types/codex";
 import { buildCodexAccountPresentation } from "../presentation/platformAccountPresentation";
@@ -2062,11 +2063,16 @@ export function CodexAccountsPage() {
       apiProviderMode: CodexApiProviderMode;
       apiProviderId?: string;
       apiProviderName?: string;
+      apiWireApi?: CodexProviderWireApi;
     } => {
       const normalizedBaseUrl = normalizeHttpBaseUrl(apiBaseUrl);
       if (!normalizedBaseUrl) {
         return { apiProviderMode: "openai_builtin" };
       }
+      const matchedManagedProviderByBaseUrl = findCodexModelProviderByBaseUrl(
+        managedProviders,
+        normalizedBaseUrl,
+      );
       const matchedPresetByBaseUrl =
         findCodexApiProviderPresetByBaseUrl(normalizedBaseUrl);
       if (
@@ -2077,6 +2083,7 @@ export function CodexAccountsPage() {
           apiProviderMode: "custom",
           apiProviderId: matchedPresetByBaseUrl.id,
           apiProviderName: matchedPresetByBaseUrl.name,
+          apiWireApi: matchedManagedProviderByBaseUrl?.wireApi,
         };
       }
       if (providerPresetId === OPENAI_OFFICIAL_PRESET_ID) {
@@ -2092,6 +2099,7 @@ export function CodexAccountsPage() {
           apiProviderMode: "custom",
           apiProviderId: managedProvider.id,
           apiProviderName: managedProvider.name,
+          apiWireApi: managedProvider.wireApi,
         };
       }
 
@@ -2101,6 +2109,7 @@ export function CodexAccountsPage() {
           apiProviderMode: "custom",
           apiProviderId: preset.id,
           apiProviderName: preset.name,
+          apiWireApi: matchedManagedProviderByBaseUrl?.wireApi,
         };
       }
 
@@ -2108,6 +2117,7 @@ export function CodexAccountsPage() {
       return {
         apiProviderMode: "custom",
         apiProviderName: trimmedName || undefined,
+        apiWireApi: matchedManagedProviderByBaseUrl?.wireApi,
       };
     },
     [managedProviders],
@@ -3621,6 +3631,7 @@ export function CodexAccountsPage() {
         providerPayload.apiProviderMode,
         providerPayload.apiProviderId,
         providerPayload.apiProviderName,
+        providerPayload.apiWireApi,
       );
       if (
         validation.apiBaseUrl &&
@@ -3631,6 +3642,7 @@ export function CodexAccountsPage() {
           await upsertCodexModelProviderFromCredential({
             providerId: providerPayload.apiProviderId ?? null,
             providerName: providerPayload.apiProviderName ?? null,
+            wireApi: providerPayload.apiWireApi ?? null,
             apiBaseUrl: validation.apiBaseUrl,
             apiKey: validation.apiKey,
           });
@@ -3970,6 +3982,7 @@ export function CodexAccountsPage() {
         providerPayload.apiProviderMode,
         providerPayload.apiProviderId,
         providerPayload.apiProviderName,
+        providerPayload.apiWireApi,
       );
       if (
         validation.apiBaseUrl &&
@@ -3980,6 +3993,7 @@ export function CodexAccountsPage() {
           await upsertCodexModelProviderFromCredential({
             providerId: providerPayload.apiProviderId ?? null,
             providerName: providerPayload.apiProviderName ?? null,
+            wireApi: providerPayload.apiWireApi ?? null,
             apiBaseUrl: validation.apiBaseUrl,
             apiKey: validation.apiKey,
           });

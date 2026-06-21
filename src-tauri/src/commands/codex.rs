@@ -745,6 +745,7 @@ pub fn add_codex_account_with_api_key(
     api_provider_mode: Option<CodexApiProviderMode>,
     api_provider_id: Option<String>,
     api_provider_name: Option<String>,
+    api_wire_api: Option<String>,
 ) -> Result<CodexAccount, String> {
     let account = codex_account::upsert_api_key_account(
         api_key,
@@ -752,6 +753,7 @@ pub fn add_codex_account_with_api_key(
         api_provider_mode,
         api_provider_id,
         api_provider_name,
+        api_wire_api,
     )?;
     codex_account::load_account(&account.id).ok_or_else(|| "账号保存后无法读取".to_string())
 }
@@ -769,6 +771,7 @@ pub fn update_codex_api_key_credentials(
     api_provider_mode: Option<CodexApiProviderMode>,
     api_provider_id: Option<String>,
     api_provider_name: Option<String>,
+    api_wire_api: Option<String>,
 ) -> Result<CodexAccount, String> {
     codex_account::update_api_key_credentials(
         &account_id,
@@ -777,6 +780,7 @@ pub fn update_codex_api_key_credentials(
         api_provider_mode,
         api_provider_id,
         api_provider_name,
+        api_wire_api,
     )
 }
 

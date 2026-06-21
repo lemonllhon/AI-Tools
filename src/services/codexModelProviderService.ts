@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { CodexAccount } from '../types/codex';
+import type { CodexAccount, CodexProviderWireApi } from '../types/codex';
 
 export interface CodexModelProviderApiKey {
   id: string;
@@ -13,6 +13,7 @@ export interface CodexModelProvider {
   id: string;
   name: string;
   baseUrl: string;
+  wireApi: CodexProviderWireApi;
   website?: string;
   apiKeyUrl?: string;
   apiKeys: CodexModelProviderApiKey[];
@@ -24,6 +25,7 @@ interface UpsertFromCredentialInput {
   providerId?: string | null;
   providerName?: string | null;
   apiBaseUrl: string;
+  wireApi?: CodexProviderWireApi | null;
   apiKey: string;
   apiKeyName?: string | null;
 }
@@ -46,6 +48,27 @@ function sanitizeName(value: string): string {
 
 function sanitizeApiKey(value: string): string {
   return value.trim();
+}
+
+export function normalizeCodexProviderWireApi(
+  value?: string | null,
+): CodexProviderWireApi | undefined {
+  const normalized = value?.trim();
+  if (normalized === 'responses' || normalized === 'chat_completions') {
+    return normalized;
+  }
+  return undefined;
+}
+
+export function resolveCodexProviderWireApi(
+  baseUrl: string,
+  explicit?: string | null,
+): CodexProviderWireApi {
+  const normalizedExplicit = normalizeCodexProviderWireApi(explicit);
+  if (normalizedExplicit) return normalizedExplicit;
+  const normalizedBaseUrl = baseUrl.trim().toLowerCase();
+  if (normalizedBaseUrl.includes('/chat/completions')) return 'chat_completions';
+  return 'responses';
 }
 
 export function normalizeCodexModelProviderBaseUrl(value: string): string | null {
@@ -123,6 +146,10 @@ function toValidProviderList(raw: unknown): CodexModelProvider[] {
       id: String((item as { id?: unknown }).id ?? createProviderId()),
       name,
       baseUrl,
+      wireApi: resolveCodexProviderWireApi(
+        baseUrl,
+        String((item as { wireApi?: unknown }).wireApi ?? ''),
+      ),
       website: sanitizeName(String((item as { website?: unknown }).website ?? '')) || undefined,
       apiKeyUrl: sanitizeName(String((item as { apiKeyUrl?: unknown }).apiKeyUrl ?? '')) || undefined,
       apiKeys: toValidApiKeys((item as { apiKeys?: unknown }).apiKeys, now),
@@ -225,6 +252,7 @@ function ensureApiKeyOnProvider(
 export async function createCodexModelProvider(input: {
   name: string;
   baseUrl: string;
+  wireApi?: CodexProviderWireApi | null;
   website?: string;
   apiKeyUrl?: string;
   initialApiKey?: string;
@@ -244,6 +272,7 @@ export async function createCodexModelProvider(input: {
     id: createProviderId(),
     name,
     baseUrl,
+    wireApi: resolveCodexProviderWireApi(baseUrl, input.wireApi),
     website: sanitizeName(input.website ?? '') || undefined,
     apiKeyUrl: sanitizeName(input.apiKeyUrl ?? '') || undefined,
     apiKeys: [],
@@ -263,6 +292,7 @@ export async function updateCodexModelProvider(
   patch: {
     name?: string;
     baseUrl?: string;
+    wireApi?: CodexProviderWireApi | null;
     website?: string;
     apiKeyUrl?: string;
   },
@@ -289,6 +319,12 @@ export async function updateCodexModelProvider(
 
   provider.name = nextName;
   provider.baseUrl = nextBaseUrl;
+  if (patch.wireApi !== undefined || patch.baseUrl !== undefined) {
+    provider.wireApi = resolveCodexProviderWireApi(
+      nextBaseUrl,
+      patch.wireApi ?? provider.wireApi,
+    );
+  }
   if (patch.website !== undefined) {
     provider.website = sanitizeName(patch.website) || undefined;
   }
@@ -361,6 +397,7 @@ export async function upsertCodexModelProviderFromCredential(
         sanitizeName(input.providerName ?? '') ||
         deriveProviderNameFromBaseUrl(apiBaseUrl),
       baseUrl: apiBaseUrl,
+      wireApi: resolveCodexProviderWireApi(apiBaseUrl, input.wireApi),
       apiKeys: [],
       createdAt: now,
       updatedAt: now,
@@ -373,6 +410,11 @@ export async function upsertCodexModelProviderFromCredential(
 
   ensureApiKeyOnProvider(provider, apiKey, input.apiKeyName);
   provider.baseUrl = apiBaseUrl;
+  if (input.wireApi) {
+    provider.wireApi = resolveCodexProviderWireApi(apiBaseUrl, input.wireApi);
+  } else {
+    provider.wireApi = provider.wireApi ?? resolveCodexProviderWireApi(apiBaseUrl);
+  }
   provider.updatedAt = Date.now();
   await writeProviders(providers);
   return { ...provider, apiKeys: provider.apiKeys.map((item) => ({ ...item })) };

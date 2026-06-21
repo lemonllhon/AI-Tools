@@ -15,7 +15,7 @@ import {
   Settings,
 } from "lucide-react";
 import { useEscClose } from "../../hooks/useEscClose";
-import type { CodexAccount } from "../../types/codex";
+import type { CodexAccount, CodexProviderWireApi } from "../../types/codex";
 import type { CodexLocalAccessSourceMode } from "../../types/codexLocalAccess";
 import {
   addApiKeyToCodexModelProvider,
@@ -25,6 +25,7 @@ import {
   listCodexModelProviders,
   normalizeCodexModelProviderBaseUrl,
   removeApiKeyFromCodexModelProvider,
+  resolveCodexProviderWireApi,
   type CodexModelProvider,
   type CodexModelProviderApiKey,
   updateCodexModelProvider,
@@ -58,6 +59,7 @@ interface ProviderFormState {
   providerId: string | null;
   name: string;
   baseUrl: string;
+  wireApi: CodexProviderWireApi;
   website: string;
   apiKeyUrl: string;
   newApiKeyName: string;
@@ -68,6 +70,7 @@ const EMPTY_FORM: ProviderFormState = {
   providerId: null,
   name: "",
   baseUrl: "",
+  wireApi: "responses",
   website: "",
   apiKeyUrl: "",
   newApiKeyName: "",
@@ -92,6 +95,10 @@ function isNewApiModelProvider(provider: CodexModelProvider): boolean {
     .toLowerCase()
     .replace(/[\s_-]+/g, "")
     .includes("newapi");
+}
+
+function wireApiLabel(wireApi: CodexProviderWireApi): string {
+  return wireApi === "chat_completions" ? "Chat Completions" : "Responses";
 }
 
 export function CodexModelProviderManager({
@@ -238,6 +245,7 @@ export function CodexModelProviderManager({
       providerId: provider.id,
       name: provider.name,
       baseUrl: provider.baseUrl,
+      wireApi: provider.wireApi ?? resolveCodexProviderWireApi(provider.baseUrl),
       website: provider.website ?? "",
       apiKeyUrl: provider.apiKeyUrl ?? "",
       newApiKeyName: "",
@@ -273,6 +281,7 @@ export function CodexModelProviderManager({
       mutateForm({
         name: preset.name,
         baseUrl: preset.baseUrls[0] ?? "",
+        wireApi: resolveCodexProviderWireApi(preset.baseUrls[0] ?? ""),
         website: preset.website ?? "",
         apiKeyUrl: preset.apiKeyUrl ?? "",
       });
@@ -282,7 +291,7 @@ export function CodexModelProviderManager({
 
   const handleSelectPresetEndpoint = useCallback(
     (baseUrl: string) => {
-      mutateForm({ baseUrl });
+      mutateForm({ baseUrl, wireApi: resolveCodexProviderWireApi(baseUrl) });
     },
     [mutateForm],
   );
@@ -371,6 +380,7 @@ export function CodexModelProviderManager({
         await createCodexModelProvider({
           name,
           baseUrl,
+          wireApi: form.wireApi,
           website: form.website,
           apiKeyUrl: form.apiKeyUrl,
           initialApiKey: newApiKey || undefined,
@@ -380,6 +390,7 @@ export function CodexModelProviderManager({
         await updateCodexModelProvider(form.providerId, {
           name,
           baseUrl,
+          wireApi: form.wireApi,
           website: form.website,
           apiKeyUrl: form.apiKeyUrl,
         });
@@ -625,6 +636,9 @@ export function CodexModelProviderManager({
                       count: provider.apiKeys.length,
                     })}
                   </span>
+                  <span className="provider-badge">
+                    {wireApiLabel(provider.wireApi ?? "responses")}
+                  </span>
                   {showReferenceBadge && (
                     <span
                       className={`provider-badge ${referenceCount > 0 ? "danger" : ""}`}
@@ -670,11 +684,8 @@ export function CodexModelProviderManager({
       )}
 
       {showModal && (
-        <div className="modal-overlay" onClick={closeModal}>
-          <div
-            className="modal codex-provider-modal"
-            onClick={(event) => event.stopPropagation()}
-          >
+        <div className="modal-overlay">
+          <div className="modal codex-provider-modal">
             <div className="modal-header">
               <h2>
                 {form.providerId
@@ -806,6 +817,26 @@ export function CodexModelProviderManager({
                   }
                   disabled={saving}
                 />
+              </div>
+              <div className="form-group">
+                <label>
+                  {t("codex.modelProviders.fields.wireApi", "协议能力")}
+                </label>
+                <div className="api-provider-chip-list">
+                  {(["responses", "chat_completions"] as const).map(
+                    (wireApi) => (
+                      <button
+                        key={wireApi}
+                        className={`api-provider-chip ${form.wireApi === wireApi ? "active" : ""}`}
+                        onClick={() => mutateForm({ wireApi })}
+                        type="button"
+                        disabled={saving}
+                      >
+                        <span>{wireApiLabel(wireApi)}</span>
+                      </button>
+                    ),
+                  )}
+                </div>
               </div>
               <div className="form-group">
                 <label>

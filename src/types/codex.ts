@@ -11,6 +11,7 @@ export const CODEX_APP_SPEED_VALUES = ["standard", "fast"] as const;
 
 export type CodexVisibleAppSpeed = (typeof CODEX_APP_SPEED_VALUES)[number];
 export type CodexAppSpeed = CodexVisibleAppSpeed | "flex";
+export type CodexProviderWireApi = "responses" | "chat_completions";
 
 export const CODEX_APP_SPEED_LABEL_KEYS: Record<CodexAppSpeed, string> = {
   standard: "codex.speed.standard",
@@ -57,6 +58,7 @@ export interface CodexAccount {
   api_provider_mode?: CodexApiProviderMode;
   api_provider_id?: string;
   api_provider_name?: string;
+  api_wire_api?: CodexProviderWireApi | null;
   bound_oauth_account_id?: string | null;
   user_id?: string;
   plan_type?: string;

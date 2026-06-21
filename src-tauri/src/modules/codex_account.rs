@@ -416,6 +416,23 @@ fn resolve_api_provider_config(
     }
 }
 
+fn normalize_api_wire_api(raw: Option<&str>) -> Option<String> {
+    match raw.map(str::trim) {
+        Some("responses") => Some("responses".to_string()),
+        Some("chat_completions") => Some("chat_completions".to_string()),
+        _ => None,
+    }
+}
+
+fn read_api_wire_api_from_json_value(value: &serde_json::Value) -> Option<String> {
+    normalize_api_wire_api(
+        value
+            .get("api_wire_api")
+            .and_then(|value| value.as_str())
+            .or_else(|| value.get("apiWireApi").and_then(|value| value.as_str())),
+    )
+}
+
 fn infer_api_provider_config(
     api_base_url: Option<&str>,
     api_provider_mode: Option<CodexApiProviderMode>,
@@ -499,6 +516,7 @@ fn apply_api_key_fields(
     account: &mut CodexAccount,
     api_key: &str,
     provider_config: ApiProviderConfig,
+    api_wire_api: Option<String>,
 ) {
     account.auth_mode = CodexAuthMode::Apikey;
     account.openai_api_key = Some(api_key.to_string());
@@ -506,6 +524,7 @@ fn apply_api_key_fields(
     account.api_provider_mode = provider_config.mode.clone();
     account.api_provider_id = provider_config.provider_id.clone();
     account.api_provider_name = provider_config.provider_name.clone();
+    account.api_wire_api = normalize_api_wire_api(api_wire_api.as_deref());
     account.email = build_api_key_email(api_key);
     apply_api_key_provider_metadata(account, &provider_config);
     account.tokens = CodexTokens {
@@ -2443,6 +2462,7 @@ pub fn upsert_api_key_account(
     api_provider_mode: Option<CodexApiProviderMode>,
     api_provider_id: Option<String>,
     api_provider_name: Option<String>,
+    api_wire_api: Option<String>,
 ) -> Result<CodexAccount, String> {
     let (api_key, api_base_url) = validate_api_key_credentials(&api_key, api_base_url.as_deref())?;
     let provider_config = resolve_api_provider_config(
@@ -2469,7 +2489,12 @@ pub fn upsert_api_key_account(
                 provider_config.provider_name.clone(),
             )
         });
-        apply_api_key_fields(&mut acc, &api_key, provider_config.clone());
+        apply_api_key_fields(
+            &mut acc,
+            &api_key,
+            provider_config.clone(),
+            api_wire_api.clone(),
+        );
         if acc.email.trim().is_empty() {
             acc.email = build_api_key_email(&api_key);
         }
@@ -2485,7 +2510,12 @@ pub fn upsert_api_key_account(
             provider_config.provider_id.clone(),
             provider_config.provider_name.clone(),
         );
-        apply_api_key_fields(&mut acc, &api_key, provider_config.clone());
+        apply_api_key_fields(
+            &mut acc,
+            &api_key,
+            provider_config.clone(),
+            api_wire_api.clone(),
+        );
         apply_api_service_default_app_speed_to_new_account(&mut acc);
         index.accounts.push(CodexAccountSummary {
             id: account_id.clone(),
@@ -2524,6 +2554,7 @@ fn upsert_api_key_account_with_index(
     api_provider_mode: Option<CodexApiProviderMode>,
     api_provider_id: Option<String>,
     api_provider_name: Option<String>,
+    api_wire_api: Option<String>,
 ) -> Result<CodexAccount, String> {
     let (api_key, api_base_url) = validate_api_key_credentials(&api_key, api_base_url.as_deref())?;
     let provider_config = resolve_api_provider_config(
@@ -2548,7 +2579,12 @@ fn upsert_api_key_account_with_index(
                 provider_config.provider_name.clone(),
             )
         });
-        apply_api_key_fields(&mut acc, &api_key, provider_config.clone());
+        apply_api_key_fields(
+            &mut acc,
+            &api_key,
+            provider_config.clone(),
+            api_wire_api.clone(),
+        );
         if acc.email.trim().is_empty() {
             acc.email = build_api_key_email(&api_key);
         }
@@ -2564,7 +2600,12 @@ fn upsert_api_key_account_with_index(
             provider_config.provider_id.clone(),
             provider_config.provider_name.clone(),
         );
-        apply_api_key_fields(&mut acc, &api_key, provider_config.clone());
+        apply_api_key_fields(
+            &mut acc,
+            &api_key,
+            provider_config.clone(),
+            api_wire_api.clone(),
+        );
         apply_api_service_default_app_speed_to_new_account(&mut acc);
         index.accounts.retain(|item| item.id != account_id);
         acc
@@ -4460,6 +4501,7 @@ pub fn import_from_local() -> Result<CodexAccount, String> {
             Some(fallback_provider.mode),
             fallback_provider.provider_id.clone(),
             fallback_provider.provider_name.clone(),
+            None,
         );
     }
 
@@ -4474,6 +4516,7 @@ pub fn import_from_local() -> Result<CodexAccount, String> {
             Some(fallback_provider.mode),
             fallback_provider.provider_id.clone(),
             fallback_provider.provider_name.clone(),
+            None,
         );
     }
 
@@ -4490,6 +4533,7 @@ fn import_account_struct(account: CodexAccount) -> Result<CodexAccount, String> 
             Some(account.api_provider_mode),
             account.api_provider_id.clone(),
             account.api_provider_name.clone(),
+            account.api_wire_api.clone(),
         );
     }
 
@@ -5132,6 +5176,7 @@ async fn import_account_from_json_value(
                     .get("api_provider_name")
                     .and_then(|value| value.as_str())
                     .map(|value| value.to_string()),
+                read_api_wire_api_from_json_value(&value),
             )?;
             apply_api_key_import_metadata(&mut account, &value);
             save_account(&account)?;
@@ -5179,6 +5224,7 @@ async fn import_account_from_json_value_with_index(
                     .get("api_provider_name")
                     .and_then(|value| value.as_str())
                     .map(|value| value.to_string()),
+                read_api_wire_api_from_json_value(&value),
             )?;
             apply_api_key_import_metadata(&mut account, &value);
             save_account(&account)?;
@@ -5202,6 +5248,7 @@ async fn import_account_from_json_value_with_index(
                 Some(account.api_provider_mode.clone()),
                 account.api_provider_id.clone(),
                 account.api_provider_name.clone(),
+                account.api_wire_api.clone(),
             )?;
             apply_api_key_import_metadata(
                 &mut imported,
@@ -5299,6 +5346,7 @@ pub async fn import_from_json(json_content: &str) -> Result<Vec<CodexAccount>, S
                 Some(fallback_provider.mode),
                 fallback_provider.provider_id.clone(),
                 fallback_provider.provider_name.clone(),
+                raw_value.as_ref().and_then(read_api_wire_api_from_json_value),
             )?;
             if let Some(value) = raw_value.as_ref() {
                 apply_api_key_import_metadata(&mut account, value);
@@ -5324,6 +5372,7 @@ pub async fn import_from_json(json_content: &str) -> Result<Vec<CodexAccount>, S
                 Some(fallback_provider.mode),
                 fallback_provider.provider_id.clone(),
                 fallback_provider.provider_name.clone(),
+                raw_value.as_ref().and_then(read_api_wire_api_from_json_value),
             )?;
             if let Some(value) = raw_value.as_ref() {
                 apply_api_key_import_metadata(&mut account, value);
@@ -7280,6 +7329,7 @@ pub fn update_api_key_credentials(
     api_provider_mode: Option<CodexApiProviderMode>,
     api_provider_id: Option<String>,
     api_provider_name: Option<String>,
+    api_wire_api: Option<String>,
 ) -> Result<CodexAccount, String> {
     let mut account =
         load_account(account_id).ok_or_else(|| format!("账号不存在: {}", account_id))?;
@@ -7311,7 +7361,7 @@ pub fn update_api_key_credentials(
         account.id = new_id.clone();
     }
 
-    apply_api_key_fields(&mut account, &normalized_key, provider_config);
+    apply_api_key_fields(&mut account, &normalized_key, provider_config, api_wire_api);
     account.update_last_used();
     save_account(&account)?;
 

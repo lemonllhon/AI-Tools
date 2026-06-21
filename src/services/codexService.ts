@@ -4,6 +4,7 @@ import {
   CodexApiProviderMode,
   CodexAppSpeed,
   CodexAppSpeedConfig,
+  CodexProviderWireApi,
   CodexQuickConfig,
   CodexQuota,
 } from '../types/codex';
@@ -186,6 +187,7 @@ export async function addCodexAccountWithApiKey(
   apiProviderMode?: CodexApiProviderMode,
   apiProviderId?: string,
   apiProviderName?: string,
+  apiWireApi?: CodexProviderWireApi | null,
 ): Promise<CodexAccount> {
   return await invoke('add_codex_account_with_api_key', {
     apiKey,
@@ -193,6 +195,7 @@ export async function addCodexAccountWithApiKey(
     apiProviderMode: apiProviderMode ?? null,
     apiProviderId: apiProviderId ?? null,
     apiProviderName: apiProviderName ?? null,
+    apiWireApi: apiWireApi ?? null,
   });
 }
 
@@ -207,6 +210,7 @@ export async function updateCodexApiKeyCredentials(
   apiProviderMode?: CodexApiProviderMode,
   apiProviderId?: string,
   apiProviderName?: string,
+  apiWireApi?: CodexProviderWireApi | null,
 ): Promise<CodexAccount> {
   return await invoke('update_codex_api_key_credentials', {
     accountId,
@@ -215,6 +219,7 @@ export async function updateCodexApiKeyCredentials(
     apiProviderMode: apiProviderMode ?? null,
     apiProviderId: apiProviderId ?? null,
     apiProviderName: apiProviderName ?? null,
+    apiWireApi: apiWireApi ?? null,
   });
 }
 

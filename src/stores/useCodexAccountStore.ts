@@ -3,6 +3,7 @@ import {
   CodexAccount,
   CodexApiProviderMode,
   CodexAppSpeed,
+  CodexProviderWireApi,
   CodexQuota,
   hasCodexAccountStructure,
   hasCodexAccountName,
@@ -199,6 +200,7 @@ interface CodexAccountState {
     apiProviderMode?: CodexApiProviderMode,
     apiProviderId?: string,
     apiProviderName?: string,
+    apiWireApi?: CodexProviderWireApi | null,
   ) => Promise<CodexAccount>;
   updateApiKeyBoundOAuthAccount: (
     accountId: string,
@@ -475,6 +477,7 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
     apiProviderMode?: CodexApiProviderMode,
     apiProviderId?: string,
     apiProviderName?: string,
+    apiWireApi?: CodexProviderWireApi | null,
   ) => {
     const account = await codexService.updateCodexApiKeyCredentials(
       accountId,
@@ -483,6 +486,7 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
       apiProviderMode,
       apiProviderId,
       apiProviderName,
+      apiWireApi,
     );
     await get().fetchAccounts();
     await get().fetchCurrentAccount();

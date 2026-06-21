@@ -6,6 +6,16 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.0.61] - 2026-06-22
+
+### 新增
+- Codex 模型供应商新增 Responses / Chat Completions 协议能力选择，并同步持久化到模型供应商和 API Key 账号。
+- Codex 本地 API adapter 新增 Chat Completions 供应商路由；非流式、流式、function/tool call 类型的 Chat Completions 请求可直接接入 Chat Completions 上游供应商，不再只是提示“需要适配”。
+- 新增 Codex `xx` 分支模型供应商协议能力分析文档，记录 main 分支落地路径。
+
+### 修复
+- 新增模型供应商弹框在对话框外点击时不再自动关闭，避免填写 Base URL / API Key 时误触丢失内容。
+
 ## [0.0.60] - 2026-06-22
 
 ### 新增

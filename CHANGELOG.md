@@ -6,6 +6,15 @@ All notable changes to AI Lemon Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.61] - 2026-06-22
+### Added
+- Added explicit Codex model provider protocol capability selection for Responses and Chat Completions, persisted on managed providers and API Key accounts.
+- Added Chat Completions provider routing in the Codex local API adapter so non-streaming, streaming, and function/tool call chat requests can reach Chat Completions upstream providers instead of only reporting that adaptation is required.
+- Added documentation for the Codex `xx` branch model provider protocol capability analysis and the main-branch implementation path.
+
+### Fixed
+- The Codex model provider creation dialog no longer closes when clicking outside the dialog, preventing accidental loss while filling provider credentials.
+
 ## [0.0.60] - 2026-06-22
 ### Added
 - Added a Codex account overview "Switch API" action next to the privacy toggle, allowing Codex to switch back to the API service provider after using a member account from the account list.
