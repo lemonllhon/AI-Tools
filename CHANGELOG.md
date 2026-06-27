@@ -6,6 +6,14 @@ All notable changes to AI Lemon Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.63] - 2026-06-27
+### Changed
+- Codex local API provider routing now follows the configured provider wire protocol: Responses providers receive original `/v1/responses` requests without protocol conversion, while Chat Completions providers use the `/v1/responses` -> `/v1/chat/completions` -> `/v1/responses` gateway path.
+
+### Fixed
+- Responses-to-Chat-Completions gateway compatibility now preserves direct Responses content parts, object instructions, stream usage options, and logprob options when adapting requests for Chat Completions providers.
+- Chat Completions provider responses now include Responses `output_text` data in both JSON and SSE completion events, avoiding empty visible content in Responses clients.
+
 ## [0.0.62] - 2026-06-27
 ### Added
 - Codex local API service can now route Codex `/v1/responses` requests through Chat Completions wire providers, translating request bodies, tools, tool calls, usage, JSON responses, SSE streams, and Responses WebSocket events in both directions.

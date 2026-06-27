@@ -6,6 +6,15 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.0.63] - 2026-06-27
+
+### 变更
+- Codex 本地 API 供应商路由现在严格遵循前端配置的供应商协议能力：Responses 供应商原样接收 `/v1/responses` 请求，不做协议转换；Chat Completions 供应商才走 `/v1/responses` -> `/v1/chat/completions` -> `/v1/responses` 网关路径。
+
+### 修复
+- Responses 转 Chat Completions 的网关兼容现在会保留直接 Responses 内容块、对象形式 instructions、流式 usage 选项和 logprob 选项，避免适配 Chat Completions 供应商时丢参数或变成空输入。
+- Chat Completions 供应商回包现在会在 JSON 和 SSE 完成事件里补齐 Responses `output_text`，避免 Responses 客户端显示空内容。
+
 ## [0.0.62] - 2026-06-27
 
 ### 新增
