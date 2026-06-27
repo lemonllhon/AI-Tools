@@ -1,5 +1,5 @@
 use crate::models::codex::{CodexAccount, CodexQuota, CodexQuotaErrorInfo};
-use crate::modules::{codex_account, codex_local_access, logger};
+use crate::modules::{codex_account, codex_local_access, logger, websocket};
 use futures::stream::{self, StreamExt};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
@@ -152,6 +152,7 @@ async fn delete_deactivated_workspace_account_if_needed(account: &CodexAccount, 
                     account.id, error
                 ));
             }
+            websocket::broadcast_data_changed("codex_accounts_deleted");
         }
         Err(error) => logger::log_warn(&format!(
             "Codex 配额刷新检测到异常账号但自动物理删除失败: account_id={}, email={}, reason={}, error={}",

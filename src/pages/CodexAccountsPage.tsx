@@ -2134,6 +2134,36 @@ export function CodexAccountsPage() {
   }, [fetchCurrentAccount]);
 
   useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    let disposed = false;
+
+    listen<string>("accounts:refresh", async (event) => {
+      const source = String(event.payload ?? "").toLowerCase();
+      if (source && !source.includes("codex")) {
+        return;
+      }
+      await Promise.allSettled([
+        fetchAccounts(),
+        fetchCurrentAccount(),
+        reloadCodexGroups(),
+      ]);
+    }).then((fn) => {
+      if (disposed) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+
+    return () => {
+      disposed = true;
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, [fetchAccounts, fetchCurrentAccount, reloadCodexGroups]);
+
+  useEffect(() => {
     const accountIds = new Set(accounts.map((account) => account.id));
     setVisibleApiKeyAccountIds((prev) => {
       let changed = false;

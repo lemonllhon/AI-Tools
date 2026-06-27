@@ -12,6 +12,7 @@ use crate::modules::{
     account, codex_account, codex_local_access, codex_oauth, codex_quota, codex_session_visibility,
     codex_speed, codex_wakeup, codex_wakeup_scheduler, config, logger, openclaw_auth,
     opencode_auth, process,
+    websocket,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::AppHandle;
@@ -150,7 +151,10 @@ fn repair_codex_session_visibility_after_provider_change(
 #[tauri::command]
 pub fn list_codex_accounts() -> Result<Vec<CodexAccount>, String> {
     let accounts = codex_account::list_accounts_checked()?;
-    let (accounts, _) = codex_account::remove_error_accounts_from_loaded(accounts)?;
+    let (accounts, removed_account_ids) = codex_account::remove_error_accounts_from_loaded(accounts)?;
+    if !removed_account_ids.is_empty() {
+        websocket::broadcast_data_changed("codex_error_accounts_deleted");
+    }
     Ok(accounts)
 }
 
@@ -439,6 +443,7 @@ pub async fn delete_codex_account(account_id: String) -> Result<(), String> {
             account_id, error
         ));
     }
+    websocket::broadcast_data_changed("codex_accounts_deleted");
     Ok(())
 }
 
@@ -455,6 +460,7 @@ pub async fn delete_codex_accounts(account_ids: Vec<String>) -> Result<(), Strin
             error
         ));
     }
+    websocket::broadcast_data_changed("codex_accounts_deleted");
     Ok(())
 }
 

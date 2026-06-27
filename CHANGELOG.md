@@ -6,6 +6,15 @@ All notable changes to AI Lemon Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.62] - 2026-06-27
+### Added
+- Codex local API service can now route Codex `/v1/responses` requests through Chat Completions wire providers, translating request bodies, tools, tool calls, usage, JSON responses, SSE streams, and Responses WebSocket events in both directions.
+- Chat Completions provider routing now preserves common generation options such as `max_output_tokens`, `temperature`, `top_p`, `stop`, `seed`, logprobs, metadata, service tier, and endpoint-level `/v1/chat/completions` base URLs.
+
+### Fixed
+- Codex account overview now clears stale cached accounts after backend automatic account deletion, including deactivated-workspace quota cleanup and missing account detail files left behind by stale indexes.
+- Codex account pages now listen for backend account refresh broadcasts so automatic deletions update the visible account list, current account, and groups without requiring an app restart.
+
 ## [0.0.61] - 2026-06-22
 ### Added
 - Added explicit Codex model provider protocol capability selection for Responses and Chat Completions, persisted on managed providers and API Key accounts.

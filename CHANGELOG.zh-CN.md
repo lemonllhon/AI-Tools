@@ -6,6 +6,16 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.0.62] - 2026-06-27
+
+### 新增
+- Codex 本地 API 服务现在可以把 Codex `/v1/responses` 请求路由到 Chat Completions 协议供应商，并在请求体、tools、tool call、usage、JSON 响应、SSE 流和 Responses WebSocket 事件之间做双向转换。
+- Chat Completions 供应商路由现在会保留 `max_output_tokens`、`temperature`、`top_p`、`stop`、`seed`、logprobs、metadata、service tier 等常见生成参数，并兼容直接填写到 `/v1/chat/completions` 的供应商 Base URL。
+
+### 修复
+- Codex 账号总览现在会在后端自动删除账号后清理陈旧前端缓存，包括工作区停用配额清理和残留索引指向缺失账号详情文件的情况。
+- Codex 账号页面现在会监听后端账号刷新广播，自动删除账号后无需重启应用即可同步账号列表、当前账号和分组状态。
+
 ## [0.0.61] - 2026-06-22
 
 ### 新增

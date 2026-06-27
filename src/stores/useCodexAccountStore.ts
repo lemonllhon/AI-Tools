@@ -22,11 +22,13 @@ const CODEX_PROFILE_SYNC_RETRY_INTERVAL_MS = 5 * 60 * 1000;
 const CODEX_PROFILE_SYNC_BATCH_LIMIT = 12;
 const CODEX_PROFILE_SYNC_AUTO_LOAD_MAX_ACCOUNTS = 200;
 const CODEX_DELETED_ACCOUNT_TOMBSTONE_MS = 10 * 1000;
+const CODEX_EMPTY_ACCOUNT_LIST_CONFIRM_MS = 1500;
 const CODEX_DELETED_ACCOUNT_TOMBSTONES = new Map<string, number>();
 let allowNextEmptyCodexAccountList = false;
 let allowNextEmptyCodexCurrentAccount = false;
 let fetchAccountsPromise: Promise<void> | null = null;
 let fetchCurrentPromise: Promise<void> | null = null;
+let lastEmptyCodexAccountListAt = 0;
 
 const loadCachedCodexAccounts = () => {
   try {
@@ -236,14 +238,21 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
         if (
           accounts.length === 0 &&
           get().accounts.length > 0 &&
-          !allowNextEmptyCodexAccountList
+          !allowNextEmptyCodexAccountList &&
+          Date.now() - lastEmptyCodexAccountListAt > CODEX_EMPTY_ACCOUNT_LIST_CONFIRM_MS
         ) {
-          console.warn('[CodexAccountStore] 忽略异常空账号列表，保留本地缓存账号');
+          lastEmptyCodexAccountListAt = Date.now();
+          console.warn('[CodexAccountStore] 首次收到空账号列表，等待二次确认后再清空本地缓存');
           if (get().loading) set({ loading: false });
+          window.setTimeout(() => {
+            void get().fetchAccounts();
+            void get().fetchCurrentAccount();
+          }, CODEX_EMPTY_ACCOUNT_LIST_CONFIRM_MS);
           return;
         }
 
         allowNextEmptyCodexAccountList = false;
+        lastEmptyCodexAccountListAt = accounts.length === 0 ? Date.now() : 0;
         const previousAccounts = get().accounts;
         const changed =
           buildCodexAccountsVersionKey(accounts) !==

@@ -270,6 +270,10 @@ enum GatewayResponseAdapter {
         requested_model: String,
         original_request_body: Vec<u8>,
     },
+    ResponsesFromChatCompletions {
+        stream: bool,
+        requested_model: String,
+    },
     Images {
         stream: bool,
         response_format: String,
@@ -770,6 +774,10 @@ fn is_upstream_responses_target(target: &str) -> bool {
     proxy_target_path(target) == "/responses"
 }
 
+fn is_upstream_chat_completions_target(target: &str) -> bool {
+    proxy_target_path(target).ends_with("/chat/completions")
+}
+
 fn insert_codex_app_speed_service_tier(
     obj: &mut Map<String, Value>,
     speed: &CodexAppSpeed,
@@ -794,7 +802,7 @@ fn apply_codex_app_speed_to_upstream_body(
     body: &[u8],
     speed: &CodexAppSpeed,
 ) -> Result<Option<Vec<u8>>, String> {
-    if !is_upstream_responses_target(target) {
+    if !is_upstream_responses_target(target) && !is_upstream_chat_completions_target(target) {
         return Ok(None);
     }
 
@@ -2618,6 +2626,902 @@ fn build_chat_completion_stream_body(
 ) -> String {
     let mut transformer =
         ChatCompletionStreamTransformer::new(original_request_body, requested_model);
+    let mut stream_body = transformer.feed(upstream_body);
+    let (tail, _) = transformer.finish();
+    stream_body.extend_from_slice(&tail);
+    String::from_utf8(stream_body).unwrap_or_default()
+}
+
+fn response_content_part_to_chat_part(part: &Value) -> Option<Value> {
+    let part_obj = part.as_object()?;
+    match part_obj.get("type").and_then(Value::as_str).unwrap_or("") {
+        "input_text" | "output_text" | "text" => Some(json!({
+            "type": "text",
+            "text": part_obj
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+        })),
+        "input_image" => {
+            let image_url = part_obj.get("image_url").and_then(Value::as_str)?;
+            Some(json!({
+                "type": "image_url",
+                "image_url": {
+                    "url": image_url,
+                },
+            }))
+        }
+        "input_file" => {
+            let file_data = part_obj.get("file_data").and_then(Value::as_str)?;
+            let mut file = Map::new();
+            file.insert("file_data".to_string(), Value::String(file_data.to_string()));
+            if let Some(filename) = part_obj.get("filename").and_then(Value::as_str) {
+                file.insert("filename".to_string(), Value::String(filename.to_string()));
+            }
+            Some(json!({
+                "type": "file",
+                "file": Value::Object(file),
+            }))
+        }
+        _ => None,
+    }
+}
+
+fn response_content_to_chat_content(content: &Value) -> Value {
+    match content {
+        Value::String(text) => Value::String(text.clone()),
+        Value::Array(parts) => {
+            let mapped_parts: Vec<Value> = parts
+                .iter()
+                .filter_map(response_content_part_to_chat_part)
+                .collect();
+            if mapped_parts.is_empty() {
+                return Value::String(String::new());
+            }
+
+            let all_text = mapped_parts
+                .iter()
+                .all(|part| part.get("type").and_then(Value::as_str) == Some("text"));
+            if all_text {
+                let mut text = String::new();
+                for part in mapped_parts {
+                    if let Some(part_text) = part.get("text").and_then(Value::as_str) {
+                        append_non_empty_text(&mut text, part_text);
+                    }
+                }
+                Value::String(text)
+            } else {
+                Value::Array(mapped_parts)
+            }
+        }
+        _ => Value::String(String::new()),
+    }
+}
+
+fn response_message_item_to_chat_message(item_obj: &Map<String, Value>) -> Option<Value> {
+    let role = item_obj
+        .get("role")
+        .and_then(Value::as_str)
+        .unwrap_or("user");
+    let mapped_role = if role.eq_ignore_ascii_case("developer") {
+        "system"
+    } else {
+        role
+    };
+    let content = item_obj
+        .get("content")
+        .map(response_content_to_chat_content)
+        .unwrap_or_else(|| Value::String(String::new()));
+    Some(json!({
+        "role": mapped_role,
+        "content": content,
+    }))
+}
+
+fn response_function_call_to_chat_message(item_obj: &Map<String, Value>) -> Option<Value> {
+    let name = item_obj
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    Some(json!({
+        "role": "assistant",
+        "content": Value::Null,
+        "tool_calls": [{
+            "id": item_obj
+                .get("call_id")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+            "type": "function",
+            "function": {
+                "name": name,
+                "arguments": item_obj
+                    .get("arguments")
+                    .and_then(Value::as_str)
+                    .unwrap_or("{}"),
+            },
+        }],
+    }))
+}
+
+fn response_function_output_to_chat_message(item_obj: &Map<String, Value>) -> Option<Value> {
+    Some(json!({
+        "role": "tool",
+        "tool_call_id": item_obj
+            .get("call_id")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        "content": item_obj
+            .get("output")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+    }))
+}
+
+fn response_input_item_to_chat_messages(item: &Value) -> Vec<Value> {
+    let Some(item_obj) = item.as_object() else {
+        return Vec::new();
+    };
+    match item_obj.get("type").and_then(Value::as_str).unwrap_or("") {
+        "message" => response_message_item_to_chat_message(item_obj)
+            .map(|message| vec![message])
+            .unwrap_or_default(),
+        "function_call" => response_function_call_to_chat_message(item_obj)
+            .map(|message| vec![message])
+            .unwrap_or_default(),
+        "function_call_output" => response_function_output_to_chat_message(item_obj)
+            .map(|message| vec![message])
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+fn build_chat_messages_from_responses_body(body: &Value) -> Vec<Value> {
+    let mut messages = Vec::new();
+    if let Some(instructions) = body
+        .get("instructions")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        messages.push(json!({
+            "role": "system",
+            "content": instructions,
+        }));
+    }
+
+    match body.get("input") {
+        Some(Value::String(text)) => messages.push(json!({
+            "role": "user",
+            "content": text,
+        })),
+        Some(Value::Array(items)) => {
+            for item in items {
+                messages.extend(response_input_item_to_chat_messages(item));
+            }
+        }
+        Some(other) => messages.push(json!({
+            "role": "user",
+            "content": other.to_string(),
+        })),
+        None => {}
+    }
+
+    if messages.is_empty() {
+        messages.push(json!({
+            "role": "user",
+            "content": "",
+        }));
+    }
+    messages
+}
+
+fn response_tool_to_chat_tool(tool: &Value) -> Option<Value> {
+    let tool_obj = tool.as_object()?;
+    if tool_obj.get("type").and_then(Value::as_str) != Some("function") {
+        return None;
+    }
+    let name = tool_obj
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let mut function = Map::new();
+    function.insert("name".to_string(), Value::String(name.to_string()));
+    if let Some(description) = tool_obj.get("description") {
+        function.insert("description".to_string(), description.clone());
+    }
+    if let Some(parameters) = tool_obj.get("parameters") {
+        function.insert("parameters".to_string(), parameters.clone());
+    }
+    if let Some(strict) = tool_obj.get("strict") {
+        function.insert("strict".to_string(), strict.clone());
+    }
+    Some(json!({
+        "type": "function",
+        "function": Value::Object(function),
+    }))
+}
+
+fn response_tool_choice_to_chat_tool_choice(tool_choice: &Value) -> Option<Value> {
+    if tool_choice.is_string() {
+        return Some(tool_choice.clone());
+    }
+    let choice_obj = tool_choice.as_object()?;
+    if choice_obj.get("type").and_then(Value::as_str) != Some("function") {
+        return Some(tool_choice.clone());
+    }
+    let name = choice_obj
+        .get("name")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            choice_obj
+                .get("function")
+                .and_then(Value::as_object)
+                .and_then(|function| function.get("name"))
+                .and_then(Value::as_str)
+        })
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    Some(json!({
+        "type": "function",
+        "function": {
+            "name": name,
+        },
+    }))
+}
+
+fn response_text_format_to_chat_response_format(text_value: &Value) -> Option<Value> {
+    let format = text_value.get("format").and_then(Value::as_object)?;
+    match format.get("type").and_then(Value::as_str).unwrap_or("") {
+        "json_schema" => {
+            let mut json_schema = Map::new();
+            for key in ["name", "strict", "schema"] {
+                if let Some(value) = format.get(key) {
+                    json_schema.insert(key.to_string(), value.clone());
+                }
+            }
+            Some(json!({
+                "type": "json_schema",
+                "json_schema": Value::Object(json_schema),
+            }))
+        }
+        "json_object" => Some(json!({ "type": "json_object" })),
+        "text" => Some(json!({ "type": "text" })),
+        _ => None,
+    }
+}
+
+fn copy_responses_generation_options_to_chat(
+    request_obj: &Map<String, Value>,
+    chat_obj: &mut Map<String, Value>,
+) {
+    if let Some(max_tokens) = request_obj
+        .get("max_output_tokens")
+        .or_else(|| request_obj.get("max_completion_tokens"))
+        .or_else(|| request_obj.get("max_tokens"))
+    {
+        chat_obj.insert("max_tokens".to_string(), max_tokens.clone());
+    }
+
+    for key in [
+        "temperature",
+        "top_p",
+        "frequency_penalty",
+        "presence_penalty",
+        "seed",
+        "stop",
+        "logprobs",
+        "top_logprobs",
+        "parallel_tool_calls",
+        "store",
+        "metadata",
+        "user",
+    ] {
+        if let Some(value) = request_obj.get(key) {
+            chat_obj.insert(key.to_string(), value.clone());
+        }
+    }
+}
+
+fn build_chat_completions_body_from_responses(
+    body: &Value,
+) -> Result<(Value, bool, String), String> {
+    let request_obj = body
+        .as_object()
+        .ok_or("responses 请求体必须是 JSON 对象".to_string())?;
+    let model = request_obj
+        .get("model")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or("responses 请求缺少 model".to_string())?;
+    let stream = request_obj
+        .get("stream")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    let mut chat_obj = Map::new();
+    chat_obj.insert("model".to_string(), Value::String(model.clone()));
+    chat_obj.insert(
+        "messages".to_string(),
+        Value::Array(build_chat_messages_from_responses_body(body)),
+    );
+    chat_obj.insert("stream".to_string(), Value::Bool(stream));
+    copy_responses_generation_options_to_chat(request_obj, &mut chat_obj);
+
+    if let Some(service_tier) = request_obj.get("service_tier") {
+        chat_obj.insert("service_tier".to_string(), service_tier.clone());
+    }
+    if let Some(reasoning) = request_obj.get("reasoning").and_then(Value::as_object) {
+        if let Some(effort) = reasoning.get("effort") {
+            chat_obj.insert("reasoning_effort".to_string(), effort.clone());
+        }
+    }
+    if let Some(tools) = request_obj.get("tools").and_then(Value::as_array) {
+        let chat_tools: Vec<Value> = tools.iter().filter_map(response_tool_to_chat_tool).collect();
+        if !chat_tools.is_empty() {
+            chat_obj.insert("tools".to_string(), Value::Array(chat_tools));
+        }
+    }
+    if let Some(tool_choice) = request_obj
+        .get("tool_choice")
+        .and_then(response_tool_choice_to_chat_tool_choice)
+    {
+        chat_obj.insert("tool_choice".to_string(), tool_choice);
+    }
+    if let Some(response_format) = request_obj
+        .get("text")
+        .and_then(response_text_format_to_chat_response_format)
+    {
+        chat_obj.insert("response_format".to_string(), response_format);
+    }
+
+    Ok((Value::Object(chat_obj), stream, model))
+}
+
+fn chat_message_content_to_response_parts(content: &Value) -> Vec<Value> {
+    match content {
+        Value::String(text) => vec![json!({
+            "type": "output_text",
+            "text": text,
+        })],
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(|part| {
+                let part_obj = part.as_object()?;
+                match part_obj.get("type").and_then(Value::as_str).unwrap_or("") {
+                    "text" => Some(json!({
+                        "type": "output_text",
+                        "text": part_obj
+                            .get("text")
+                            .and_then(Value::as_str)
+                            .unwrap_or(""),
+                    })),
+                    _ => None,
+                }
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn chat_tool_calls_to_response_items(tool_calls: &Value) -> Vec<Value> {
+    tool_calls
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|tool_call| {
+                    let tool_call_obj = tool_call.as_object()?;
+                    let function = tool_call_obj.get("function").and_then(Value::as_object)?;
+                    let name = function
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())?;
+                    Some(json!({
+                        "type": "function_call",
+                        "call_id": tool_call_obj
+                            .get("id")
+                            .or_else(|| tool_call_obj.get("call_id"))
+                            .and_then(Value::as_str)
+                            .unwrap_or(""),
+                        "name": name,
+                        "arguments": function
+                            .get("arguments")
+                            .and_then(Value::as_str)
+                            .unwrap_or("{}"),
+                    }))
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn build_responses_output_from_chat_completion(chat_payload: &Value) -> Vec<Value> {
+    let Some(choice) = chat_payload
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+    else {
+        return Vec::new();
+    };
+    let Some(message) = choice.get("message").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+
+    let mut output = Vec::new();
+    if let Some(reasoning) = message
+        .get("reasoning_content")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        output.push(json!({
+            "type": "reasoning",
+            "summary": [{
+                "type": "summary_text",
+                "text": reasoning,
+            }],
+        }));
+    }
+
+    let content_parts = message
+        .get("content")
+        .map(chat_message_content_to_response_parts)
+        .unwrap_or_default();
+    if !content_parts.is_empty() {
+        output.push(json!({
+            "type": "message",
+            "role": "assistant",
+            "content": content_parts,
+        }));
+    }
+
+    if let Some(tool_calls) = message.get("tool_calls") {
+        output.extend(chat_tool_calls_to_response_items(tool_calls));
+    }
+
+    output
+}
+
+fn build_responses_payload_from_chat_completion(
+    chat_payload: &Value,
+    requested_model: &str,
+) -> Value {
+    let usage = extract_usage_capture(chat_payload);
+    let output = build_responses_output_from_chat_completion(chat_payload);
+    let id = chat_payload
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            if value.starts_with("resp_") {
+                value.to_string()
+            } else {
+                format!("resp_{}", value)
+            }
+        })
+        .unwrap_or_else(|| format!("resp_local_{}", now_ms()));
+    let model = chat_payload
+        .get("model")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(requested_model);
+    let created_at = chat_payload
+        .get("created")
+        .or_else(|| chat_payload.get("created_at"))
+        .and_then(Value::as_i64)
+        .unwrap_or_else(|| chrono::Utc::now().timestamp());
+
+    let mut response = Map::new();
+    response.insert("id".to_string(), Value::String(id));
+    response.insert("object".to_string(), Value::String("response".to_string()));
+    response.insert("created_at".to_string(), json!(created_at));
+    response.insert("status".to_string(), Value::String("completed".to_string()));
+    response.insert("model".to_string(), Value::String(model.to_string()));
+    response.insert("output".to_string(), Value::Array(output));
+    if let Some(usage) = usage.as_ref() {
+        response.insert("usage".to_string(), usage_capture_to_response_usage(usage));
+    }
+    Value::Object(response)
+}
+
+#[derive(Debug, Default, Clone)]
+struct ChatToolCallAccumulator {
+    id: String,
+    name: String,
+    arguments: String,
+    announced: bool,
+}
+
+#[derive(Debug)]
+struct ResponsesFromChatCompletionStreamTransformer {
+    requested_model: String,
+    stream_buffer: Vec<u8>,
+    response_id: String,
+    created_at: i64,
+    model: String,
+    output_text: String,
+    reasoning_text: String,
+    tool_calls: Vec<ChatToolCallAccumulator>,
+    response_capture: ResponseCapture,
+    saw_created: bool,
+}
+
+impl ResponsesFromChatCompletionStreamTransformer {
+    fn new(requested_model: &str) -> Self {
+        Self {
+            requested_model: requested_model.to_string(),
+            stream_buffer: Vec::new(),
+            response_id: String::new(),
+            created_at: 0,
+            model: requested_model.to_string(),
+            output_text: String::new(),
+            reasoning_text: String::new(),
+            tool_calls: Vec::new(),
+            response_capture: ResponseCapture::default(),
+            saw_created: false,
+        }
+    }
+
+    fn feed(&mut self, chunk: &[u8]) -> Vec<u8> {
+        if chunk.is_empty() {
+            return Vec::new();
+        }
+        self.stream_buffer.extend_from_slice(chunk);
+        self.process_buffer(false)
+    }
+
+    fn finish(mut self) -> (Vec<u8>, ResponseCapture) {
+        let mut output = self.process_buffer(true);
+        let mut tail = String::new();
+        self.push_tool_call_done_events(&mut tail);
+        self.push_completed_event(&mut tail);
+        tail.push_str("data: [DONE]\n\n");
+        output.extend_from_slice(tail.as_bytes());
+        (output, self.response_capture)
+    }
+
+    fn process_buffer(&mut self, flush_tail: bool) -> Vec<u8> {
+        let mut stream_body = String::new();
+        loop {
+            let Some((boundary_index, separator_len)) =
+                find_sse_frame_boundary(&self.stream_buffer)
+            else {
+                break;
+            };
+            let frame = self.stream_buffer[..boundary_index].to_vec();
+            self.stream_buffer.drain(..boundary_index + separator_len);
+            self.process_frame(&frame, &mut stream_body);
+        }
+
+        if flush_tail && !self.stream_buffer.is_empty() {
+            let frame = std::mem::take(&mut self.stream_buffer);
+            self.process_frame(&frame, &mut stream_body);
+        }
+
+        stream_body.into_bytes()
+    }
+
+    fn ensure_created(&mut self, event: &Value, stream_body: &mut String) {
+        if self.saw_created {
+            return;
+        }
+        self.response_id = event
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| {
+                if value.starts_with("resp_") {
+                    value.to_string()
+                } else {
+                    format!("resp_{}", value)
+                }
+            })
+            .unwrap_or_else(|| format!("resp_local_{}", now_ms()));
+        self.created_at = event
+            .get("created")
+            .or_else(|| event.get("created_at"))
+            .and_then(Value::as_i64)
+            .unwrap_or_else(|| chrono::Utc::now().timestamp());
+        self.model = event
+            .get("model")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(self.requested_model.as_str())
+            .to_string();
+        self.response_capture.response_id = Some(self.response_id.clone());
+        self.saw_created = true;
+        push_named_sse_payload(
+            stream_body,
+            "response.created",
+            json!({
+                "type": "response.created",
+                "response": {
+                    "id": self.response_id.clone(),
+                    "object": "response",
+                    "created_at": self.created_at,
+                    "status": "in_progress",
+                    "model": self.model.clone(),
+                    "output": [],
+                },
+            }),
+        );
+    }
+
+    fn process_frame(&mut self, frame: &[u8], stream_body: &mut String) {
+        let Some(payload) = parse_sse_frame_payload(frame) else {
+            return;
+        };
+        if payload.done {
+            return;
+        }
+        let Ok(event) = serde_json::from_str::<Value>(&payload.data) else {
+            return;
+        };
+        self.ensure_created(&event, stream_body);
+        if let Some(usage) = extract_usage_capture(&event) {
+            self.response_capture.usage = Some(usage);
+        }
+
+        let Some(choice) = event
+            .get("choices")
+            .and_then(Value::as_array)
+            .and_then(|choices| choices.first())
+        else {
+            return;
+        };
+        if let Some(delta) = choice.get("delta").and_then(Value::as_object) {
+            self.process_delta(delta, stream_body);
+        }
+        if choice
+            .get("finish_reason")
+            .and_then(Value::as_str)
+            .is_some()
+        {
+            if let Some(usage) = extract_usage_capture(&event) {
+                self.response_capture.usage = Some(usage);
+            }
+        }
+    }
+
+    fn process_delta(&mut self, delta: &Map<String, Value>, stream_body: &mut String) {
+        if let Some(reasoning) = delta
+            .get("reasoning_content")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        {
+            self.reasoning_text.push_str(reasoning);
+            push_named_sse_payload(
+                stream_body,
+                "response.reasoning_summary_text.delta",
+                json!({
+                    "type": "response.reasoning_summary_text.delta",
+                    "delta": reasoning,
+                }),
+            );
+        }
+        if let Some(content) = delta
+            .get("content")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        {
+            self.output_text.push_str(content);
+            push_named_sse_payload(
+                stream_body,
+                "response.output_text.delta",
+                json!({
+                    "type": "response.output_text.delta",
+                    "delta": content,
+                }),
+            );
+        }
+        if let Some(tool_calls) = delta.get("tool_calls").and_then(Value::as_array) {
+            for tool_call in tool_calls {
+                self.process_tool_call_delta(tool_call, stream_body);
+            }
+        }
+    }
+
+    fn ensure_tool_call_index(&mut self, index: usize) {
+        while self.tool_calls.len() <= index {
+            self.tool_calls.push(ChatToolCallAccumulator::default());
+        }
+    }
+
+    fn process_tool_call_delta(&mut self, tool_call: &Value, stream_body: &mut String) {
+        let index = tool_call
+            .get("index")
+            .and_then(Value::as_u64)
+            .unwrap_or(self.tool_calls.len() as u64) as usize;
+        self.ensure_tool_call_index(index);
+        let state = &mut self.tool_calls[index];
+        if let Some(id) = tool_call
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        {
+            state.id = id.to_string();
+        }
+        if let Some(function) = tool_call.get("function").and_then(Value::as_object) {
+            if let Some(name) = function
+                .get("name")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+            {
+                state.name = name.to_string();
+            }
+            if !state.announced && !state.name.is_empty() {
+                state.announced = true;
+                push_named_sse_payload(
+                    stream_body,
+                    "response.output_item.added",
+                    json!({
+                        "type": "response.output_item.added",
+                        "output_index": index,
+                        "item": {
+                            "type": "function_call",
+                            "call_id": if state.id.is_empty() {
+                                format!("call_{}", index)
+                            } else {
+                                state.id.clone()
+                            },
+                            "name": state.name.clone(),
+                            "arguments": "",
+                        },
+                    }),
+                );
+            }
+            if let Some(arguments) = function
+                .get("arguments")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+            {
+                state.arguments.push_str(arguments);
+                push_named_sse_payload(
+                    stream_body,
+                    "response.function_call_arguments.delta",
+                    json!({
+                        "type": "response.function_call_arguments.delta",
+                        "item_id": if state.id.is_empty() {
+                            format!("call_{}", index)
+                        } else {
+                            state.id.clone()
+                        },
+                        "output_index": index,
+                        "delta": arguments,
+                    }),
+                );
+            }
+        }
+    }
+
+    fn response_output_items(&self) -> Vec<Value> {
+        let mut output = Vec::new();
+        if !self.reasoning_text.trim().is_empty() {
+            output.push(json!({
+                "type": "reasoning",
+                "summary": [{
+                    "type": "summary_text",
+                    "text": self.reasoning_text.clone(),
+                }],
+            }));
+        }
+        if !self.output_text.trim().is_empty() {
+            output.push(json!({
+                "type": "message",
+                "role": "assistant",
+                "content": [{
+                    "type": "output_text",
+                    "text": self.output_text.clone(),
+                }],
+            }));
+        }
+        for (index, tool_call) in self.tool_calls.iter().enumerate() {
+            if tool_call.name.trim().is_empty() {
+                continue;
+            }
+            output.push(json!({
+                "type": "function_call",
+                "call_id": if tool_call.id.is_empty() {
+                    format!("call_{}", index)
+                } else {
+                    tool_call.id.clone()
+                },
+                "name": tool_call.name.clone(),
+                "arguments": tool_call.arguments.clone(),
+            }));
+        }
+        output
+    }
+
+    fn push_tool_call_done_events(&mut self, stream_body: &mut String) {
+        for (index, tool_call) in self.tool_calls.iter().enumerate() {
+            if tool_call.name.trim().is_empty() {
+                continue;
+            }
+            let call_id = if tool_call.id.is_empty() {
+                format!("call_{}", index)
+            } else {
+                tool_call.id.clone()
+            };
+            push_named_sse_payload(
+                stream_body,
+                "response.function_call_arguments.done",
+                json!({
+                    "type": "response.function_call_arguments.done",
+                    "item_id": call_id.clone(),
+                    "output_index": index,
+                    "arguments": tool_call.arguments.clone(),
+                }),
+            );
+            push_named_sse_payload(
+                stream_body,
+                "response.output_item.done",
+                json!({
+                    "type": "response.output_item.done",
+                    "output_index": index,
+                    "item": {
+                        "type": "function_call",
+                        "call_id": call_id,
+                        "name": tool_call.name.clone(),
+                        "arguments": tool_call.arguments.clone(),
+                    },
+                }),
+            );
+        }
+    }
+
+    fn push_completed_event(&mut self, stream_body: &mut String) {
+        let output = self.response_output_items();
+        self.response_capture.output_items = output.clone();
+        let mut response = Map::new();
+        response.insert(
+            "id".to_string(),
+            Value::String(if self.response_id.is_empty() {
+                format!("resp_local_{}", now_ms())
+            } else {
+                self.response_id.clone()
+            }),
+        );
+        response.insert("object".to_string(), Value::String("response".to_string()));
+        response.insert(
+            "created_at".to_string(),
+            json!(if self.created_at > 0 {
+                self.created_at
+            } else {
+                chrono::Utc::now().timestamp()
+            }),
+        );
+        response.insert("status".to_string(), Value::String("completed".to_string()));
+        response.insert("model".to_string(), Value::String(self.model.clone()));
+        response.insert("output".to_string(), Value::Array(output));
+        if let Some(usage) = self.response_capture.usage.as_ref() {
+            response.insert("usage".to_string(), usage_capture_to_response_usage(usage));
+        }
+        push_named_sse_payload(
+            stream_body,
+            "response.completed",
+            json!({
+                "type": "response.completed",
+                "response": Value::Object(response),
+            }),
+        );
+    }
+}
+
+fn build_responses_stream_body_from_chat_completions(
+    upstream_body: &[u8],
+    requested_model: &str,
+) -> String {
+    let mut transformer = ResponsesFromChatCompletionStreamTransformer::new(requested_model);
     let mut stream_body = transformer.feed(upstream_body);
     let (tail, _) = transformer.finish();
     stream_body.extend_from_slice(&tail);
@@ -7147,6 +8051,8 @@ fn build_openai_compatible_upstream_url(base_url: &str, target: &str) -> Result<
     let target_path = target.trim_start_matches('/');
     let next_path = if target_path.is_empty() {
         base_path.to_string()
+    } else if base_path_already_contains_target(base_path, target_path) {
+        base_path.to_string()
     } else if base_path.is_empty() {
         format!("/{}", target_path)
     } else {
@@ -7156,6 +8062,16 @@ fn build_openai_compatible_upstream_url(base_url: &str, target: &str) -> Result<
     parsed.set_query(None);
     parsed.set_fragment(None);
     Ok(parsed.to_string())
+}
+
+fn base_path_already_contains_target(base_path: &str, target_path: &str) -> bool {
+    let base_path = base_path.trim_end_matches('/');
+    let target_path = target_path.trim_matches('/');
+    if base_path.is_empty() || target_path.is_empty() {
+        return false;
+    }
+    let target_suffix = format!("/{}", target_path);
+    base_path == target_suffix || base_path.ends_with(&target_suffix)
 }
 
 fn is_stream_request(headers: &HashMap<String, String>, body: &[u8]) -> bool {
@@ -7991,6 +8907,69 @@ async fn write_chat_completions_compatible_response(
     Ok(response_capture)
 }
 
+async fn write_responses_compatible_response_from_chat_completions(
+    stream: &mut TcpStream,
+    upstream: reqwest::Response,
+    stream_mode: bool,
+    requested_model: &str,
+) -> Result<ResponseCapture, String> {
+    let status = upstream.status();
+    let status_text = status.canonical_reason().unwrap_or("OK");
+    let upstream_headers = upstream.headers().clone();
+
+    if stream_mode {
+        write_chunked_response_headers(
+            stream,
+            status,
+            status_text,
+            "text/event-stream; charset=utf-8",
+            &upstream_headers,
+        )
+        .await?;
+
+        let mut transformer =
+            ResponsesFromChatCompletionStreamTransformer::new(requested_model);
+        let mut body_stream = upstream.bytes_stream();
+        while let Some(chunk_result) = body_stream.next().await {
+            let chunk =
+                chunk_result.map_err(|e| format!("读取上游 chat/completions 响应失败: {}", e))?;
+            let transformed = transformer.feed(&chunk);
+            write_chunked_response_chunk(stream, &transformed).await?;
+        }
+
+        let (tail, response_capture) = transformer.finish();
+        write_chunked_response_chunk(stream, &tail).await?;
+        finish_chunked_response(stream).await?;
+        return Ok(response_capture);
+    }
+
+    let body_bytes = upstream
+        .bytes()
+        .await
+        .map_err(|e| format!("读取上游 chat/completions 响应失败: {}", e))?;
+    let chat_payload = serde_json::from_slice::<Value>(&body_bytes)
+        .map_err(|e| format!("解析上游 chat/completions 响应失败: {}", e))?;
+    let responses_payload =
+        build_responses_payload_from_chat_completion(&chat_payload, requested_model);
+    let response_capture = ResponseCapture {
+        usage: extract_usage_capture(&responses_payload),
+        response_id: extract_response_id(&responses_payload),
+        output_items: extract_completed_response_output_items(&responses_payload),
+    };
+    let payload_bytes = serde_json::to_vec(&responses_payload)
+        .map_err(|e| format!("序列化 responses 响应失败: {}", e))?;
+    write_http_response(
+        stream,
+        status.as_u16(),
+        status_text,
+        "application/json; charset=utf-8",
+        &payload_bytes,
+    )
+    .await?;
+
+    Ok(response_capture)
+}
+
 async fn write_images_compatible_response(
     stream: &mut TcpStream,
     upstream: reqwest::Response,
@@ -8072,6 +9051,18 @@ async fn write_gateway_response(
                 stream_mode,
                 requested_model.as_str(),
                 original_request_body.as_slice(),
+            )
+            .await
+        }
+        GatewayResponseAdapter::ResponsesFromChatCompletions {
+            stream: stream_mode,
+            requested_model,
+        } => {
+            write_responses_compatible_response_from_chat_completions(
+                stream,
+                upstream,
+                stream_mode,
+                requested_model.as_str(),
             )
             .await
         }
@@ -8606,6 +9597,93 @@ async fn forward_upstream_response_to_responses_websocket(
     Ok(usage_collector.finish())
 }
 
+async fn send_responses_sse_bytes_to_websocket(
+    ws_stream: &mut WebSocketStream<TcpStream>,
+    bytes: &[u8],
+    context: &str,
+) -> Result<(), String> {
+    let mut buffer = bytes.to_vec();
+    loop {
+        let Some((boundary_index, separator_len)) = find_sse_frame_boundary(&buffer) else {
+            break;
+        };
+        let frame = buffer[..boundary_index].to_vec();
+        buffer.drain(..boundary_index + separator_len);
+        let Some(payload) = parse_sse_frame_payload(&frame) else {
+            continue;
+        };
+        if payload.done {
+            continue;
+        }
+        ws_stream
+            .send(Message::Text(payload.data.into()))
+            .await
+            .map_err(|e| format!("{}: {}", context, e))?;
+    }
+    Ok(())
+}
+
+async fn forward_chat_completions_response_to_responses_websocket(
+    ws_stream: &mut WebSocketStream<TcpStream>,
+    upstream: reqwest::Response,
+    stream_mode: bool,
+    requested_model: &str,
+) -> Result<ResponseCapture, String> {
+    if !stream_mode {
+        let body_bytes = upstream
+            .bytes()
+            .await
+            .map_err(|e| format!("读取上游 chat/completions 响应失败: {}", e))?;
+        let chat_payload = serde_json::from_slice::<Value>(&body_bytes)
+            .map_err(|e| format!("解析上游 chat/completions 响应失败: {}", e))?;
+        let responses_payload =
+            build_responses_payload_from_chat_completion(&chat_payload, requested_model);
+        let response_capture = ResponseCapture {
+            usage: extract_usage_capture(&responses_payload),
+            response_id: extract_response_id(&responses_payload),
+            output_items: extract_completed_response_output_items(&responses_payload),
+        };
+        ws_stream
+            .send(Message::Text(
+                json!({
+                    "type": "response.completed",
+                    "response": responses_payload,
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .map_err(|e| format!("发送 WebSocket chat/completions JSON 响应失败: {}", e))?;
+        return Ok(response_capture);
+    }
+
+    let mut transformer = ResponsesFromChatCompletionStreamTransformer::new(requested_model);
+    let mut body_stream = upstream.bytes_stream();
+    while let Some(chunk_result) = body_stream.next().await {
+        let chunk = chunk_result
+            .map_err(|e| format!("读取上游 chat/completions 流式响应失败: {}", e))?;
+        if chunk.is_empty() {
+            continue;
+        }
+        let transformed = transformer.feed(&chunk);
+        send_responses_sse_bytes_to_websocket(
+            ws_stream,
+            &transformed,
+            "转发 WebSocket chat/completions 事件失败",
+        )
+        .await?;
+    }
+
+    let (tail, response_capture) = transformer.finish();
+    send_responses_sse_bytes_to_websocket(
+        ws_stream,
+        &tail,
+        "转发 WebSocket chat/completions 尾部事件失败",
+    )
+    .await?;
+    Ok(response_capture)
+}
+
 async fn handle_responses_websocket_create(
     ws_stream: &mut WebSocketStream<TcpStream>,
     request: ParsedRequest,
@@ -8634,12 +9712,28 @@ async fn handle_responses_websocket_create(
 
     match proxy_request_with_account_pool(&prepared_request, &response_adapter, collection).await {
         Ok(success) => {
-            let response_capture = forward_upstream_response_to_responses_websocket(
-                ws_stream,
-                success.upstream,
-                request_is_stream,
-            )
-            .await?;
+            let response_capture = match success.response_adapter {
+                Some(GatewayResponseAdapter::ResponsesFromChatCompletions {
+                    stream,
+                    requested_model,
+                }) => {
+                    forward_chat_completions_response_to_responses_websocket(
+                        ws_stream,
+                        success.upstream,
+                        stream,
+                        requested_model.as_str(),
+                    )
+                    .await?
+                }
+                _ => {
+                    forward_upstream_response_to_responses_websocket(
+                        ws_stream,
+                        success.upstream,
+                        request_is_stream,
+                    )
+                    .await?
+                }
+            };
             if let Some(response_id) = response_capture.response_id.as_deref() {
                 bind_response_affinity(response_id, &success.account_id).await;
                 if let Some(request_body) = session_request_body {
@@ -8852,33 +9946,59 @@ fn build_chat_completions_upstream_request_for_account(
     if !account_uses_chat_completions_wire_api(account) {
         return None;
     }
-    let GatewayResponseAdapter::ChatCompletions {
-        stream,
-        original_request_body,
-        ..
-    } = response_adapter
-    else {
-        return None;
-    };
     let target = resolve_upstream_target(CHAT_COMPLETIONS_PATH).ok()?;
-    let mut headers = request.headers.clone();
-    headers.insert("content-type".to_string(), "application/json".to_string());
-    headers.insert(
-        "accept".to_string(),
-        if *stream {
-            "text/event-stream".to_string()
-        } else {
-            "application/json".to_string()
-        },
-    );
-    Some(AccountUpstreamRequest {
-        target,
-        headers,
-        body: original_request_body.clone(),
-        response_adapter: GatewayResponseAdapter::Passthrough {
-            request_is_stream: *stream,
-        },
-    })
+    match response_adapter {
+        GatewayResponseAdapter::ChatCompletions {
+            stream,
+            original_request_body,
+            ..
+        } => {
+            let mut headers = request.headers.clone();
+            headers.insert("content-type".to_string(), "application/json".to_string());
+            headers.insert(
+                "accept".to_string(),
+                if *stream {
+                    "text/event-stream".to_string()
+                } else {
+                    "application/json".to_string()
+                },
+            );
+            Some(AccountUpstreamRequest {
+                target,
+                headers,
+                body: original_request_body.clone(),
+                response_adapter: GatewayResponseAdapter::Passthrough {
+                    request_is_stream: *stream,
+                },
+            })
+        }
+        GatewayResponseAdapter::Passthrough { .. } if is_responses_request(&request.target) => {
+            let body_value = parse_request_body_json(&request.body)?;
+            let (chat_body, stream, requested_model) =
+                build_chat_completions_body_from_responses(&body_value).ok()?;
+            let mut headers = request.headers.clone();
+            headers.insert("content-type".to_string(), "application/json".to_string());
+            headers.insert(
+                "accept".to_string(),
+                if stream {
+                    "text/event-stream".to_string()
+                } else {
+                    "application/json".to_string()
+                },
+            );
+            let body = serde_json::to_vec(&chat_body).ok()?;
+            Some(AccountUpstreamRequest {
+                target,
+                headers,
+                body,
+                response_adapter: GatewayResponseAdapter::ResponsesFromChatCompletions {
+                    stream,
+                    requested_model,
+                },
+            })
+        }
+        _ => None,
+    }
 }
 
 fn single_account_status_retry_delay(retry_attempt: usize) -> Duration {
@@ -9917,6 +11037,17 @@ mod tests {
     }
 
     #[test]
+    fn preserves_endpoint_level_chat_completions_base_url() {
+        let url = build_openai_compatible_upstream_url(
+            "https://relay.example/v1/chat/completions",
+            "/chat/completions",
+        )
+        .expect("build upstream url");
+
+        assert_eq!(url, "https://relay.example/v1/chat/completions");
+    }
+
+    #[test]
     fn prepares_response_create_websocket_request_as_http_post() {
         let headers = HashMap::from([
             ("authorization".to_string(), "Bearer local-key".to_string()),
@@ -10618,6 +11749,151 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
                 request_is_stream: true
             }
         ));
+    }
+
+    #[test]
+    fn chat_completions_provider_maps_responses_request_to_chat_upstream() {
+        let request = ParsedRequest {
+            method: "POST".to_string(),
+            target: "/v1/responses".to_string(),
+            headers: HashMap::new(),
+            body: br#"{"model":"gpt-5.4","input":"hello","stream":true,"max_output_tokens":256,"temperature":0.2,"top_p":0.8,"tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}],"tool_choice":{"type":"function","name":"lookup"}}"#
+                .to_vec(),
+        };
+        let (prepared, adapter) = prepare_gateway_request(request).expect("request should map");
+        let mut account = CodexAccount::new_api_key(
+            "api-1".to_string(),
+            "api@example.com".to_string(),
+            "sk-test".to_string(),
+            CodexApiProviderMode::Custom,
+            Some("https://relay.example/v1".to_string()),
+            Some("relay".to_string()),
+            Some("Relay".to_string()),
+        );
+        account.api_wire_api = Some("chat_completions".to_string());
+
+        let upstream = build_chat_completions_upstream_request_for_account(
+            &prepared,
+            &adapter,
+            &account,
+        )
+        .expect("responses request should use chat upstream");
+        let body: Value = serde_json::from_slice(&upstream.body).expect("json body");
+
+        assert_eq!(upstream.target, "/chat/completions");
+        assert_eq!(
+            upstream.headers.get("accept").map(String::as_str),
+            Some("text/event-stream")
+        );
+        assert_eq!(
+            body.get("messages")
+                .and_then(Value::as_array)
+                .and_then(|messages| messages.first())
+                .and_then(|message| message.get("content"))
+                .and_then(Value::as_str),
+            Some("hello")
+        );
+        assert_eq!(body.get("tools").and_then(Value::as_array).map(Vec::len), Some(1));
+        assert!(body.get("tool_choice").is_some());
+        assert_eq!(body.get("max_tokens").and_then(Value::as_u64), Some(256));
+        assert_eq!(body.get("temperature").and_then(Value::as_f64), Some(0.2));
+        assert_eq!(body.get("top_p").and_then(Value::as_f64), Some(0.8));
+        assert!(matches!(
+            upstream.response_adapter,
+            GatewayResponseAdapter::ResponsesFromChatCompletions {
+                stream: true,
+                ref requested_model,
+            } if requested_model == "gpt-5.4"
+        ));
+    }
+
+    #[test]
+    fn builds_responses_payload_from_chat_completion() {
+        let chat_payload = json!({
+            "id": "chatcmpl_1",
+            "object": "chat.completion",
+            "created": 123,
+            "model": "deepseek-chat",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "hello world",
+                    "reasoning_content": "short reason",
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "lookup",
+                            "arguments": "{\"q\":\"x\"}"
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }],
+            "usage": {
+                "prompt_tokens": 3,
+                "completion_tokens": 4,
+                "total_tokens": 7,
+                "prompt_tokens_details": {"cached_tokens": 1},
+                "completion_tokens_details": {"reasoning_tokens": 2}
+            }
+        });
+
+        let responses_payload =
+            build_responses_payload_from_chat_completion(&chat_payload, "gpt-5.4");
+        assert_eq!(
+            responses_payload.get("id").and_then(Value::as_str),
+            Some("resp_chatcmpl_1")
+        );
+        assert_eq!(
+            responses_payload
+                .get("output")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(3)
+        );
+        assert_eq!(
+            responses_payload
+                .pointer("/output/1/content/0/text")
+                .and_then(Value::as_str),
+            Some("hello world")
+        );
+        assert_eq!(
+            responses_payload
+                .pointer("/output/2/name")
+                .and_then(Value::as_str),
+            Some("lookup")
+        );
+        assert_eq!(
+            responses_payload
+                .pointer("/usage/input_tokens_details/cached_tokens")
+                .and_then(Value::as_u64),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn builds_responses_stream_body_from_chat_completions() {
+        let upstream_sse = br#"data: {"id":"chatcmpl_1","object":"chat.completion.chunk","created":123,"model":"deepseek-chat","choices":[{"index":0,"delta":{"role":"assistant","content":"hello "},"finish_reason":null}]}
+
+data: {"id":"chatcmpl_1","object":"chat.completion.chunk","created":123,"model":"deepseek-chat","choices":[{"index":0,"delta":{"content":"world"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl_1","object":"chat.completion.chunk","created":123,"model":"deepseek-chat","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}
+
+data: [DONE]
+
+"#;
+
+        let responses_body =
+            build_responses_stream_body_from_chat_completions(upstream_sse, "gpt-5.4");
+        assert!(responses_body.contains("event: response.created"));
+        assert!(responses_body.contains("response.output_text.delta"));
+        assert!(responses_body.contains("hello "));
+        assert!(responses_body.contains("world"));
+        assert!(responses_body.contains("event: response.completed"));
+        assert!(responses_body.contains("\"total_tokens\":3"));
+        assert!(responses_body.contains("data: [DONE]"));
     }
 
     #[test]

@@ -2313,20 +2313,50 @@ pub fn list_accounts_checked() -> Result<Vec<CodexAccount>, String> {
     let index = load_account_index_checked()?;
     let mut accounts = Vec::new();
     let mut failed = Vec::new();
+    let mut missing_account_ids = Vec::new();
+    let mut read_errors = Vec::new();
 
     for summary in &index.accounts {
         match load_account_with_summary(&summary.id, Some(summary)) {
             Ok(Some(account)) => accounts.push(account),
-            Ok(None) => failed.push(format!("{}: 详情文件不存在", summary.id)),
-            Err(error) => failed.push(format!("{}: {}", summary.id, error)),
+            Ok(None) => {
+                missing_account_ids.push(summary.id.clone());
+                failed.push(format!("{}: 详情文件不存在", summary.id));
+            }
+            Err(error) => {
+                read_errors.push(format!("{}: {}", summary.id, error));
+                failed.push(format!("{}: {}", summary.id, error));
+            }
         }
     }
 
-    if !index.accounts.is_empty() && accounts.is_empty() {
+    if !missing_account_ids.is_empty() {
+        let missing_account_id_set: HashSet<String> = missing_account_ids.iter().cloned().collect();
+        let mut repaired_index = index.clone();
+        repaired_index
+            .accounts
+            .retain(|summary| !missing_account_id_set.contains(&summary.id));
+        if repaired_index
+            .current_account_id
+            .as_deref()
+            .map(|account_id| missing_account_id_set.contains(account_id))
+            .unwrap_or(false)
+        {
+            repaired_index.current_account_id = None;
+        }
+        save_account_index(&repaired_index)?;
+        logger::log_warn(&format!(
+            "[Codex Account] 已自动清理缺失详情文件的账号索引: removed={}, remaining={}",
+            missing_account_ids.join(","),
+            repaired_index.accounts.len()
+        ));
+    }
+
+    if !index.accounts.is_empty() && accounts.is_empty() && !read_errors.is_empty() {
         return Err(format!(
             "Codex 账号索引中有 {} 个账号，但详情文件均无法读取；已保留前端缓存，请从账号备份或本地账号文件恢复。{}",
             index.accounts.len(),
-            failed.join("; ")
+            read_errors.join("; ")
         ));
     }
 
