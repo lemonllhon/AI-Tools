@@ -1491,6 +1491,37 @@ fn map_tool_name(name: &str, short_name_map: &HashMap<String, String>) -> String
         .unwrap_or_else(|| shorten_tool_name_if_needed(name))
 }
 
+fn insert_non_empty_string_field(
+    target: &mut Map<String, Value>,
+    key: &str,
+    value: Option<&Value>,
+) {
+    if let Some(text) = value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
+        target.insert(key.to_string(), Value::String(text.to_string()));
+    }
+}
+
+fn insert_non_empty_string(target: &mut Map<String, Value>, key: &str, value: &str) {
+    let value = value.trim();
+    if !value.is_empty() {
+        target.insert(key.to_string(), Value::String(value.to_string()));
+    }
+}
+
+fn nested_object_field<'a>(
+    obj: &'a Map<String, Value>,
+    object_key: &str,
+    field_key: &str,
+) -> Option<&'a Value> {
+    obj.get(object_key)
+        .and_then(Value::as_object)
+        .and_then(|nested| nested.get(field_key))
+}
+
 fn normalize_chat_content_part(part: &Value, role: &str) -> Option<Value> {
     match part {
         Value::String(text) => Some(json!({
@@ -1512,47 +1543,58 @@ fn normalize_chat_content_part(part: &Value, role: &str) -> Option<Value> {
                         return None;
                     }
                     let image_url_value = obj.get("image_url")?;
+                    let mut next = Map::new();
+                    next.insert("type".to_string(), Value::String("input_image".to_string()));
                     match image_url_value {
                         Value::Object(image_url_obj) => {
-                            let url = image_url_obj.get("url").and_then(Value::as_str)?;
-                            Some(json!({
-                                "type": "input_image",
-                                "image_url": url,
-                            }))
+                            insert_non_empty_string_field(
+                                &mut next,
+                                "image_url",
+                                image_url_obj.get("url"),
+                            );
+                            insert_non_empty_string_field(
+                                &mut next,
+                                "file_id",
+                                image_url_obj.get("file_id"),
+                            );
+                            insert_non_empty_string_field(
+                                &mut next,
+                                "detail",
+                                image_url_obj.get("detail"),
+                            );
                         }
-                        _ => None,
+                        Value::String(url) => {
+                            insert_non_empty_string(&mut next, "image_url", url);
+                            if url.trim().is_empty() {
+                                return None;
+                            }
+                        }
+                        _ => return None,
+                    }
+                    if next.len() <= 1 {
+                        None
+                    } else {
+                        Some(Value::Object(next))
                     }
                 }
                 "file" => {
                     if !role.eq_ignore_ascii_case("user") {
                         return None;
                     }
-                    let file_data = obj
-                        .get("file")
-                        .and_then(Value::as_object)
-                        .and_then(|file| file.get("file_data"))
-                        .and_then(Value::as_str)
-                        .unwrap_or("");
-                    if file_data.is_empty() {
+                    let Some(file_obj) = obj.get("file").and_then(Value::as_object) else {
                         return None;
-                    }
-                    let filename = obj
-                        .get("file")
-                        .and_then(Value::as_object)
-                        .and_then(|file| file.get("filename"))
-                        .and_then(Value::as_str)
-                        .unwrap_or("");
+                    };
                     let mut next = Map::new();
                     next.insert("type".to_string(), Value::String("input_file".to_string()));
-                    next.insert(
-                        "file_data".to_string(),
-                        Value::String(file_data.to_string()),
-                    );
-                    if !filename.is_empty() {
-                        next.insert("filename".to_string(), Value::String(filename.to_string()));
+                    for key in ["file_data", "file_id", "file_url", "filename"] {
+                        insert_non_empty_string_field(&mut next, key, file_obj.get(key));
+                    }
+                    if next.len() <= 1 {
+                        return None;
                     }
                     Some(Value::Object(next))
                 }
+                "input_image" | "input_file" => Some(Value::Object(obj.clone())),
                 _ => None,
             }
         }
@@ -2663,34 +2705,39 @@ fn response_content_part_to_chat_part(part: &Value) -> Option<Value> {
                 .and_then(Value::as_str)
                 .unwrap_or(""),
         })),
-        "input_image" => {
-            let image_url = match part_obj.get("image_url") {
+        "input_image" | "image_url" => {
+            let mut image = match part_obj.get("image_url") {
                 Some(Value::String(url)) => {
                     let mut image = Map::new();
-                    image.insert("url".to_string(), Value::String(url.to_string()));
+                    insert_non_empty_string(&mut image, "url", url);
                     if let Some(detail) = part_obj.get("detail") {
-                        image.insert("detail".to_string(), detail.clone());
+                        insert_non_empty_string_field(&mut image, "detail", Some(detail));
                     }
-                    Value::Object(image)
+                    image
                 }
-                Some(Value::Object(image)) => Value::Object(image.clone()),
-                _ => return None,
+                Some(Value::Object(image)) => image.clone(),
+                _ => Map::new(),
             };
+            insert_non_empty_string_field(&mut image, "url", part_obj.get("url"));
+            insert_non_empty_string_field(&mut image, "file_id", part_obj.get("file_id"));
+            insert_non_empty_string_field(&mut image, "detail", part_obj.get("detail"));
+            if image.is_empty() {
+                return None;
+            }
             Some(json!({
                 "type": "image_url",
-                "image_url": image_url,
+                "image_url": Value::Object(image),
             }))
         }
-        "input_file" => {
+        "input_file" | "file" => {
             let mut file = Map::new();
-            if let Some(file_data) = part_obj.get("file_data").and_then(Value::as_str) {
-                file.insert("file_data".to_string(), Value::String(file_data.to_string()));
-            }
-            if let Some(file_id) = part_obj.get("file_id").and_then(Value::as_str) {
-                file.insert("file_id".to_string(), Value::String(file_id.to_string()));
-            }
-            if let Some(filename) = part_obj.get("filename").and_then(Value::as_str) {
-                file.insert("filename".to_string(), Value::String(filename.to_string()));
+            for key in ["file_data", "file_id", "file_url", "filename"] {
+                insert_non_empty_string_field(
+                    &mut file,
+                    key,
+                    part_obj.get(key)
+                        .or_else(|| nested_object_field(part_obj, "file", key)),
+                );
             }
             if file.is_empty() {
                 return None;
@@ -2722,7 +2769,7 @@ fn defined_responses_value<'a>(
 fn is_response_content_part(item: &Value) -> bool {
     matches!(
         item.get("type").and_then(Value::as_str).unwrap_or(""),
-        "input_text" | "output_text" | "text" | "input_image" | "input_file"
+        "input_text" | "output_text" | "text" | "input_image" | "image_url" | "input_file" | "file"
     )
 }
 
@@ -12390,6 +12437,168 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
     }
 
     #[test]
+    fn chat_completions_provider_preserves_responses_file_content_parts() {
+        let request = ParsedRequest {
+            method: "POST".to_string(),
+            target: "/v1/responses".to_string(),
+            headers: HashMap::new(),
+            body: br#"{"model":"gpt-5.4","input":[{"type":"input_text","text":"read these"},{"type":"input_image","file_id":"file-img-123","detail":"high"},{"type":"input_file","file_url":"https://example.com/report.pdf","filename":"report.pdf"},{"type":"file","file":{"file_data":"SGVsbG8=","filename":"inline.txt"}},{"type":"file","file":{"file_id":"file-doc-123","filename":"doc.pdf"}}],"stream":true}"#
+                .to_vec(),
+        };
+        let (prepared, adapter) = prepare_gateway_request(request).expect("request should map");
+        let mut account = CodexAccount::new_api_key(
+            "api-1".to_string(),
+            "api@example.com".to_string(),
+            "sk-test".to_string(),
+            CodexApiProviderMode::Custom,
+            Some("https://relay.example/v1".to_string()),
+            Some("relay".to_string()),
+            Some("Relay".to_string()),
+        );
+        account.api_wire_api = Some("chat_completions".to_string());
+
+        let upstream = build_chat_completions_upstream_request_for_account(
+            &prepared,
+            &adapter,
+            &account,
+        )
+        .expect("responses request should use chat upstream");
+        let body: Value = serde_json::from_slice(&upstream.body).expect("json body");
+        let user_content = body
+            .pointer("/messages/0/content")
+            .and_then(Value::as_array)
+            .expect("mixed content should stay as chat content parts");
+
+        assert_eq!(user_content.len(), 5);
+        assert_eq!(
+            user_content
+                .get(1)
+                .and_then(|part| part.pointer("/image_url/file_id"))
+                .and_then(Value::as_str),
+            Some("file-img-123")
+        );
+        assert_eq!(
+            user_content
+                .get(1)
+                .and_then(|part| part.pointer("/image_url/detail"))
+                .and_then(Value::as_str),
+            Some("high")
+        );
+        assert_eq!(
+            user_content
+                .get(2)
+                .and_then(|part| part.pointer("/file/file_url"))
+                .and_then(Value::as_str),
+            Some("https://example.com/report.pdf")
+        );
+        assert_eq!(
+            user_content
+                .get(3)
+                .and_then(|part| part.pointer("/file/file_data"))
+                .and_then(Value::as_str),
+            Some("SGVsbG8=")
+        );
+        assert_eq!(
+            user_content
+                .get(4)
+                .and_then(|part| part.pointer("/file/file_id"))
+                .and_then(Value::as_str),
+            Some("file-doc-123")
+        );
+    }
+
+    #[test]
+    fn chat_completions_provider_preserves_message_wrapped_responses_file_parts() {
+        let request = ParsedRequest {
+            method: "POST".to_string(),
+            target: "/v1/responses".to_string(),
+            headers: HashMap::new(),
+            body: br#"{"model":"gpt-5.4","input":[{"role":"user","content":[{"type":"input_text","text":"read these"},{"type":"input_file","file_id":"file-doc-123","filename":"doc.pdf"},{"type":"input_image","file_id":"file-img-123","detail":"high"}]}],"stream":true}"#
+                .to_vec(),
+        };
+        let (prepared, adapter) = prepare_gateway_request(request).expect("request should map");
+        let mut account = CodexAccount::new_api_key(
+            "api-1".to_string(),
+            "api@example.com".to_string(),
+            "sk-test".to_string(),
+            CodexApiProviderMode::Custom,
+            Some("https://relay.example/v1".to_string()),
+            Some("relay".to_string()),
+            Some("Relay".to_string()),
+        );
+        account.api_wire_api = Some("chat_completions".to_string());
+
+        let upstream = build_chat_completions_upstream_request_for_account(
+            &prepared,
+            &adapter,
+            &account,
+        )
+        .expect("responses request should use chat upstream");
+        let body: Value = serde_json::from_slice(&upstream.body).expect("json body");
+        let user_content = body
+            .pointer("/messages/0/content")
+            .and_then(Value::as_array)
+            .expect("message content should stay as chat content parts");
+
+        assert_eq!(user_content.len(), 3);
+        assert_eq!(
+            user_content
+                .get(1)
+                .and_then(|part| part.pointer("/file/file_id"))
+                .and_then(Value::as_str),
+            Some("file-doc-123")
+        );
+        assert_eq!(
+            user_content
+                .get(1)
+                .and_then(|part| part.pointer("/file/filename"))
+                .and_then(Value::as_str),
+            Some("doc.pdf")
+        );
+        assert_eq!(
+            user_content
+                .get(2)
+                .and_then(|part| part.pointer("/image_url/file_id"))
+                .and_then(Value::as_str),
+            Some("file-img-123")
+        );
+    }
+
+    #[test]
+    fn files_api_requests_stay_passthrough_for_provider_uploads() {
+        let mut headers = HashMap::new();
+        headers.insert(
+            "content-type".to_string(),
+            "multipart/form-data; boundary=boundary123".to_string(),
+        );
+        let request = ParsedRequest {
+            method: "POST".to_string(),
+            target: "/v1/files".to_string(),
+            headers,
+            body: b"--boundary123\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nassistants\r\n--boundary123\r\nContent-Disposition: form-data; name=\"file\"; filename=\"doc.pdf\"\r\nContent-Type: application/pdf\r\n\r\nPDF\r\n--boundary123--\r\n"
+                .to_vec(),
+        };
+        let original_body = request.body.clone();
+        let (prepared, adapter) = prepare_gateway_request(request).expect("files should pass through");
+
+        assert_eq!(prepared.target, "/v1/files");
+        assert_eq!(prepared.body, original_body);
+        assert_eq!(
+            prepared.headers.get("content-type").map(String::as_str),
+            Some("multipart/form-data; boundary=boundary123")
+        );
+        assert!(matches!(
+            adapter,
+            GatewayResponseAdapter::Passthrough {
+                request_is_stream: false,
+                normalize_responses_sse: false,
+                original_responses_body: None,
+                original_responses_request_is_stream: None,
+            }
+        ));
+    }
+
+    #[test]
     fn chat_completions_provider_accepts_cherry_responses_message_shape() {
         let request = ParsedRequest {
             method: "POST".to_string(),
@@ -13124,6 +13333,62 @@ data: [DONE]
             .and_then(|part| part.get("type"))
             .and_then(Value::as_str);
         assert_eq!(first_type, Some("input_text"));
+    }
+
+    #[test]
+    fn preserves_chat_file_content_parts_for_responses_proxy() {
+        let request = ParsedRequest {
+            method: "POST".to_string(),
+            target: "/v1/chat/completions".to_string(),
+            headers: HashMap::new(),
+            body: br#"{"model":"gpt-5.4","messages":[{"role":"user","content":[{"type":"text","text":"read these"},{"type":"image_url","image_url":{"file_id":"file-img-123","detail":"high"}},{"type":"file","file":{"file_id":"file-doc-123","filename":"doc.pdf"}},{"type":"file","file":{"file_data":"SGVsbG8=","filename":"inline.txt"}},{"type":"file","file":{"file_url":"https://example.com/report.pdf","filename":"report.pdf"}}]}]}"#
+                .to_vec(),
+        };
+
+        let (prepared, _) = prepare_gateway_request(request).expect("request should map");
+        let mapped_body: Value =
+            serde_json::from_slice(&prepared.body).expect("mapped body should be json");
+        let parts = mapped_body
+            .pointer("/input/0/content")
+            .and_then(Value::as_array)
+            .expect("content should stay as responses content parts");
+
+        assert_eq!(parts.len(), 5);
+        assert_eq!(
+            parts
+                .get(1)
+                .and_then(|part| part.get("type"))
+                .and_then(Value::as_str),
+            Some("input_image")
+        );
+        assert_eq!(
+            parts
+                .get(1)
+                .and_then(|part| part.get("file_id"))
+                .and_then(Value::as_str),
+            Some("file-img-123")
+        );
+        assert_eq!(
+            parts
+                .get(2)
+                .and_then(|part| part.get("file_id"))
+                .and_then(Value::as_str),
+            Some("file-doc-123")
+        );
+        assert_eq!(
+            parts
+                .get(3)
+                .and_then(|part| part.get("file_data"))
+                .and_then(Value::as_str),
+            Some("SGVsbG8=")
+        );
+        assert_eq!(
+            parts
+                .get(4)
+                .and_then(|part| part.get("file_url"))
+                .and_then(Value::as_str),
+            Some("https://example.com/report.pdf")
+        );
     }
 
     #[test]

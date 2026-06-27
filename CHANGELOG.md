@@ -6,6 +6,11 @@ All notable changes to AI Lemon Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.66] - 2026-06-27
+### Fixed
+- Chat Completions protocol providers now preserve Responses file and image content references when adapting `/v1/responses` to `/v1/chat/completions`, including `file_id`, `file_data`, `file_url`, `filename`, image file IDs, and detail settings so Cherry Studio file uploads are carried to upstream providers.
+- The reverse Chat Completions-to-Responses adapter now preserves chat `file` and `image_url` content parts with the same file and image reference fields, and `/v1/files` upload requests remain passthrough without rewriting the multipart body.
+
 ## [0.0.65] - 2026-06-27
 ### Fixed
 - Chat Completions protocol providers now emit full Responses streaming message events when serving `/v1/responses`, including output item, content part, indexed text delta, text done, content part done, and output item done events so Responses clients such as Cherry Studio can render streamed text.

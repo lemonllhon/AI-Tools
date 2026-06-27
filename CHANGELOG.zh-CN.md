@@ -6,6 +6,12 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.0.66] - 2026-06-27
+
+### 修复
+- Chat Completions 协议供应商承接 `/v1/responses` 时，现在会保留 Responses 文件和图片内容块引用，包括 `file_id`、`file_data`、`file_url`、`filename`、图片文件 ID 和 detail 设置，避免 Cherry Studio 上传文件后转给上游供应商时文件丢失。
+- Chat Completions 转 Responses 的反向适配现在也会保留 chat `file` 和 `image_url` 内容块里的同类文件/图片引用字段，同时 `/v1/files` 上传请求保持透传，不重写 multipart body。
+
 ## [0.0.65] - 2026-06-27
 
 ### 修复
