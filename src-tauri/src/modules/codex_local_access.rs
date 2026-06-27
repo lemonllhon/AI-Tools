@@ -3110,6 +3110,8 @@ fn chat_message_content_to_response_parts(content: &Value) -> Vec<Value> {
         Value::String(text) => vec![json!({
             "type": "output_text",
             "text": text,
+            "annotations": [],
+            "logprobs": [],
         })],
         Value::Array(parts) => parts
             .iter()
@@ -3122,6 +3124,8 @@ fn chat_message_content_to_response_parts(content: &Value) -> Vec<Value> {
                             .get("text")
                             .and_then(Value::as_str)
                             .unwrap_or(""),
+                        "annotations": [],
+                        "logprobs": [],
                     })),
                     _ => None,
                 }
@@ -3199,6 +3203,7 @@ fn build_responses_output_from_chat_completion(chat_payload: &Value) -> Vec<Valu
     if !content_parts.is_empty() {
         output.push(json!({
             "type": "message",
+            "status": "completed",
             "role": "assistant",
             "content": content_parts,
         }));
@@ -3279,6 +3284,12 @@ struct ResponsesFromChatCompletionStreamTransformer {
     tool_calls: Vec<ChatToolCallAccumulator>,
     response_capture: ResponseCapture,
     saw_created: bool,
+    sequence_number: u64,
+    next_output_index: usize,
+    message_output_index: Option<usize>,
+    message_item_started: bool,
+    message_content_started: bool,
+    message_item_done: bool,
 }
 
 impl ResponsesFromChatCompletionStreamTransformer {
@@ -3294,6 +3305,12 @@ impl ResponsesFromChatCompletionStreamTransformer {
             tool_calls: Vec::new(),
             response_capture: ResponseCapture::default(),
             saw_created: false,
+            sequence_number: 0,
+            next_output_index: 0,
+            message_output_index: None,
+            message_item_started: false,
+            message_content_started: false,
+            message_item_done: false,
         }
     }
 
@@ -3367,11 +3384,13 @@ impl ResponsesFromChatCompletionStreamTransformer {
             .to_string();
         self.response_capture.response_id = Some(self.response_id.clone());
         self.saw_created = true;
+        let sequence_number = self.next_sequence_number();
         push_named_sse_payload(
             stream_body,
             "response.created",
             json!({
                 "type": "response.created",
+                "sequence_number": sequence_number,
                 "response": {
                     "id": self.response_id.clone(),
                     "object": "response",
@@ -3382,6 +3401,173 @@ impl ResponsesFromChatCompletionStreamTransformer {
                 },
             }),
         );
+    }
+
+    fn next_sequence_number(&mut self) -> u64 {
+        let current = self.sequence_number;
+        self.sequence_number = self.sequence_number.saturating_add(1);
+        current
+    }
+
+    fn allocate_output_index(&mut self) -> usize {
+        let index = self.next_output_index;
+        self.next_output_index = self.next_output_index.saturating_add(1);
+        index
+    }
+
+    fn message_output_index(&mut self) -> usize {
+        if let Some(index) = self.message_output_index {
+            return index;
+        }
+        let index = self.allocate_output_index();
+        self.message_output_index = Some(index);
+        index
+    }
+
+    fn message_item_id(&self) -> String {
+        let response_id = if self.response_id.trim().is_empty() {
+            "local"
+        } else {
+            self.response_id.as_str()
+        };
+        format!("msg_{}_0", response_id)
+    }
+
+    fn ensure_message_content_started(&mut self, stream_body: &mut String) {
+        let output_index = self.message_output_index();
+        let item_id = self.message_item_id();
+        if !self.message_item_started {
+            let sequence_number = self.next_sequence_number();
+            push_named_sse_payload(
+                stream_body,
+                "response.output_item.added",
+                json!({
+                    "type": "response.output_item.added",
+                    "sequence_number": sequence_number,
+                    "output_index": output_index,
+                    "item": {
+                        "id": item_id.clone(),
+                        "type": "message",
+                        "status": "in_progress",
+                        "role": "assistant",
+                        "content": [],
+                    },
+                }),
+            );
+            self.message_item_started = true;
+        }
+        if !self.message_content_started {
+            let sequence_number = self.next_sequence_number();
+            push_named_sse_payload(
+                stream_body,
+                "response.content_part.added",
+                json!({
+                    "type": "response.content_part.added",
+                    "sequence_number": sequence_number,
+                    "item_id": item_id,
+                    "output_index": output_index,
+                    "content_index": 0,
+                    "part": {
+                        "type": "output_text",
+                        "text": "",
+                        "annotations": [],
+                        "logprobs": [],
+                    },
+                }),
+            );
+            self.message_content_started = true;
+        }
+    }
+
+    fn push_output_text_delta(&mut self, content: &str, stream_body: &mut String) {
+        if content.is_empty() {
+            return;
+        }
+        self.ensure_message_content_started(stream_body);
+        self.output_text.push_str(content);
+        let item_id = self.message_item_id();
+        let output_index = self.message_output_index();
+        let sequence_number = self.next_sequence_number();
+        push_named_sse_payload(
+            stream_body,
+            "response.output_text.delta",
+            json!({
+                "type": "response.output_text.delta",
+                "sequence_number": sequence_number,
+                "item_id": item_id,
+                "output_index": output_index,
+                "content_index": 0,
+                "delta": content,
+                "logprobs": [],
+            }),
+        );
+    }
+
+    fn push_message_done_events(&mut self, stream_body: &mut String) {
+        if !self.message_item_started || self.message_item_done {
+            return;
+        }
+        let item_id = self.message_item_id();
+        let output_index = self.message_output_index();
+        if self.message_content_started {
+            let sequence_number = self.next_sequence_number();
+            push_named_sse_payload(
+                stream_body,
+                "response.output_text.done",
+                json!({
+                    "type": "response.output_text.done",
+                    "sequence_number": sequence_number,
+                    "item_id": item_id.clone(),
+                    "output_index": output_index,
+                    "content_index": 0,
+                    "text": self.output_text.clone(),
+                    "logprobs": [],
+                }),
+            );
+
+            let sequence_number = self.next_sequence_number();
+            push_named_sse_payload(
+                stream_body,
+                "response.content_part.done",
+                json!({
+                    "type": "response.content_part.done",
+                    "sequence_number": sequence_number,
+                    "item_id": item_id.clone(),
+                    "output_index": output_index,
+                    "content_index": 0,
+                    "part": {
+                        "type": "output_text",
+                        "text": self.output_text.clone(),
+                        "annotations": [],
+                        "logprobs": [],
+                    },
+                }),
+            );
+        }
+
+        let sequence_number = self.next_sequence_number();
+        push_named_sse_payload(
+            stream_body,
+            "response.output_item.done",
+            json!({
+                "type": "response.output_item.done",
+                "sequence_number": sequence_number,
+                "output_index": output_index,
+                "item": {
+                    "id": item_id,
+                    "type": "message",
+                    "status": "completed",
+                    "role": "assistant",
+                    "content": [{
+                        "type": "output_text",
+                        "text": self.output_text.clone(),
+                        "annotations": [],
+                        "logprobs": [],
+                    }],
+                },
+            }),
+        );
+        self.message_item_done = true;
     }
 
     fn process_frame(&mut self, frame: &[u8], stream_body: &mut String) {
@@ -3408,6 +3594,9 @@ impl ResponsesFromChatCompletionStreamTransformer {
         };
         if let Some(delta) = choice.get("delta").and_then(Value::as_object) {
             self.process_delta(delta, stream_body);
+        }
+        if let Some(message) = choice.get("message").and_then(Value::as_object) {
+            self.process_message(message, stream_body);
         }
         if choice
             .get("finish_reason")
@@ -3441,19 +3630,39 @@ impl ResponsesFromChatCompletionStreamTransformer {
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty())
         {
-            self.output_text.push_str(content);
-            push_named_sse_payload(
-                stream_body,
-                "response.output_text.delta",
-                json!({
-                    "type": "response.output_text.delta",
-                    "delta": content,
-                }),
-            );
+            self.push_output_text_delta(content, stream_body);
         }
         if let Some(tool_calls) = delta.get("tool_calls").and_then(Value::as_array) {
             for tool_call in tool_calls {
                 self.process_tool_call_delta(tool_call, stream_body);
+            }
+        }
+    }
+
+    fn process_message(&mut self, message: &Map<String, Value>, stream_body: &mut String) {
+        if let Some(reasoning) = message
+            .get("reasoning_content")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        {
+            self.reasoning_text.push_str(reasoning);
+        }
+        if let Some(content) = message.get("content") {
+            for part in chat_message_content_to_response_parts(content) {
+                if let Some(text) = part.get("text").and_then(Value::as_str) {
+                    self.push_output_text_delta(text, stream_body);
+                }
+            }
+        }
+        if let Some(tool_calls) = message.get("tool_calls").and_then(Value::as_array) {
+            for (index, tool_call) in tool_calls.iter().enumerate() {
+                let mut normalized = tool_call.clone();
+                if normalized.get("index").is_none() {
+                    if let Some(obj) = normalized.as_object_mut() {
+                        obj.insert("index".to_string(), json!(index));
+                    }
+                }
+                self.process_tool_call_delta(&normalized, stream_body);
             }
         }
     }
@@ -3544,11 +3753,15 @@ impl ResponsesFromChatCompletionStreamTransformer {
         }
         if !self.output_text.trim().is_empty() {
             output.push(json!({
+                "id": self.message_item_id(),
                 "type": "message",
+                "status": "completed",
                 "role": "assistant",
                 "content": [{
                     "type": "output_text",
                     "text": self.output_text.clone(),
+                    "annotations": [],
+                    "logprobs": [],
                 }],
             }));
         }
@@ -3571,16 +3784,7 @@ impl ResponsesFromChatCompletionStreamTransformer {
     }
 
     fn push_tool_call_done_events(&mut self, stream_body: &mut String) {
-        if !self.output_text.trim().is_empty() {
-            push_named_sse_payload(
-                stream_body,
-                "response.output_text.done",
-                json!({
-                    "type": "response.output_text.done",
-                    "text": self.output_text.clone(),
-                }),
-            );
-        }
+        self.push_message_done_events(stream_body);
 
         for (index, tool_call) in self.tool_calls.iter().enumerate() {
             if tool_call.name.trim().is_empty() {
@@ -3651,11 +3855,13 @@ impl ResponsesFromChatCompletionStreamTransformer {
         if let Some(usage) = self.response_capture.usage.as_ref() {
             response.insert("usage".to_string(), usage_capture_to_response_usage(usage));
         }
+        let sequence_number = self.next_sequence_number();
         push_named_sse_payload(
             stream_body,
             "response.completed",
             json!({
                 "type": "response.completed",
+                "sequence_number": sequence_number,
                 "response": Value::Object(response),
             }),
         );
@@ -12379,13 +12585,46 @@ data: [DONE]
         let responses_body =
             build_responses_stream_body_from_chat_completions(upstream_sse, "gpt-5.4");
         assert!(responses_body.contains("event: response.created"));
+        assert!(responses_body.contains("event: response.output_item.added"));
+        assert!(responses_body.contains("event: response.content_part.added"));
         assert!(responses_body.contains("response.output_text.delta"));
         assert!(responses_body.contains("response.output_text.done"));
+        assert!(responses_body.contains("event: response.content_part.done"));
+        assert!(responses_body.contains("event: response.output_item.done"));
+        assert!(responses_body.contains("\"content_index\":0"));
+        assert!(responses_body.contains("\"logprobs\":[]"));
         assert!(responses_body.contains("hello "));
         assert!(responses_body.contains("world"));
         assert!(responses_body.contains("event: response.completed"));
         assert!(responses_body.contains("\"output_text\":\"hello world\""));
         assert!(responses_body.contains("\"total_tokens\":3"));
+        assert!(responses_body.contains("data: [DONE]"));
+        let content_part_pos = responses_body
+            .find("event: response.content_part.added")
+            .expect("content part added event");
+        let delta_pos = responses_body
+            .find("event: response.output_text.delta")
+            .expect("text delta event");
+        assert!(content_part_pos < delta_pos);
+    }
+
+    #[test]
+    fn wraps_chat_completion_json_as_responses_stream_when_upstream_ignores_stream() {
+        let upstream_json = br#"{"id":"chatcmpl_1","object":"chat.completion","created":123,"model":"deepseek-chat","choices":[{"index":0,"message":{"role":"assistant","content":"plain json answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":3,"total_tokens":4}}"#;
+
+        let responses_body =
+            build_responses_stream_body_from_chat_completions(upstream_json, "gpt-5.4");
+        assert!(responses_body.contains("event: response.created"));
+        assert!(responses_body.contains("event: response.output_item.added"));
+        assert!(responses_body.contains("event: response.content_part.added"));
+        assert!(responses_body.contains("event: response.output_text.delta"));
+        assert!(responses_body.contains("plain json answer"));
+        assert!(responses_body.contains("event: response.output_text.done"));
+        assert!(responses_body.contains("event: response.content_part.done"));
+        assert!(responses_body.contains("event: response.output_item.done"));
+        assert!(responses_body.contains("event: response.completed"));
+        assert!(responses_body.contains("\"output_text\":\"plain json answer\""));
+        assert!(responses_body.contains("\"total_tokens\":4"));
         assert!(responses_body.contains("data: [DONE]"));
     }
 

@@ -6,6 +6,11 @@ All notable changes to AI Lemon Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.65] - 2026-06-27
+### Fixed
+- Chat Completions protocol providers now emit full Responses streaming message events when serving `/v1/responses`, including output item, content part, indexed text delta, text done, content part done, and output item done events so Responses clients such as Cherry Studio can render streamed text.
+- The Chat Completions-to-Responses stream adapter now wraps non-streaming Chat Completions JSON returned by upstream providers into a valid Responses SSE stream instead of completing with empty output.
+
 ## [0.0.64] - 2026-06-27
 ### Fixed
 - Chat Completions protocol providers now accept Cherry Studio Responses requests that omit `type: "message"` on input items, preserving `input_text` content when adapting `/v1/responses` to `/v1/chat/completions`.

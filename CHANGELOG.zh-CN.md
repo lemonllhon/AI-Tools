@@ -6,6 +6,12 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.0.65] - 2026-06-27
+
+### 修复
+- Chat Completions 协议供应商承接 `/v1/responses` 时，现在会输出完整 Responses 流式 message 事件，包括 output item、content part、带索引文本 delta、text done、content part done 和 output item done，避免 Cherry Studio 等 Responses 客户端收到流但显示空内容。
+- Chat Completions 转 Responses 的流式适配现在可以把上游供应商在 `stream: true` 下返回的普通 Chat Completions JSON 包装成合法 Responses SSE 流，避免最终完成事件里没有输出。
+
 ## [0.0.64] - 2026-06-27
 
 ### 修复
