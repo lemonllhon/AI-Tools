@@ -12189,8 +12189,25 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             method: "POST".to_string(),
             target: "/v1/responses".to_string(),
             headers: HashMap::new(),
-            body: br#"{"model":"gpt-5.5","input":[{"role":"user","content":[{"type":"input_text","text":"你是谁"}]}],"temperature":"[undefined]","top_p":"[undefined]","max_output_tokens":"[undefined]","instructions":"[undefined]","tools":"[undefined]","tool_choice":"[undefined]","top_logprobs":"[undefined]","stream":true}"#
-                .to_vec(),
+            body: serde_json::to_vec(&json!({
+                "model": "gpt-5.5",
+                "input": [{
+                    "role": "user",
+                    "content": [{
+                        "type": "input_text",
+                        "text": "你是谁"
+                    }]
+                }],
+                "temperature": "[undefined]",
+                "top_p": "[undefined]",
+                "max_output_tokens": "[undefined]",
+                "instructions": "[undefined]",
+                "tools": "[undefined]",
+                "tool_choice": "[undefined]",
+                "top_logprobs": "[undefined]",
+                "stream": true
+            }))
+            .expect("json body"),
         };
         let (prepared, adapter) = prepare_gateway_request(request).expect("request should map");
         let mut account = CodexAccount::new_api_key(
