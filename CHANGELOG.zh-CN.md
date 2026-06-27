@@ -6,6 +6,12 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.0.64] - 2026-06-27
+
+### 修复
+- Chat Completions 协议供应商现在可以兼容 Cherry Studio 发来的无 `type: "message"` 的 Responses 输入项，`/v1/responses` 转 `/v1/chat/completions` 时会正确保留 `input_text` 文本内容。
+- Responses 转 Chat Completions 网关现在会把 Cherry Studio 传入的字符串 `"[undefined]"` 可选字段视为未传值，避免无效生成参数或空 system 消息导致上游返回 `400`。
+
 ## [0.0.63] - 2026-06-27
 
 ### 变更

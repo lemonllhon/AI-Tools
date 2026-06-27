@@ -6,6 +6,11 @@ All notable changes to AI Lemon Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.64] - 2026-06-27
+### Fixed
+- Chat Completions protocol providers now accept Cherry Studio Responses requests that omit `type: "message"` on input items, preserving `input_text` content when adapting `/v1/responses` to `/v1/chat/completions`.
+- The Responses-to-Chat-Completions gateway now treats Cherry Studio's literal `"[undefined]"` optional fields as absent values, preventing invalid generation options or empty system messages from causing upstream `400` errors.
+
 ## [0.0.63] - 2026-06-27
 ### Changed
 - Codex local API provider routing now follows the configured provider wire protocol: Responses providers receive original `/v1/responses` requests without protocol conversion, while Chat Completions providers use the `/v1/responses` -> `/v1/chat/completions` -> `/v1/responses` gateway path.

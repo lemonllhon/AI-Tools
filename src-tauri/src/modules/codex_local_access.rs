@@ -2704,6 +2704,21 @@ fn response_content_part_to_chat_part(part: &Value) -> Option<Value> {
     }
 }
 
+fn is_undefined_sentinel_string(value: &Value) -> bool {
+    matches!(
+        value.as_str().map(str::trim),
+        Some(text) if text == "[undefined]" || text.eq_ignore_ascii_case("undefined")
+    )
+}
+
+fn defined_responses_value<'a>(
+    obj: &'a Map<String, Value>,
+    key: &str,
+) -> Option<&'a Value> {
+    obj.get(key)
+        .filter(|value| !value.is_null() && !is_undefined_sentinel_string(value))
+}
+
 fn is_response_content_part(item: &Value) -> bool {
     matches!(
         item.get("type").and_then(Value::as_str).unwrap_or(""),
@@ -2743,6 +2758,9 @@ fn response_content_to_chat_content(content: &Value) -> Value {
 }
 
 fn responses_instructions_to_chat_content(instructions: &Value) -> Option<Value> {
+    if is_undefined_sentinel_string(instructions) {
+        return None;
+    }
     match instructions {
         Value::String(text) => {
             let text = text.trim();
@@ -2829,6 +2847,11 @@ fn response_input_item_to_chat_messages(item: &Value) -> Vec<Value> {
         return Vec::new();
     };
     match item_obj.get("type").and_then(Value::as_str).unwrap_or("") {
+        "" if item_obj.contains_key("role") || item_obj.contains_key("content") => {
+            response_message_item_to_chat_message(item_obj)
+                .map(|message| vec![message])
+                .unwrap_or_default()
+        }
         "message" => response_message_item_to_chat_message(item_obj)
             .map(|message| vec![message])
             .unwrap_or_default(),
@@ -2983,8 +3006,17 @@ fn copy_responses_generation_options_to_chat(
 ) {
     if let Some(max_tokens) = request_obj
         .get("max_output_tokens")
-        .or_else(|| request_obj.get("max_completion_tokens"))
-        .or_else(|| request_obj.get("max_tokens"))
+        .filter(|value| !is_undefined_sentinel_string(value))
+        .or_else(|| {
+            request_obj
+                .get("max_completion_tokens")
+                .filter(|value| !is_undefined_sentinel_string(value))
+        })
+        .or_else(|| {
+            request_obj
+                .get("max_tokens")
+                .filter(|value| !is_undefined_sentinel_string(value))
+        })
     {
         chat_obj.insert("max_tokens".to_string(), max_tokens.clone());
     }
@@ -3004,12 +3036,14 @@ fn copy_responses_generation_options_to_chat(
         "metadata",
         "user",
     ] {
-        if let Some(value) = request_obj.get(key) {
+        if let Some(value) = defined_responses_value(request_obj, key) {
             chat_obj.insert(key.to_string(), value.clone());
         }
     }
 
-    if request_obj.get("top_logprobs").is_some() && !chat_obj.contains_key("logprobs") {
+    if defined_responses_value(request_obj, "top_logprobs").is_some()
+        && !chat_obj.contains_key("logprobs")
+    {
         chat_obj.insert("logprobs".to_string(), Value::Bool(true));
     }
 }
@@ -3041,28 +3075,28 @@ fn build_chat_completions_body_from_responses(
     chat_obj.insert("stream".to_string(), Value::Bool(stream));
     copy_responses_generation_options_to_chat(request_obj, &mut chat_obj);
 
-    if let Some(service_tier) = request_obj.get("service_tier") {
+    if let Some(service_tier) = defined_responses_value(request_obj, "service_tier") {
         chat_obj.insert("service_tier".to_string(), service_tier.clone());
     }
-    if let Some(reasoning) = request_obj.get("reasoning").and_then(Value::as_object) {
+    if let Some(reasoning) = defined_responses_value(request_obj, "reasoning")
+        .and_then(Value::as_object)
+    {
         if let Some(effort) = reasoning.get("effort") {
             chat_obj.insert("reasoning_effort".to_string(), effort.clone());
         }
     }
-    if let Some(tools) = request_obj.get("tools").and_then(Value::as_array) {
+    if let Some(tools) = defined_responses_value(request_obj, "tools").and_then(Value::as_array) {
         let chat_tools: Vec<Value> = tools.iter().filter_map(response_tool_to_chat_tool).collect();
         if !chat_tools.is_empty() {
             chat_obj.insert("tools".to_string(), Value::Array(chat_tools));
         }
     }
-    if let Some(tool_choice) = request_obj
-        .get("tool_choice")
+    if let Some(tool_choice) = defined_responses_value(request_obj, "tool_choice")
         .and_then(response_tool_choice_to_chat_tool_choice)
     {
         chat_obj.insert("tool_choice".to_string(), tool_choice);
     }
-    if let Some(response_format) = request_obj
-        .get("text")
+    if let Some(response_format) = defined_responses_value(request_obj, "text")
         .and_then(response_text_format_to_chat_response_format)
     {
         chat_obj.insert("response_format".to_string(), response_format);
@@ -12147,6 +12181,62 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
         );
         assert_eq!(body.get("top_logprobs").and_then(Value::as_u64), Some(2));
         assert_eq!(body.get("logprobs").and_then(Value::as_bool), Some(true));
+    }
+
+    #[test]
+    fn chat_completions_provider_accepts_cherry_responses_message_shape() {
+        let request = ParsedRequest {
+            method: "POST".to_string(),
+            target: "/v1/responses".to_string(),
+            headers: HashMap::new(),
+            body: br#"{"model":"gpt-5.5","input":[{"role":"user","content":[{"type":"input_text","text":"你是谁"}]}],"temperature":"[undefined]","top_p":"[undefined]","max_output_tokens":"[undefined]","instructions":"[undefined]","tools":"[undefined]","tool_choice":"[undefined]","top_logprobs":"[undefined]","stream":true}"#
+                .to_vec(),
+        };
+        let (prepared, adapter) = prepare_gateway_request(request).expect("request should map");
+        let mut account = CodexAccount::new_api_key(
+            "api-1".to_string(),
+            "api@example.com".to_string(),
+            "sk-test".to_string(),
+            CodexApiProviderMode::Custom,
+            Some("https://relay.example/v1".to_string()),
+            Some("relay".to_string()),
+            Some("Relay".to_string()),
+        );
+        account.api_wire_api = Some("chat_completions".to_string());
+
+        let upstream = build_chat_completions_upstream_request_for_account(
+            &prepared,
+            &adapter,
+            &account,
+        )
+        .expect("responses request should use chat upstream");
+        let body: Value = serde_json::from_slice(&upstream.body).expect("json body");
+
+        assert_eq!(upstream.target, "/chat/completions");
+        assert_eq!(
+            body.pointer("/messages/0/role").and_then(Value::as_str),
+            Some("user")
+        );
+        assert_eq!(
+            body.pointer("/messages/0/content").and_then(Value::as_str),
+            Some("你是谁")
+        );
+        assert!(body.get("temperature").is_none());
+        assert!(body.get("top_p").is_none());
+        assert!(body.get("max_tokens").is_none());
+        assert!(body.get("top_logprobs").is_none());
+        assert!(body.get("logprobs").is_none());
+        assert!(body
+            .get("messages")
+            .and_then(Value::as_array)
+            .map(|messages| messages.iter().all(|message| {
+                message
+                    .get("content")
+                    .and_then(Value::as_str)
+                    .map(|content| content != "[undefined]")
+                    .unwrap_or(true)
+            }))
+            .unwrap_or(false));
     }
 
     #[test]
