@@ -1,6 +1,6 @@
 cask "ai-lemon-tools" do
-  version "0.0.61"
-  sha256 "ca2dc3cf76616471acf89d8078ac214d927fbca40d683206f98b0ec9074fbce6"
+  version "0.0.63"
+  sha256 "dd5a3b2c1ddc749fd5f00fe85de294072b3dc78b735c969f729fdbedb956828b"
 
   url "https://github.com/lemon-casino/ai-lemon-tools-release/releases/download/#{version}/AI.Lemon.Tools_#{version}_universal.dmg",
       verified: "https://github.com/lemon-casino/ai-lemon-tools-release/"
