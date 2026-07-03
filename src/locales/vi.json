@@ -1745,7 +1745,8 @@
       "formatRequired": "Hỗ trợ tokens đầy đủ (id_token + access_token), một refresh_token hoặc mỗi dòng một refresh_token. Khi chỉ có refresh_token, hệ thống sẽ đổi trực tuyến sang thông tin xác thực đầy đủ trước.",
       "formatSingleLabel": "Tokens đầy đủ",
       "formatRefreshOnlyLabel": "Chỉ refresh_token",
-      "formatBatchLabel": "Ví dụ hàng loạt"
+      "formatBatchLabel": "Ví dụ hàng loạt",
+      "formatSub2apiLabel": "Ví dụ Sub2API"
     },
     "exportFormat": {
       "label": "Định dạng xuất",

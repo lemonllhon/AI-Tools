@@ -231,6 +231,26 @@ const CODEX_TOKEN_BATCH_EXAMPLE = `[
     "last_used": 1730000000
   }
 ]`;
+const CODEX_TOKEN_SUB2API_EXAMPLE = `{
+  "exported_at": "2026-07-04T01:35:00.000Z",
+  "proxies": [],
+  "accounts": [
+    {
+      "name": "user@example.com_Workspace",
+      "platform": "openai",
+      "type": "oauth",
+      "credentials": {
+        "access_token": "eyJ...",
+        "chatgpt_account_id": "account-id",
+        "email": "user@example.com",
+        "plan_type": "plus"
+      },
+      "extra": {
+        "source": "chatgpt_web_session"
+      }
+    }
+  ]
+}`;
 const OPENAI_OFFICIAL_PRESET_ID = "openai_official";
 const COCKPIT_API_BASE_URL = "https://chongcodex.cn/v1";
 const CODEX_PROFILE_VISIBLE_AUTO_LOAD_MAX_ACCOUNTS = 200;
@@ -9153,6 +9173,17 @@ export function CodexAccountsPage() {
                             </div>
                             <pre className="token-format-code">
                               {CODEX_TOKEN_BATCH_EXAMPLE}
+                            </pre>
+                          </div>
+                          <div className="token-format-group">
+                            <div className="token-format-label">
+                              {t(
+                                "codex.token.formatSub2apiLabel",
+                                "Sub2API 示例",
+                              )}
+                            </div>
+                            <pre className="token-format-code">
+                              {CODEX_TOKEN_SUB2API_EXAMPLE}
                             </pre>
                           </div>
                         </div>

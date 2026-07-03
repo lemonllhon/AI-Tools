@@ -100,15 +100,47 @@ fn is_transient_quota_error_message(message: &str) -> bool {
         || lower.contains("读取响应失败")
         || lower.contains("timed out")
         || lower.contains("timeout")
+        || lower.contains("operation timed out")
+        || lower.contains("elapsed")
         || lower.contains("network")
         || lower.contains("connection")
+        || lower.contains("connect error")
+        || lower.contains("connection refused")
+        || lower.contains("connection reset")
+        || lower.contains("connection closed")
+        || lower.contains("connection aborted")
+        || lower.contains("broken pipe")
         || lower.contains("dns")
+        || lower.contains("tls")
+        || lower.contains("ssl")
+        || lower.contains("certificate")
+        || lower.contains("handshake")
+        || lower.contains("proxy")
+        || lower.contains("socks")
+        || lower.contains("tunnel")
+        || lower.contains("transport")
         || lower.contains("超时")
         || lower.contains("连接")
+        || lower.contains("无法连接")
+        || lower.contains("连接失败")
+        || lower.contains("连接重置")
+        || lower.contains("连接被")
+        || lower.contains("代理")
+        || lower.contains("证书")
+        || lower.contains("握手")
         || lower.contains("temporarily unavailable")
+        || lower.contains("temporary")
+        || lower.contains("bad gateway")
+        || lower.contains("service unavailable")
+        || lower.contains("gateway timeout")
+        || lower.contains("unsupported_country_region_territory")
+        || lower.contains("当前网络地区不支持")
+        || lower.contains("网络")
         || lower.contains("too many requests")
         || lower.contains("429")
+        || lower.contains("api 返回错误 408")
         || lower.contains("api 返回错误 5")
+        || lower.contains("http 408")
         || lower.contains("http 5")
         || lower.contains("http 502")
         || lower.contains("http 503")
@@ -129,8 +161,16 @@ fn write_quota_error(account: &mut CodexAccount, message: String) {
     });
 }
 
-async fn delete_deactivated_workspace_account_if_needed(account: &CodexAccount, message: &str) {
+fn is_deactivated_workspace_delete_message(message: &str) -> bool {
     if !codex_account::is_deactivated_workspace_error_message(message) {
+        return false;
+    }
+    let lower = message.to_ascii_lowercase();
+    lower.contains("402") || lower.contains("payment required")
+}
+
+async fn delete_deactivated_workspace_account_if_needed(account: &CodexAccount, message: &str) {
+    if !is_deactivated_workspace_delete_message(message) {
         return;
     }
 

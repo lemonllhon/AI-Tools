@@ -1745,7 +1745,8 @@
       "formatRequired": "Admite tokens completos (id_token + access_token), un refresh_token único o un refresh_token por línea. Si importas solo refresh_token, primero se intercambia en línea por credenciales completas.",
       "formatSingleLabel": "Tokens completos",
       "formatRefreshOnlyLabel": "Solo refresh_token",
-      "formatBatchLabel": "Ejemplo por lotes"
+      "formatBatchLabel": "Ejemplo por lotes",
+      "formatSub2apiLabel": "Ejemplo de Sub2API"
     },
     "exportFormat": {
       "label": "Formato de exportación",

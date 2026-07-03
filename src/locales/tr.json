@@ -1745,7 +1745,8 @@
       "formatRequired": "Tam tokens (id_token + access_token), tek bir refresh_token veya satır başına bir refresh_token desteklenir. Yalnızca refresh_token içe aktarımı önce çevrimiçi olarak tam kimlik bilgilerine dönüştürür.",
       "formatSingleLabel": "Tam tokens",
       "formatRefreshOnlyLabel": "Yalnızca refresh_token",
-      "formatBatchLabel": "Toplu örnek"
+      "formatBatchLabel": "Toplu örnek",
+      "formatSub2apiLabel": "Sub2API örneği"
     },
     "exportFormat": {
       "label": "Dışa aktarma biçimi",

@@ -4984,6 +4984,57 @@ fn bind_host_for_collection(collection: &CodexLocalAccessCollection) -> &'static
     bind_host_for_access_scope(collection.access_scope)
 }
 
+#[derive(Default)]
+struct RecoveredLocalAccessIdentity {
+    port: Option<u16>,
+    api_key: Option<String>,
+}
+
+fn parse_local_access_port_from_base_url(base_url: &str) -> Option<u16> {
+    let parsed = Url::parse(base_url.trim()).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return None;
+    }
+
+    let host = parsed.host_str()?.to_ascii_lowercase();
+    if !matches!(
+        host.as_str(),
+        "127.0.0.1" | "localhost" | "::1" | "0.0.0.0"
+    ) {
+        return None;
+    }
+
+    parsed.port().filter(|port| *port != 0)
+}
+
+fn recover_local_access_identity_from_active_config() -> RecoveredLocalAccessIdentity {
+    let codex_home = codex_account::get_codex_home();
+    let Some(identity) =
+        codex_account::read_local_access_config_identity_from_config_toml(&codex_home)
+    else {
+        return RecoveredLocalAccessIdentity::default();
+    };
+
+    let port = identity
+        .base_url
+        .as_deref()
+        .and_then(parse_local_access_port_from_base_url);
+    let api_key = identity
+        .api_key
+        .and_then(|key| (!key.trim().is_empty()).then(|| key.trim().to_string()));
+
+    if port.is_some() || api_key.is_some() {
+        logger::log_codex_api_info(&format!(
+            "[CodexLocalAccess] 已从当前 Codex 配置恢复 API 服务身份: has_port={}, has_api_key={}, source_dir={}",
+            port.is_some(),
+            api_key.is_some(),
+            codex_home.display()
+        ));
+    }
+
+    RecoveredLocalAccessIdentity { port, api_key }
+}
+
 #[derive(Debug)]
 struct LanIpv4Candidate {
     interface_name: String,
@@ -5265,6 +5316,38 @@ fn allocate_random_local_port(bind_host: &str) -> Result<u16, String> {
         .local_addr()
         .map(|addr| addr.port())
         .map_err(|e| format!("读取本地接入端口失败: {}", e))
+}
+
+fn new_local_access_collection() -> Result<CodexLocalAccessCollection, String> {
+    let recovered_identity = recover_local_access_identity_from_active_config();
+    let port = match recovered_identity.port {
+        Some(port) => port,
+        None => allocate_random_local_port(CODEX_LOCAL_ACCESS_LOCALHOST_BIND_HOST)?,
+    };
+    let api_key = recovered_identity
+        .api_key
+        .unwrap_or_else(generate_local_api_key);
+    let now = now_ms();
+
+    Ok(CodexLocalAccessCollection {
+        enabled: false,
+        port,
+        api_key,
+        access_scope: CodexLocalAccessScope::Localhost,
+        upstream_proxy_mode: CodexLocalAccessUpstreamProxyMode::default(),
+        source_mode: CodexLocalAccessSourceMode::default(),
+        web_socket_mode: CodexLocalAccessWebSocketMode::default(),
+        routing_strategy: CodexLocalAccessRoutingStrategy::default(),
+        custom_routing_rules: Vec::new(),
+        restrict_free_accounts: true,
+        auto_include_new_accounts: false,
+        auto_include_new_providers: false,
+        provider_ids: Vec::new(),
+        bound_oauth_account_id: None,
+        account_ids: Vec::new(),
+        created_at: now,
+        updated_at: now,
+    })
 }
 
 fn load_collection_from_disk() -> Result<Option<CodexLocalAccessCollection>, String> {
@@ -5866,7 +5949,7 @@ fn is_local_access_eligible_account(account: &CodexAccount, restrict_free_accoun
 }
 
 fn local_access_account_unusable_reason(account: &CodexAccount) -> Option<String> {
-    codex_account::error_account_auto_delete_reason(account)
+    codex_account::account_unusable_reason(account)
 }
 
 fn is_local_access_account_healthy(account: &CodexAccount) -> bool {
@@ -5883,13 +5966,24 @@ fn sanitize_collection(
 ) -> Result<(bool, HashSet<String>, Vec<String>), String> {
     let mut changed = false;
     let mut auto_included_account_ids = Vec::new();
+    let mut recovered_identity: Option<RecoveredLocalAccessIdentity> = None;
 
     if collection.port == 0 {
-        collection.port = allocate_random_local_port(bind_host_for_collection(collection))?;
+        let recovered =
+            recovered_identity.get_or_insert_with(recover_local_access_identity_from_active_config);
+        collection.port = match recovered.port {
+            Some(port) => port,
+            None => allocate_random_local_port(bind_host_for_collection(collection))?,
+        };
         changed = true;
     }
     if collection.api_key.trim().is_empty() {
-        collection.api_key = generate_local_api_key();
+        let recovered =
+            recovered_identity.get_or_insert_with(recover_local_access_identity_from_active_config);
+        collection.api_key = recovered
+            .api_key
+            .clone()
+            .unwrap_or_else(generate_local_api_key);
         changed = true;
     }
     if collection.created_at <= 0 {
@@ -6144,6 +6238,20 @@ async fn delete_error_account_from_runtime(account_id: &str, reason: &str) {
     }
 }
 
+async fn detach_or_delete_unusable_account_from_runtime(
+    account: &CodexAccount,
+    reason: &str,
+) -> bool {
+    if codex_account::error_account_auto_delete_reason(account).is_some() {
+        delete_error_account_from_runtime(&account.id, reason).await;
+        return true;
+    }
+
+    remove_local_access_account_from_runtime(&account.id, reason).await;
+    evict_prepared_account_cache_for_account(&account.id);
+    false
+}
+
 pub async fn remove_deleted_account_references(
     account_ids: &[String],
     reason: &str,
@@ -6314,25 +6422,7 @@ async fn ensure_runtime_loaded_without_start() -> Result<(), String> {
     let mut persist_after_load = false;
 
     if next_collection.is_none() {
-        next_collection = Some(CodexLocalAccessCollection {
-            enabled: false,
-            port: allocate_random_local_port(CODEX_LOCAL_ACCESS_LOCALHOST_BIND_HOST)?,
-            api_key: generate_local_api_key(),
-            access_scope: CodexLocalAccessScope::Localhost,
-            upstream_proxy_mode: CodexLocalAccessUpstreamProxyMode::default(),
-            source_mode: CodexLocalAccessSourceMode::default(),
-            web_socket_mode: CodexLocalAccessWebSocketMode::default(),
-            routing_strategy: CodexLocalAccessRoutingStrategy::default(),
-            custom_routing_rules: Vec::new(),
-            restrict_free_accounts: true,
-            auto_include_new_accounts: false,
-            auto_include_new_providers: false,
-            provider_ids: Vec::new(),
-            bound_oauth_account_id: None,
-            account_ids: Vec::new(),
-            created_at: now_ms(),
-            updated_at: now_ms(),
-        });
+        next_collection = Some(new_local_access_collection()?);
         persist_after_load = true;
     }
 
@@ -7255,30 +7345,12 @@ pub async fn save_local_access_accounts(
 ) -> Result<CodexLocalAccessState, String> {
     ensure_runtime_loaded().await?;
 
-    let mut collection = {
+    let mut collection = match {
         let runtime = gateway_runtime().lock().await;
-        runtime
-            .collection
-            .clone()
-            .unwrap_or(CodexLocalAccessCollection {
-                enabled: false,
-                port: allocate_random_local_port(CODEX_LOCAL_ACCESS_LOCALHOST_BIND_HOST)?,
-                api_key: generate_local_api_key(),
-                access_scope: CodexLocalAccessScope::Localhost,
-                upstream_proxy_mode: CodexLocalAccessUpstreamProxyMode::default(),
-                source_mode: CodexLocalAccessSourceMode::default(),
-                web_socket_mode: CodexLocalAccessWebSocketMode::default(),
-                routing_strategy: CodexLocalAccessRoutingStrategy::default(),
-                custom_routing_rules: Vec::new(),
-                restrict_free_accounts: true,
-                auto_include_new_accounts: false,
-                auto_include_new_providers: false,
-                provider_ids: Vec::new(),
-                bound_oauth_account_id: None,
-                account_ids: Vec::new(),
-                created_at: now_ms(),
-                updated_at: now_ms(),
-            })
+        runtime.collection.clone()
+    } {
+        Some(collection) => collection,
+        None => new_local_access_collection()?,
     };
     let previous_account_ids: HashSet<String> = collection.account_ids.iter().cloned().collect();
 
@@ -7338,30 +7410,12 @@ pub async fn save_local_access_providers(
 ) -> Result<CodexLocalAccessState, String> {
     ensure_runtime_loaded().await?;
 
-    let mut collection = {
+    let mut collection = match {
         let runtime = gateway_runtime().lock().await;
-        runtime
-            .collection
-            .clone()
-            .unwrap_or(CodexLocalAccessCollection {
-                enabled: false,
-                port: allocate_random_local_port(CODEX_LOCAL_ACCESS_LOCALHOST_BIND_HOST)?,
-                api_key: generate_local_api_key(),
-                access_scope: CodexLocalAccessScope::Localhost,
-                upstream_proxy_mode: CodexLocalAccessUpstreamProxyMode::default(),
-                source_mode: CodexLocalAccessSourceMode::default(),
-                web_socket_mode: CodexLocalAccessWebSocketMode::default(),
-                routing_strategy: CodexLocalAccessRoutingStrategy::default(),
-                custom_routing_rules: Vec::new(),
-                restrict_free_accounts: true,
-                auto_include_new_accounts: false,
-                auto_include_new_providers: false,
-                provider_ids: Vec::new(),
-                bound_oauth_account_id: None,
-                account_ids: Vec::new(),
-                created_at: now_ms(),
-                updated_at: now_ms(),
-            })
+        runtime.collection.clone()
+    } {
+        Some(collection) => collection,
+        None => new_local_access_collection()?,
     };
     let valid_provider_ids: HashSet<String> = load_new_api_model_providers()?
         .into_iter()
@@ -10706,11 +10760,16 @@ async fn proxy_request_with_account_pool(
                     match codex_account::load_account(&account_id) {
                         Some(account) => {
                             if let Some(reason) = local_access_account_unusable_reason(&account) {
-                                delete_error_account_from_runtime(
-                                    &account_id,
+                                let deleted = detach_or_delete_unusable_account_from_runtime(
+                                    &account,
                                     reason.as_str(),
                                 )
                                 .await;
+                                let action = if deleted {
+                                    "已自动删除"
+                                } else {
+                                    "已从本地接入服务自动剥离"
+                                };
                                 log_codex_api_failure(
                                     None,
                                     Some(request),
@@ -10718,9 +10777,9 @@ async fn proxy_request_with_account_pool(
                                     Some(account_id.as_str()),
                                     Some(account.email.as_str()),
                                     None,
-                                    format!("账号状态异常，已自动删除: {}", reason).as_str(),
+                                    format!("账号状态异常，{}: {}", action, reason).as_str(),
                                 );
-                                last_error = format!("账号状态异常，已自动删除: {}", reason);
+                                last_error = format!("账号状态异常，{}: {}", action, reason);
                                 continue;
                             }
                         }
@@ -10758,7 +10817,13 @@ async fn proxy_request_with_account_pool(
 
             if let Some(reason) = local_access_account_unusable_reason(&account) {
                 invalidate_prepared_account(&account_id).await;
-                delete_error_account_from_runtime(&account_id, reason.as_str()).await;
+                let deleted =
+                    detach_or_delete_unusable_account_from_runtime(&account, reason.as_str()).await;
+                let action = if deleted {
+                    "已自动删除"
+                } else {
+                    "已从本地接入服务自动剥离"
+                };
                 log_codex_api_failure(
                     None,
                     Some(request),
@@ -10766,9 +10831,9 @@ async fn proxy_request_with_account_pool(
                     Some(account.id.as_str()),
                     Some(account.email.as_str()),
                     None,
-                    format!("账号状态异常，已自动删除: {}", reason).as_str(),
+                    format!("账号状态异常，{}: {}", action, reason).as_str(),
                 );
-                last_error = format!("账号状态异常，已自动删除: {}", reason);
+                last_error = format!("账号状态异常，{}: {}", action, reason);
                 continue;
             }
 
@@ -11381,9 +11446,9 @@ mod tests {
         build_request_routing_hint, extract_usage_capture, is_responses_completion_event,
         is_websocket_upgrade_request,
         compare_routing_candidates, normalize_custom_routing_rules, parse_codex_retry_after,
-        parse_responses_payload_from_upstream, prepare_gateway_request,
-        prepare_responses_websocket_request, is_local_access_account_healthy,
-        is_local_access_usable_account,
+        parse_local_access_port_from_base_url, parse_responses_payload_from_upstream,
+        prepare_gateway_request, prepare_responses_websocket_request,
+        is_local_access_account_healthy, is_local_access_usable_account,
         resolve_supported_model_alias, build_openai_compatible_upstream_url,
         should_retry_single_account_upstream_status, should_treat_response_as_stream,
         should_try_next_account, websocket_accept_key, GatewayResponseAdapter, ParsedRequest,
@@ -11431,6 +11496,21 @@ mod tests {
 
         assert!(!is_local_access_account_healthy(&quota_error_account));
         assert!(!is_local_access_usable_account(&quota_error_account, false));
+
+        let mut transient_quota_error_account = test_codex_oauth_account("transient-quota-error");
+        transient_quota_error_account.quota_error = Some(CodexQuotaErrorInfo {
+            code: Some("quota_refresh_transient".to_string()),
+            message: "请求失败: connection reset by peer".to_string(),
+            timestamp: 1,
+        });
+
+        assert!(is_local_access_account_healthy(
+            &transient_quota_error_account
+        ));
+        assert!(is_local_access_usable_account(
+            &transient_quota_error_account,
+            false
+        ));
     }
 
     #[test]
@@ -11532,6 +11612,26 @@ mod tests {
         .expect("build upstream url");
 
         assert_eq!(url, "https://relay.example/v1/chat/completions");
+    }
+
+    #[test]
+    fn parses_local_access_port_only_from_local_base_url() {
+        assert_eq!(
+            parse_local_access_port_from_base_url("http://127.0.0.1:63898/v1"),
+            Some(63898)
+        );
+        assert_eq!(
+            parse_local_access_port_from_base_url("http://localhost:51234/v1/"),
+            Some(51234)
+        );
+        assert_eq!(
+            parse_local_access_port_from_base_url("https://relay.example.com/v1"),
+            None
+        );
+        assert_eq!(
+            parse_local_access_port_from_base_url("http://127.0.0.1/v1"),
+            None
+        );
     }
 
     #[test]

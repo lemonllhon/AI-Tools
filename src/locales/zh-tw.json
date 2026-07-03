@@ -1745,7 +1745,8 @@
       "formatRequired": "支援完整 tokens（id_token + access_token）、單個 refresh_token，或每行一個 refresh_token。僅 refresh_token 會先連線換取完整憑證。",
       "formatSingleLabel": "完整 tokens 範例",
       "formatRefreshOnlyLabel": "僅 refresh_token 範例",
-      "formatBatchLabel": "批次範例"
+      "formatBatchLabel": "批次範例",
+      "formatSub2apiLabel": "Sub2API 範例"
     },
     "exportFormat": {
       "label": "匯出格式",

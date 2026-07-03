@@ -1745,7 +1745,8 @@
       "formatRequired": "전체 tokens(id_token + access_token), 단일 refresh_token 또는 줄마다 refresh_token 하나를 지원합니다. refresh_token만 가져오면 먼저 온라인에서 전체 인증 정보로 교환합니다.",
       "formatSingleLabel": "전체 tokens",
       "formatRefreshOnlyLabel": "refresh_token만",
-      "formatBatchLabel": "일괄 예시"
+      "formatBatchLabel": "일괄 예시",
+      "formatSub2apiLabel": "Sub2API 예시"
     },
     "exportFormat": {
       "label": "내보내기 형식",

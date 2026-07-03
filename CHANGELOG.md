@@ -6,6 +6,16 @@ All notable changes to AI Lemon Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.67] - 2026-07-04
+### Changed
+- Codex token import help now shows both the AI Lemon Tools batch account JSON format and the Sub2API export JSON format.
+- New installs now default the interface language to Simplified Chinese.
+
+### Fixed
+- Codex quota refresh, background checks, and local API routing no longer physically delete accounts for transient network, proxy, TLS, timeout, rate-limit, or temporary upstream failures.
+- Codex automatic account deletion for deactivated workspaces is now limited to explicit `402 Payment Required` / `deactivated_workspace` responses, reducing false positives from gateway or network errors.
+- Codex local API service recovery now preserves the previous port and API key across upgrades by migrating legacy data and falling back to the active Codex `config.toml` provider settings when the local access JSON is missing.
+
 ## [0.0.66] - 2026-06-27
 ### Fixed
 - Chat Completions protocol providers now preserve Responses file and image content references when adapting `/v1/responses` to `/v1/chat/completions`, including `file_id`, `file_data`, `file_url`, `filename`, image file IDs, and detail settings so Cherry Studio file uploads are carried to upstream providers.

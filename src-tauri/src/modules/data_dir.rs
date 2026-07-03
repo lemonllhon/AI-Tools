@@ -228,7 +228,11 @@ fn path_nested(left: &Path, right: &Path) -> bool {
 }
 
 fn legacy_data_dir_candidates() -> Vec<PathBuf> {
-    Vec::new()
+    let mut candidates = Vec::new();
+    if let Some(data_local_dir) = dirs::data_local_dir() {
+        candidates.push(data_local_dir.join("com.jlcodes.ai-lemon-tools"));
+    }
+    candidates
 }
 
 fn files_have_same_content(left: &Path, right: &Path) -> bool {

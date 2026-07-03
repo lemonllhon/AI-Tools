@@ -1794,7 +1794,8 @@
       "formatRequired": "Mendukung tokens lengkap (id_token + access_token), satu refresh_token, atau satu refresh_token per baris. Impor refresh_token saja akan menukarnya secara online menjadi kredensial lengkap terlebih dahulu.",
       "formatSingleLabel": "Tokens lengkap",
       "formatRefreshOnlyLabel": "Hanya refresh_token",
-      "formatBatchLabel": "Contoh batch"
+      "formatBatchLabel": "Contoh batch",
+      "formatSub2apiLabel": "Contoh Sub2API"
     },
     "exportFormat": {
       "label": "Format ekspor",

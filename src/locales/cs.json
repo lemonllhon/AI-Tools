@@ -1745,7 +1745,8 @@
       "formatRequired": "Podporuje úplné tokens (id_token + access_token), jeden refresh_token nebo jeden refresh_token na řádek. Import pouze s refresh_token jej nejprve online vymění za úplné přihlašovací údaje.",
       "formatSingleLabel": "Úplné tokens",
       "formatRefreshOnlyLabel": "Jen refresh_token",
-      "formatBatchLabel": "Dávkový příklad"
+      "formatBatchLabel": "Dávkový příklad",
+      "formatSub2apiLabel": "Příklad Sub2API"
     },
     "exportFormat": {
       "label": "Formát exportu",

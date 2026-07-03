@@ -1745,7 +1745,8 @@
       "formatRequired": "Поддерживаются полные tokens (id_token + access_token), один refresh_token или один refresh_token в строке. При импорте только refresh_token он сначала обменивается онлайн на полные учетные данные.",
       "formatSingleLabel": "Полные tokens",
       "formatRefreshOnlyLabel": "Только refresh_token",
-      "formatBatchLabel": "Пакетный пример"
+      "formatBatchLabel": "Пакетный пример",
+      "formatSub2apiLabel": "Пример Sub2API"
     },
     "exportFormat": {
       "label": "Формат экспорта",

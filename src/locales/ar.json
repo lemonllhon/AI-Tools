@@ -1791,7 +1791,8 @@
       "formatRequired": "يدعم tokens كاملة (id_token + access_token)، أو refresh_token واحداً، أو refresh_token واحداً في كل سطر. عند استخدام refresh_token فقط يتم استبداله عبر الإنترنت ببيانات اعتماد كاملة أولاً.",
       "formatSingleLabel": "مثال tokens كاملة",
       "formatRefreshOnlyLabel": "مثال refresh_token فقط",
-      "formatBatchLabel": "مثال دفعي"
+      "formatBatchLabel": "مثال دفعي",
+      "formatSub2apiLabel": "مثال Sub2API"
     },
     "exportFormat": {
       "label": "تنسيق التصدير",

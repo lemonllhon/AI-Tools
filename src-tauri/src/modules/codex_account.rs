@@ -208,9 +208,7 @@ pub fn codex_account_error_reason_from_upstream_response(
     status: u16,
     body: &str,
 ) -> Option<String> {
-    if status != reqwest::StatusCode::PAYMENT_REQUIRED.as_u16()
-        && !is_deactivated_workspace_error_message(body)
-    {
+    if status != reqwest::StatusCode::PAYMENT_REQUIRED.as_u16() {
         return None;
     }
     if !is_deactivated_workspace_error_message(body) {
@@ -294,6 +292,12 @@ struct ApiProviderConfig {
     base_url: Option<String>,
     provider_id: Option<String>,
     provider_name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodexLocalAccessConfigIdentity {
+    pub base_url: Option<String>,
+    pub api_key: Option<String>,
 }
 
 fn is_default_openai_base_url(raw: &str) -> bool {
@@ -1037,6 +1041,57 @@ fn read_api_provider_from_config_toml(base_dir: &Path) -> ApiProviderConfig {
         None,
         None,
     )
+}
+
+pub fn read_local_access_config_identity_from_config_toml(
+    base_dir: &Path,
+) -> Option<CodexLocalAccessConfigIdentity> {
+    let config_path = get_config_toml_path(base_dir);
+    let content = fs::read_to_string(config_path).ok()?;
+    if content.trim().is_empty() {
+        return None;
+    }
+
+    let doc = content.parse::<Document>().ok()?;
+    let active_provider = normalize_optional_ref(
+        doc.get(CODEX_CONFIG_MODEL_PROVIDER_KEY)
+            .and_then(|item| item.as_str()),
+    )?;
+    if active_provider != CODEX_RUNTIME_MODEL_PROVIDER_ID {
+        return None;
+    }
+
+    let provider = doc
+        .get(CODEX_CONFIG_MODEL_PROVIDERS_KEY)
+        .and_then(|item| item.get(CODEX_RUNTIME_MODEL_PROVIDER_ID))?;
+    let provider_name = normalize_api_provider_name(
+        provider
+            .get("name")
+            .and_then(|item| item.as_str()),
+    );
+    let base_url = provider
+        .get("base_url")
+        .and_then(|item| item.as_str())
+        .and_then(|raw| normalize_api_base_url(Some(raw)));
+    let api_key = provider
+        .get(CODEX_CONFIG_EXPERIMENTAL_BEARER_TOKEN_KEY)
+        .and_then(|item| item.as_str())
+        .and_then(normalize_api_key);
+
+    let is_local_access_config = provider_name.as_deref() == Some(CODEX_LOCAL_ACCESS_PROVIDER_NAME)
+        || api_key
+            .as_deref()
+            .map(|key| key.starts_with("agt_codex_"))
+            .unwrap_or(false);
+    if !is_local_access_config {
+        return None;
+    }
+
+    if base_url.is_none() && api_key.is_none() {
+        return None;
+    }
+
+    Some(CodexLocalAccessConfigIdentity { base_url, api_key })
 }
 
 pub fn is_local_access_provider_active_in_config(base_dir: &Path) -> bool {
@@ -2189,6 +2244,56 @@ pub fn save_account(account: &CodexAccount) -> Result<(), String> {
     Ok(())
 }
 
+fn is_transient_account_error_message(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    message.contains("请求失败")
+        || message.contains("读取响应失败")
+        || message.contains("timed out")
+        || message.contains("timeout")
+        || message.contains("operation timed out")
+        || message.contains("elapsed")
+        || message.contains("network")
+        || message.contains("connection")
+        || message.contains("connect error")
+        || message.contains("connection refused")
+        || message.contains("connection reset")
+        || message.contains("connection closed")
+        || message.contains("connection aborted")
+        || message.contains("broken pipe")
+        || message.contains("dns")
+        || message.contains("tls")
+        || message.contains("ssl")
+        || message.contains("certificate")
+        || message.contains("handshake")
+        || message.contains("proxy")
+        || message.contains("socks")
+        || message.contains("tunnel")
+        || message.contains("transport")
+        || message.contains("temporarily unavailable")
+        || message.contains("temporary")
+        || message.contains("bad gateway")
+        || message.contains("service unavailable")
+        || message.contains("gateway timeout")
+        || message.contains("unsupported_country_region_territory")
+        || message.contains("当前网络地区不支持")
+        || message.contains("网络")
+        || message.contains("超时")
+        || message.contains("连接")
+        || message.contains("无法连接")
+        || message.contains("连接失败")
+        || message.contains("连接重置")
+        || message.contains("连接被")
+        || message.contains("代理")
+        || message.contains("证书")
+        || message.contains("握手")
+        || message.contains("too many requests")
+        || message.contains("429")
+        || message.contains("api 返回错误 408")
+        || message.contains("api 返回错误 5")
+        || message.contains("http 408")
+        || message.contains("http 5")
+}
+
 fn is_transient_quota_error(quota_error: &CodexQuotaErrorInfo) -> bool {
     if quota_error
         .code
@@ -2198,23 +2303,37 @@ fn is_transient_quota_error(quota_error: &CodexQuotaErrorInfo) -> bool {
     {
         return true;
     }
-    let message = quota_error.message.to_ascii_lowercase();
-    message.contains("请求失败")
-        || message.contains("读取响应失败")
-        || message.contains("timed out")
-        || message.contains("timeout")
-        || message.contains("network")
-        || message.contains("connection")
-        || message.contains("dns")
-        || message.contains("超时")
-        || message.contains("连接")
-        || message.contains("too many requests")
-        || message.contains("429")
-        || message.contains("api 返回错误 5")
-        || message.contains("http 5")
+    is_transient_account_error_message(&quota_error.message)
 }
 
-pub fn error_account_auto_delete_reason(account: &CodexAccount) -> Option<String> {
+fn quota_error_message(quota_error: &CodexQuotaErrorInfo) -> String {
+    if quota_error.message.trim().is_empty() {
+        "账号配额状态异常".to_string()
+    } else {
+        format!("账号配额状态异常: {}", quota_error.message)
+    }
+}
+
+fn quota_error_auto_delete_reason(quota_error: &CodexQuotaErrorInfo) -> Option<String> {
+    if is_transient_quota_error(quota_error) {
+        return None;
+    }
+    let lower_message = quota_error.message.to_ascii_lowercase();
+    let has_payment_required_status =
+        lower_message.contains("402") || lower_message.contains("payment required");
+    let is_deactivated = quota_error
+        .code
+        .as_deref()
+        .map(|code| code.eq_ignore_ascii_case(CODEX_DEACTIVATED_WORKSPACE_ERROR_CODE))
+        .unwrap_or(false)
+        || is_deactivated_workspace_error_message(&quota_error.message);
+    if is_deactivated && has_payment_required_status {
+        return Some("账号工作区已停用 (deactivated_workspace)".to_string());
+    }
+    None
+}
+
+pub fn account_unusable_reason(account: &CodexAccount) -> Option<String> {
     if account.requires_reauth {
         return Some(
             account
@@ -2224,16 +2343,57 @@ pub fn error_account_auto_delete_reason(account: &CodexAccount) -> Option<String
                 .unwrap_or_else(|| "账号需要重新登录".to_string()),
         );
     }
-
     if let Some(quota_error) = account.quota_error.as_ref() {
         if is_transient_quota_error(quota_error) {
             return None;
         }
-        return Some(if quota_error.message.trim().is_empty() {
-            "账号配额状态异常".to_string()
-        } else {
-            format!("账号配额状态异常: {}", quota_error.message)
-        });
+        return Some(quota_error_message(quota_error));
+    }
+    if account.is_api_key_auth() {
+        if account
+            .openai_api_key
+            .as_deref()
+            .map(|api_key| api_key.trim().is_empty())
+            .unwrap_or(true)
+        {
+            return Some("API Key 为空".to_string());
+        }
+        return None;
+    }
+
+    if account.tokens.access_token.trim().is_empty() {
+        return Some("OAuth access_token 为空".to_string());
+    }
+
+    if account.tokens.id_token.trim().is_empty()
+        && account
+            .tokens
+            .refresh_token
+            .as_deref()
+            .map(|token| token.trim().is_empty())
+            .unwrap_or(true)
+    {
+        return Some("OAuth 账号缺少 id_token 和 refresh_token".to_string());
+    }
+
+    None
+}
+
+pub fn error_account_auto_delete_reason(account: &CodexAccount) -> Option<String> {
+    if account.requires_reauth {
+        let reason = account
+            .reauth_reason
+            .clone()
+            .filter(|reason| !reason.trim().is_empty())
+            .unwrap_or_else(|| "账号需要重新登录".to_string());
+        if is_transient_account_error_message(&reason) {
+            return None;
+        }
+        return Some(reason);
+    }
+
+    if let Some(quota_error) = account.quota_error.as_ref() {
+        return quota_error_auto_delete_reason(quota_error);
     }
 
     if account.is_api_key_auth() {
@@ -2250,6 +2410,17 @@ pub fn error_account_auto_delete_reason(account: &CodexAccount) -> Option<String
 
     if account.tokens.access_token.trim().is_empty() {
         return Some("OAuth access_token 为空".to_string());
+    }
+
+    if account.tokens.id_token.trim().is_empty()
+        && account
+            .tokens
+            .refresh_token
+            .as_deref()
+            .map(|token| token.trim().is_empty())
+            .unwrap_or(true)
+    {
+        return Some("OAuth 账号缺少 id_token 和 refresh_token".to_string());
     }
 
     None
@@ -5622,15 +5793,16 @@ fn extract_codex_tokens_from_value(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_account_storage_id, decode_jwt_payload_value, detect_auth_file_plan_type_from_path,
+        account_unusable_reason, build_account_storage_id, decode_jwt_payload_value,
+        detect_auth_file_plan_type_from_path, error_account_auto_delete_reason,
         extract_codex_import_candidate_from_value, extract_codex_tokens_from_value,
         extract_user_info, format_refresh_error_for_user, get_accounts_dir,
         get_accounts_storage_path, get_current_account, list_accounts_checked, load_account,
         load_account_index, looks_like_sub2api_export, parse_auth_file_last_refresh,
         parse_codex_account_compat, parse_line_delimited_json_values,
-        read_api_provider_from_config_toml, read_quick_config_from_config_toml,
-        resolve_api_provider_config, save_account, save_account_index,
-        should_accept_authority_snapshot, sync_account_from_auth_dir,
+        read_api_provider_from_config_toml, read_local_access_config_identity_from_config_toml,
+        read_quick_config_from_config_toml, resolve_api_provider_config, save_account,
+        save_account_index, should_accept_authority_snapshot, sync_account_from_auth_dir,
         sync_managed_projection_from_auth_dir, upsert_account_from_access_token,
         upsert_account_from_auth_tokens, validate_api_key_credentials,
         write_api_key_provider_to_config_toml, write_api_provider_to_config_toml,
@@ -5639,7 +5811,9 @@ mod tests {
         CodexJsonImportCandidate, LocalCodexOAuthSnapshot, CODEX_AUTO_COMPACT_DEFAULT_LIMIT,
         CODEX_CONTEXT_WINDOW_1M_VALUE,
     };
-    use crate::models::codex::{CodexAccount, CodexApiProviderMode, CodexTokens};
+    use crate::models::codex::{
+        CodexAccount, CodexApiProviderMode, CodexQuotaErrorInfo, CodexTokens,
+    };
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
     use std::fs;
     use std::sync::{LazyLock, Mutex};
@@ -6153,6 +6327,92 @@ mod tests {
             r#"{"detail":{"code":"deactivated_workspace"}}"#
         )
         .is_some());
+        assert!(codex_account_error_reason_from_upstream_response(
+            503,
+            r#"{"detail":{"code":"deactivated_workspace"}}"#
+        )
+        .is_none());
+        assert!(codex_account_error_reason_from_upstream_response(
+            402,
+            r#"{"error":"gateway timeout"}"#
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn quota_network_errors_do_not_auto_delete_accounts() {
+        let mut account = CodexAccount::new(
+            "network-quota".to_string(),
+            "network-quota@example.com".to_string(),
+            CodexTokens {
+                id_token: "id-token".to_string(),
+                access_token: "access-token".to_string(),
+                refresh_token: Some("refresh-token".to_string()),
+            },
+        );
+
+        account.quota_error = Some(CodexQuotaErrorInfo {
+            code: None,
+            message: "Token 已过期，刷新 Token 失败: 当前网络地区不支持刷新 Codex 授权。原始错误: status=403 Forbidden, error_code=unsupported_country_region_territory".to_string(),
+            timestamp: 1,
+        });
+
+        assert!(account_unusable_reason(&account).is_none());
+        assert!(error_account_auto_delete_reason(&account).is_none());
+    }
+
+    #[test]
+    fn unclear_quota_errors_are_unusable_but_not_auto_deleted() {
+        let mut account = CodexAccount::new(
+            "unclear-quota".to_string(),
+            "unclear-quota@example.com".to_string(),
+            CodexTokens {
+                id_token: "id-token".to_string(),
+                access_token: "access-token".to_string(),
+                refresh_token: Some("refresh-token".to_string()),
+            },
+        );
+
+        account.quota_error = Some(CodexQuotaErrorInfo {
+            code: Some("usage_error".to_string()),
+            message: "配额读取失败".to_string(),
+            timestamp: 1,
+        });
+
+        assert!(account_unusable_reason(&account).is_some());
+        assert!(error_account_auto_delete_reason(&account).is_none());
+    }
+
+    #[test]
+    fn deactivated_workspace_quota_errors_can_auto_delete_accounts() {
+        let mut account = CodexAccount::new(
+            "deactivated-quota".to_string(),
+            "deactivated-quota@example.com".to_string(),
+            CodexTokens {
+                id_token: "id-token".to_string(),
+                access_token: "access-token".to_string(),
+                refresh_token: Some("refresh-token".to_string()),
+            },
+        );
+
+        account.quota_error = Some(CodexQuotaErrorInfo {
+            code: Some("deactivated_workspace".to_string()),
+            message: "API 返回错误 402 Payment Required [error_code:deactivated_workspace]"
+                .to_string(),
+            timestamp: 1,
+        });
+
+        assert!(account_unusable_reason(&account).is_some());
+        assert!(error_account_auto_delete_reason(&account).is_some());
+
+        account.quota_error = Some(CodexQuotaErrorInfo {
+            code: Some("deactivated_workspace".to_string()),
+            message: "上游网关返回失败，保留原始错误码 deactivated_workspace".to_string(),
+            timestamp: 1,
+        });
+
+        assert!(account_unusable_reason(&account).is_some());
+        assert!(error_account_auto_delete_reason(&account).is_none());
     }
 
     #[test]
@@ -6786,6 +7046,49 @@ requires_openai_auth = false
         assert!(content.contains("name = \"Codex API Service\""));
         assert!(content.contains("base_url = \"http://127.0.0.1:63898/v1\""));
         assert!(content.contains("supports_websockets = true"));
+
+        fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn reads_active_local_access_config_identity() {
+        let base_dir = make_temp_dir("codex-local-access-identity-test");
+        let provider_config = ApiProviderConfig {
+            mode: CodexApiProviderMode::Custom,
+            base_url: Some("http://127.0.0.1:63898/v1".to_string()),
+            provider_id: Some(CODEX_RUNTIME_MODEL_PROVIDER_ID.to_string()),
+            provider_name: Some(CODEX_LOCAL_ACCESS_PROVIDER_NAME.to_string()),
+        };
+
+        write_api_key_provider_to_config_toml(&base_dir, &provider_config, "agt_codex_stable")
+            .expect("write config");
+
+        let identity = read_local_access_config_identity_from_config_toml(&base_dir)
+            .expect("local access identity");
+        assert_eq!(
+            identity.base_url.as_deref(),
+            Some("http://127.0.0.1:63898/v1")
+        );
+        assert_eq!(identity.api_key.as_deref(), Some("agt_codex_stable"));
+
+        fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn ignores_regular_api_key_fixed_provider_for_local_access_identity() {
+        let base_dir = make_temp_dir("codex-local-access-identity-ignore-test");
+        let provider_config = resolve_api_provider_config(
+            Some("https://api.openai.com/v1/"),
+            Some(CodexApiProviderMode::OpenaiBuiltin),
+            None,
+            None,
+        )
+        .expect("resolve provider config");
+
+        write_api_key_provider_to_config_toml(&base_dir, &provider_config, "sk-regular")
+            .expect("write config");
+
+        assert!(read_local_access_config_identity_from_config_toml(&base_dir).is_none());
 
         fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
     }

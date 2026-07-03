@@ -6,6 +6,17 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.0.67] - 2026-07-04
+
+### 变更
+- Codex Token 导入帮助现在同时展示 AI Lemon Tools 自有批量账号 JSON 格式和 Sub2API 导出 JSON 格式。
+- 新安装首次启动时界面默认使用简体中文。
+
+### 修复
+- Codex 额度刷新、后台检测和本地 API 路由遇到网络、代理、TLS、超时、限流或临时上游失败时，不再物理删除账号。
+- Codex 工作区停用的自动删除现在只会在明确收到 `402 Payment Required` / `deactivated_workspace` 响应时触发，降低网关或网络异常导致的误删风险。
+- Codex 本地 API 服务升级恢复时会保留原端口和密钥：旧数据目录会迁移服务配置；本地接入 JSON 缺失时，会从当前 Codex `config.toml` 的 API 服务供应商配置反推恢复。
+
 ## [0.0.66] - 2026-06-27
 
 ### 修复

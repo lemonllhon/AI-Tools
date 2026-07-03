@@ -1745,7 +1745,8 @@
       "formatRequired": "Unterstützt vollständige tokens (id_token + access_token), einen einzelnen refresh_token oder einen refresh_token pro Zeile. Bei refresh_token-only werden zuerst online vollständige Zugangsdaten abgerufen.",
       "formatSingleLabel": "Vollständige tokens",
       "formatRefreshOnlyLabel": "Nur refresh_token",
-      "formatBatchLabel": "Batch-Beispiel"
+      "formatBatchLabel": "Batch-Beispiel",
+      "formatSub2apiLabel": "Sub2API-Beispiel"
     },
     "exportFormat": {
       "label": "Exportformat",

@@ -1745,7 +1745,8 @@
       "formatRequired": "Obsługuje pełne tokens (id_token + access_token), pojedynczy refresh_token albo jeden refresh_token w każdym wierszu. Import z samym refresh_token najpierw wymieni go online na pełne dane logowania.",
       "formatSingleLabel": "Pełne tokens",
       "formatRefreshOnlyLabel": "Tylko refresh_token",
-      "formatBatchLabel": "Przykład zbiorczy"
+      "formatBatchLabel": "Przykład zbiorczy",
+      "formatSub2apiLabel": "Przykład Sub2API"
     },
     "exportFormat": {
       "label": "Format eksportu",

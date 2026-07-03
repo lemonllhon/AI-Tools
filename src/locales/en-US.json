@@ -1805,7 +1805,8 @@
       "formatRequired": "Supports session JSON, full tokens (id_token + access_token), Sub2API export JSON, accessToken only, or refresh_token only. refresh_token-only import exchanges it online for full credentials first.",
       "formatSingleLabel": "Full tokens",
       "formatRefreshOnlyLabel": "session / accessToken / refresh_token example",
-      "formatBatchLabel": "Batch example"
+      "formatBatchLabel": "Batch example",
+      "formatSub2apiLabel": "Sub2API example"
     },
     "exportFormat": {
       "label": "Export Format",

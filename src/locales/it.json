@@ -1745,7 +1745,8 @@
       "formatRequired": "Supporta tokens completi (id_token + access_token), un singolo refresh_token o un refresh_token per riga. Con solo refresh_token, l’import lo scambia prima online con credenziali complete.",
       "formatSingleLabel": "Tokens completi",
       "formatRefreshOnlyLabel": "Solo refresh_token",
-      "formatBatchLabel": "Esempio batch"
+      "formatBatchLabel": "Esempio batch",
+      "formatSub2apiLabel": "Esempio Sub2API"
     },
     "exportFormat": {
       "label": "Formato di esportazione",

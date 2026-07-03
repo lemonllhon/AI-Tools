@@ -1745,7 +1745,8 @@
       "formatRequired": "完全な tokens（id_token + access_token）、単一の refresh_token、または 1 行に 1 つの refresh_token をサポートします。refresh_token のみの場合は、先にオンラインで完全な認証情報に交換します。",
       "formatSingleLabel": "完全な tokens",
       "formatRefreshOnlyLabel": "refresh_token のみ",
-      "formatBatchLabel": "一括例"
+      "formatBatchLabel": "一括例",
+      "formatSub2apiLabel": "Sub2API の例"
     },
     "exportFormat": {
       "label": "エクスポート形式",
