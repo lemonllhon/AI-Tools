@@ -75,7 +75,7 @@ interface CodexLocalAccessModalProps {
   state: CodexLocalAccessState | null;
   addressKind: CodexLocalAccessAddressKind;
   addressOptions: Array<{ value: string; label: string }>;
-  onAddressKindChange: (value: string) => void;
+  onAddressKindChange: (value: string) => Promise<unknown> | unknown;
   accounts: CodexAccount[];
   modelProviders?: CodexModelProvider[];
   accountGroups: CodexAccountGroup[];
@@ -213,6 +213,12 @@ function formatLatencyMs(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return '--';
   if (value >= 1000) return `${(value / 1000).toFixed(2)}s`;
   return `${Math.round(value)}ms`;
+}
+
+function formatPercent(value: number): string {
+  if (!Number.isFinite(value)) return '--';
+  if (value > 0 && value < 1) return '<1%';
+  return `${Math.round(value)}%`;
 }
 
 function formatQuotaPoolLabel(
@@ -437,6 +443,19 @@ export function CodexLocalAccessModal({
     ],
     [avgLatencyMs, selectedTotals, successRate, t],
   );
+  const selectedModelStats = useMemo(() => {
+    const requestCount = selectedTotals?.requestCount ?? 0;
+    return (selectedStatsWindow?.models ?? [])
+      .filter((model) => model.modelId.trim() && model.usage.requestCount > 0)
+      .slice(0, 6)
+      .map((model) => ({
+        ...model,
+        percent:
+          requestCount > 0
+            ? Math.min(100, (model.usage.requestCount / requestCount) * 100)
+            : 0,
+      }));
+  }, [selectedStatsWindow?.models, selectedTotals?.requestCount]);
 
   const localAccessAccounts = useMemo(
     () => accounts.filter(isLocalAccessEligibleAccount),
@@ -2059,6 +2078,52 @@ export function CodexLocalAccessModal({
                   </div>
                 ))}
               </div>
+              <div className="codex-local-access-model-stats">
+                <div className="codex-local-access-model-stats-head">
+                  <span>{t('codex.localAccess.modelStatsTitle', '模型占比')}</span>
+                  <small>
+                    {selectedTotals && selectedTotals.requestCount > 0
+                      ? t('codex.localAccess.modelStatsRequestCount', {
+                          count: selectedTotals.requestCount,
+                          defaultValue: '{{count}} 次请求',
+                        })
+                      : t('codex.localAccess.modelStatsEmptyShort', '暂无调用')}
+                  </small>
+                </div>
+                {selectedModelStats.length > 0 ? (
+                  <div className="codex-local-access-model-stats-list">
+                    {selectedModelStats.map((model) => (
+                      <div className="codex-local-access-model-stat-row" key={model.modelId}>
+                        <div className="codex-local-access-model-stat-main">
+                          <span title={model.modelId}>{model.modelId}</span>
+                          <strong>{formatPercent(model.percent)}</strong>
+                        </div>
+                        <div className="codex-local-access-model-stat-track" aria-hidden="true">
+                          <span style={{ width: `${model.percent}%` }} />
+                        </div>
+                        <div className="codex-local-access-model-stat-meta">
+                          <span>
+                            {t('codex.localAccess.modelStatsCalls', {
+                              count: model.usage.requestCount,
+                              defaultValue: '{{count}} 次请求',
+                            })}
+                          </span>
+                          <span>
+                            {t('codex.localAccess.modelStatsTokens', {
+                              value: formatCompactNumber(model.usage.totalTokens),
+                              defaultValue: '{{value}} Tokens',
+                            })}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="codex-local-access-model-stats-empty">
+                    {t('codex.localAccess.modelStatsEmpty', '当前统计范围内还没有模型调用记录')}
+                  </div>
+                )}
+              </div>
               {currentQuotaPoolSummary.visiblePlans.length > 0 && (
                 <div
                   className="codex-local-access-quota-pool-grid"
@@ -2155,11 +2220,11 @@ export function CodexLocalAccessModal({
                           <SingleSelectDropdown
                             value={addressKind}
                             options={addressOptions}
-                            onChange={onAddressKindChange}
+                            onChange={(value) => void onAddressKindChange(value)}
                             menuClassName="codex-local-access-address-menu"
                             menuWidth={92}
                             menuMaxHeight={120}
-                            disabled={addressOptions.length < 2}
+                            disabled={addressOptions.length < 2 || saving || testing}
                             ariaLabel={t('codex.localAccess.addressKind', '地址类型')}
                           />
                         </div>

@@ -124,6 +124,7 @@ import type {
   CodexLocalAccessState,
   CodexLocalAccessTestResult,
   CodexLocalAccessUpstreamProxyMode,
+  CodexLocalAccessUsageStats,
   CodexLocalAccessWebSocketMode,
 } from '../types/codexLocalAccess';
 
@@ -138,6 +139,7 @@ const DASHBOARD_DEFERRED_PREFETCH_BATCH_SIZE = 1;
 const DASHBOARD_DEFERRED_PREFETCH_BATCH_DELAY_MS = 1200;
 const DASHBOARD_CODEX_LOCAL_ACCESS_ADDRESS_KIND_KEY =
   'agtools.codex.local_access.address_kind.v1';
+const DASHBOARD_API_SERVICE_MODEL_SHARE_LIMIT = 4;
 let dashboardStartupPrefetched = false;
 
 function normalizeDashboardLocalAccessAddressKind(
@@ -188,6 +190,37 @@ function getDashboardApiServiceProviderKeyCount(
 
 function toFiniteNumber(value: number | null | undefined): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function formatDashboardCompactNumber(value: number | null | undefined): string {
+  const numberValue = Math.max(0, Math.round(toFiniteNumber(value) ?? 0));
+  return new Intl.NumberFormat(undefined, {
+    notation: numberValue >= 10000 ? 'compact' : 'standard',
+    maximumFractionDigits: numberValue >= 10000 ? 1 : 0,
+  }).format(numberValue);
+}
+
+function formatDashboardPercent(value: number | null | undefined): string {
+  const percent = toFiniteNumber(value);
+  if (percent === null) return '-';
+  if (percent > 0 && percent < 1) return '<1%';
+  return `${Math.round(percent)}%`;
+}
+
+function formatDashboardSuccessRate(usage: CodexLocalAccessUsageStats | null | undefined): string {
+  const requestCount = usage?.requestCount ?? 0;
+  if (requestCount <= 0) return '-';
+  return formatDashboardPercent(((usage?.successCount ?? 0) / requestCount) * 100);
+}
+
+function formatDashboardAverageLatency(usage: CodexLocalAccessUsageStats | null | undefined): string {
+  const requestCount = usage?.requestCount ?? 0;
+  if (requestCount <= 0) return '-';
+  const latencyMs = Math.round((usage?.totalLatencyMs ?? 0) / requestCount);
+  if (latencyMs >= 1000) {
+    return `${(latencyMs / 1000).toFixed(latencyMs >= 10000 ? 0 : 1)}s`;
+  }
+  return `${latencyMs}ms`;
 }
 
 function resolveDashboardCurrentAccount<T extends { id: string }>(
@@ -531,14 +564,37 @@ export function DashboardPage({
     }
   }, [apiServiceState?.collection, openCodexApiServiceModal, runApiServiceStateMutation, t]);
 
-  const handleApiServiceAddressKindChange = useCallback((value: string) => {
-    const next = normalizeDashboardLocalAccessAddressKind(value);
-    setApiServiceAddressKind(next);
-    persistDashboardLocalAccessAddressKind(next);
-  }, []);
+  const handleApiServiceAddressKindChange = useCallback(
+    async (value: string) => {
+      const next = normalizeDashboardLocalAccessAddressKind(value);
+      const nextAccessScope: CodexLocalAccessScope = next === 'lan' ? 'lan' : 'localhost';
+      setApiServiceAddressKind(next);
+      persistDashboardLocalAccessAddressKind(next);
+
+      const collection = apiServiceState?.collection;
+      if (!collection || collection.accessScope === nextAccessScope) return;
+
+      try {
+        await runApiServiceStateMutation(
+          () => codexLocalAccessService.updateCodexLocalAccessAccessScope(nextAccessScope),
+          t('codex.localAccess.accessScopeSaveSuccess', 'API 服务访问范围已更新'),
+        );
+        scheduleApiServiceStateRefresh();
+      } catch {
+        const fallback = collection.accessScope === 'lan' ? 'lan' : 'local';
+        setApiServiceAddressKind(fallback);
+        persistDashboardLocalAccessAddressKind(fallback);
+      }
+    },
+    [apiServiceState?.collection, runApiServiceStateMutation, scheduleApiServiceStateRefresh, t],
+  );
 
   const selectedApiServiceAddressKind: CodexLocalAccessAddressKind =
-    apiServiceAddressKind === 'lan' && apiServiceState?.lanBaseUrl ? 'lan' : 'local';
+    apiServiceState?.collection?.accessScope === 'lan'
+      ? 'lan'
+      : apiServiceState?.collection?.accessScope === 'localhost'
+        ? 'local'
+        : apiServiceAddressKind;
 
   const apiServiceAddressOptions = useMemo(
     () => [
@@ -546,16 +602,12 @@ export function DashboardPage({
         value: 'local',
         label: t('codex.localAccess.addressLocal', '本机'),
       },
-      ...(apiServiceState?.lanBaseUrl
-        ? [
-            {
-              value: 'lan',
-              label: t('codex.localAccess.addressLan', '局域网'),
-            },
-          ]
-        : []),
+      {
+        value: 'lan',
+        label: t('codex.localAccess.addressLan', '局域网'),
+      },
     ],
-    [apiServiceState?.lanBaseUrl, t],
+    [t],
   );
 
   const apiServiceModalSelectedIds = useMemo(
@@ -648,12 +700,17 @@ export function DashboardPage({
 
   const handleUpdateApiServiceAccessScope = useCallback(
     async (accessScope: CodexLocalAccessScope) => {
-      await runApiServiceStateMutation(
+      const nextState = await runApiServiceStateMutation(
         () => codexLocalAccessService.updateCodexLocalAccessAccessScope(accessScope),
         t('codex.localAccess.accessScopeSaveSuccess', 'API 服务访问范围已更新'),
       );
+      const nextAddressKind = accessScope === 'lan' ? 'lan' : 'local';
+      setApiServiceAddressKind(nextAddressKind);
+      persistDashboardLocalAccessAddressKind(nextAddressKind);
+      scheduleApiServiceStateRefresh();
+      return nextState;
     },
-    [runApiServiceStateMutation, t],
+    [runApiServiceStateMutation, scheduleApiServiceStateRefresh, t],
   );
 
   const handleUpdateApiServiceUpstreamProxyMode = useCallback(
@@ -3524,8 +3581,7 @@ export function DashboardPage({
               : 0;
             const showCodexLanEndpoint =
               isCodex &&
-              codexCollection?.accessScope === 'lan' &&
-              Boolean(apiServiceState?.lanBaseUrl);
+              codexCollection?.accessScope === 'lan';
             const baseUrl = isCodex
               ? showCodexLanEndpoint && apiServiceState?.lanBaseUrl
                 ? apiServiceState.lanBaseUrl
@@ -3562,6 +3618,19 @@ export function DashboardPage({
               apiServiceSaving ||
               codexSpeedSummary.total === 0;
             const speedOptions = CODEX_APP_SPEED_VALUES;
+            const usageWindow = isCodex ? apiServiceState?.stats?.daily : null;
+            const usageTotals = usageWindow?.totals ?? null;
+            const usageRequestCount = usageTotals?.requestCount ?? 0;
+            const modelShareRows = (usageWindow?.models ?? [])
+              .filter((model) => model.modelId.trim() && model.usage.requestCount > 0)
+              .slice(0, DASHBOARD_API_SERVICE_MODEL_SHARE_LIMIT)
+              .map((model) => ({
+                model,
+                percent:
+                  usageRequestCount > 0
+                    ? Math.min(100, (model.usage.requestCount / usageRequestCount) * 100)
+                    : 0,
+              }));
 
             return (
               <article className={`api-service-card tone-${cardTone}`} key={platformId}>
@@ -3586,8 +3655,13 @@ export function DashboardPage({
                   <span>{baseUrlLabel}</span>
                   <code>{baseUrl}</code>
                   {showCodexLanEndpoint && (
-                    <small>
-                      {t('codex.localAccess.lanAccessHint', '同一局域网内的设备可使用这个地址接入 API 服务。')}
+                    <small className={apiServiceState?.lanBaseUrl ? undefined : 'warning'}>
+                      {apiServiceState?.lanBaseUrl
+                        ? t('codex.localAccess.lanAccessHint', '同一局域网内的设备可使用这个地址接入 API 服务。')
+                        : t(
+                            'codex.localAccess.lanAccessUnavailable',
+                            '已监听局域网，但暂未检测到本机局域网 IP，可检查网络连接后刷新。',
+                          )}
                     </small>
                   )}
                 </div>
@@ -3648,6 +3722,70 @@ export function DashboardPage({
                           </button>
                         );
                       })}
+                    </div>
+                  </div>
+                )}
+                {isCodex && (
+                  <div className="api-service-usage-panel">
+                    <div className="api-service-usage-head">
+                      <span>{t('dashboard.apiServices.usageToday', '今日用量')}</span>
+                      <small>{t('dashboard.apiServices.usageWindowHint', '按 API 请求实时累计')}</small>
+                    </div>
+                    <div className="api-service-usage-metrics">
+                      <div>
+                        <span>{t('dashboard.apiServices.usageRequests', '请求')}</span>
+                        <strong>{formatDashboardCompactNumber(usageRequestCount)}</strong>
+                      </div>
+                      <div>
+                        <span>{t('dashboard.apiServices.usageSuccessRate', '成功率')}</span>
+                        <strong>{formatDashboardSuccessRate(usageTotals)}</strong>
+                      </div>
+                      <div>
+                        <span>{t('dashboard.apiServices.usageTokens', 'Token')}</span>
+                        <strong>{formatDashboardCompactNumber(usageTotals?.totalTokens ?? 0)}</strong>
+                      </div>
+                      <div>
+                        <span>{t('dashboard.apiServices.usageLatency', '均延迟')}</span>
+                        <strong>{formatDashboardAverageLatency(usageTotals)}</strong>
+                      </div>
+                    </div>
+                    <div className="api-service-model-share">
+                      <div className="api-service-model-share-head">
+                        <span>{t('dashboard.apiServices.modelShare', '模型占比')}</span>
+                        <small>
+                          {usageRequestCount > 0
+                            ? t('dashboard.apiServices.modelShareRequestCount', {
+                                count: usageRequestCount,
+                                defaultValue: '{{count}} 次请求',
+                              })
+                            : t('dashboard.apiServices.noUsageYet', '暂无调用')}
+                        </small>
+                      </div>
+                      {modelShareRows.length > 0 ? (
+                        <div className="api-service-model-share-list">
+                          {modelShareRows.map(({ model, percent }) => (
+                            <div className="api-service-model-share-row" key={model.modelId}>
+                              <div className="api-service-model-share-label">
+                                <span title={model.modelId}>{model.modelId}</span>
+                                <strong>{formatDashboardPercent(percent)}</strong>
+                              </div>
+                              <div className="api-service-model-share-track" aria-hidden="true">
+                                <span style={{ width: `${percent}%` }} />
+                              </div>
+                              <small>
+                                {t('dashboard.apiServices.modelShareCalls', {
+                                  count: model.usage.requestCount,
+                                  defaultValue: '{{count}} 次',
+                                })}
+                              </small>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="api-service-model-empty">
+                          {t('dashboard.apiServices.noModelUsage', '暂无模型调用记录')}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

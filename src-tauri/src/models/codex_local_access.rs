@@ -179,6 +179,16 @@ pub struct CodexLocalAccessProviderStats {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct CodexLocalAccessModelStats {
+    pub model_id: String,
+    #[serde(default)]
+    pub usage: CodexLocalAccessUsageStats,
+    #[serde(default)]
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct CodexLocalAccessStatsWindow {
     #[serde(default)]
     pub since: i64,
@@ -190,6 +200,8 @@ pub struct CodexLocalAccessStatsWindow {
     pub accounts: Vec<CodexLocalAccessAccountStats>,
     #[serde(default)]
     pub providers: Vec<CodexLocalAccessProviderStats>,
+    #[serde(default)]
+    pub models: Vec<CodexLocalAccessModelStats>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -201,6 +213,8 @@ pub struct CodexLocalAccessUsageEvent {
     pub account_id: String,
     #[serde(default)]
     pub email: String,
+    #[serde(default)]
+    pub model_id: String,
     #[serde(default)]
     pub success: bool,
     #[serde(default)]
@@ -230,6 +244,8 @@ pub struct CodexLocalAccessStats {
     pub accounts: Vec<CodexLocalAccessAccountStats>,
     #[serde(default)]
     pub providers: Vec<CodexLocalAccessProviderStats>,
+    #[serde(default)]
+    pub models: Vec<CodexLocalAccessModelStats>,
     #[serde(default)]
     pub daily: CodexLocalAccessStatsWindow,
     #[serde(default)]

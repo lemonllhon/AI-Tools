@@ -1,7 +1,7 @@
 use crate::models::codex::{CodexAccount, CodexApiProviderMode, CodexAppSpeed};
 use crate::models::codex_local_access::{
     CodexLocalAccessAccountStats, CodexLocalAccessCollection, CodexLocalAccessCustomRoutingRule,
-    CodexLocalAccessPortCleanupResult, CodexLocalAccessProviderStats,
+    CodexLocalAccessModelStats, CodexLocalAccessPortCleanupResult, CodexLocalAccessProviderStats,
     CodexLocalAccessRoutingStrategy, CodexLocalAccessScope, CodexLocalAccessSourceMode,
     CodexLocalAccessState, CodexLocalAccessStats, CodexLocalAccessStatsWindow,
     CodexLocalAccessTestFailure, CodexLocalAccessTestResult, CodexLocalAccessUpstreamProxyMode,
@@ -2112,6 +2112,40 @@ fn prepare_gateway_request(
             original_request_body,
         },
     ))
+}
+
+fn model_id_from_request_body(body: &[u8]) -> Option<String> {
+    parse_request_body_json(body)
+        .and_then(|value| {
+            value
+                .get("model")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|model| !model.is_empty())
+                .map(str::to_string)
+        })
+}
+
+fn requested_model_for_stats(
+    request: &ParsedRequest,
+    adapter: &GatewayResponseAdapter,
+) -> Option<String> {
+    match adapter {
+        GatewayResponseAdapter::ChatCompletions {
+            requested_model, ..
+        }
+        | GatewayResponseAdapter::ResponsesFromChatCompletions {
+            requested_model, ..
+        } => Some(requested_model.trim().to_string()).filter(|model| !model.is_empty()),
+        GatewayResponseAdapter::Images { .. } => Some(CODEX_IMAGE_MODEL_ID.to_string()),
+        GatewayResponseAdapter::Passthrough {
+            original_responses_body,
+            ..
+        } => original_responses_body
+            .as_deref()
+            .and_then(model_id_from_request_body)
+            .or_else(|| model_id_from_request_body(&request.body)),
+    }
 }
 
 fn response_payload_root(value: &Value) -> &Value {
@@ -4483,12 +4517,14 @@ fn empty_stats_snapshot() -> CodexLocalAccessStats {
         totals: CodexLocalAccessUsageStats::default(),
         accounts: Vec::new(),
         providers: Vec::new(),
+        models: Vec::new(),
         daily: CodexLocalAccessStatsWindow {
             since: day_since,
             updated_at: now,
             totals: CodexLocalAccessUsageStats::default(),
             accounts: Vec::new(),
             providers: Vec::new(),
+            models: Vec::new(),
         },
         weekly: CodexLocalAccessStatsWindow {
             since: week_since,
@@ -4496,6 +4532,7 @@ fn empty_stats_snapshot() -> CodexLocalAccessStats {
             totals: CodexLocalAccessUsageStats::default(),
             accounts: Vec::new(),
             providers: Vec::new(),
+            models: Vec::new(),
         },
         monthly: CodexLocalAccessStatsWindow {
             since: month_since,
@@ -4503,6 +4540,7 @@ fn empty_stats_snapshot() -> CodexLocalAccessStats {
             totals: CodexLocalAccessUsageStats::default(),
             accounts: Vec::new(),
             providers: Vec::new(),
+            models: Vec::new(),
         },
         events: Vec::new(),
     }
@@ -4515,6 +4553,7 @@ fn empty_stats_window(since: i64, updated_at: i64) -> CodexLocalAccessStatsWindo
         totals: CodexLocalAccessUsageStats::default(),
         accounts: Vec::new(),
         providers: Vec::new(),
+        models: Vec::new(),
     }
 }
 
@@ -4526,6 +4565,17 @@ fn sort_usage_accounts(accounts: &mut [CodexLocalAccessAccountStats]) {
             .cmp(&left.usage.request_count)
             .then_with(|| right.updated_at.cmp(&left.updated_at))
             .then_with(|| left.account_id.cmp(&right.account_id))
+    });
+}
+
+fn sort_usage_models(models: &mut [CodexLocalAccessModelStats]) {
+    models.sort_by(|left, right| {
+        right
+            .usage
+            .request_count
+            .cmp(&left.usage.request_count)
+            .then_with(|| right.updated_at.cmp(&left.updated_at))
+            .then_with(|| left.model_id.cmp(&right.model_id))
     });
 }
 
@@ -4873,6 +4923,7 @@ fn append_usage_event(
     now: i64,
     account_id: Option<&str>,
     account_email: Option<&str>,
+    model_id: Option<&str>,
     success: bool,
     latency_ms: u64,
     usage: Option<&UsageCapture>,
@@ -4882,6 +4933,7 @@ fn append_usage_event(
         timestamp: now,
         account_id: account_id.unwrap_or_default().trim().to_string(),
         email: account_email.unwrap_or_default().trim().to_string(),
+        model_id: model_id.unwrap_or_default().trim().to_string(),
         success,
         latency_ms,
         input_tokens: usage.input_tokens,
@@ -4918,6 +4970,14 @@ fn apply_usage_event_to_window(
         Some(&usage),
         event.timestamp,
     );
+    upsert_model_usage_stats(
+        &mut window.models,
+        Some(event.model_id.as_str()),
+        event.success,
+        event.latency_ms,
+        Some(&usage),
+        event.timestamp,
+    );
     window.updated_at = window.updated_at.max(event.timestamp);
 }
 
@@ -4947,6 +5007,9 @@ fn recompute_time_windows(stats: &mut CodexLocalAccessStats, now: i64) {
     sort_usage_accounts(&mut daily.accounts);
     sort_usage_accounts(&mut weekly.accounts);
     sort_usage_accounts(&mut monthly.accounts);
+    sort_usage_models(&mut daily.models);
+    sort_usage_models(&mut weekly.models);
+    sort_usage_models(&mut monthly.models);
 
     stats.daily = daily;
     stats.weekly = weekly;
@@ -5439,6 +5502,7 @@ fn normalize_stats(stats: &mut CodexLocalAccessStats) {
     }
     stats.providers.clear();
     sort_usage_accounts(&mut stats.accounts);
+    sort_usage_models(&mut stats.models);
     recompute_time_windows(stats, now);
 }
 
@@ -6709,9 +6773,37 @@ fn upsert_account_usage_stats(
     accounts.push(account_stats);
 }
 
+fn upsert_model_usage_stats(
+    models: &mut Vec<CodexLocalAccessModelStats>,
+    model_id: Option<&str>,
+    success: bool,
+    latency_ms: u64,
+    usage: Option<&UsageCapture>,
+    updated_at: i64,
+) {
+    let Some(model_id) = model_id.map(str::trim).filter(|value| !value.is_empty()) else {
+        return;
+    };
+
+    if let Some(model_stats) = models.iter_mut().find(|item| item.model_id == model_id) {
+        model_stats.updated_at = updated_at;
+        apply_usage_stats(&mut model_stats.usage, success, latency_ms, usage);
+        return;
+    }
+
+    let mut model_stats = CodexLocalAccessModelStats {
+        model_id: model_id.to_string(),
+        usage: CodexLocalAccessUsageStats::default(),
+        updated_at,
+    };
+    apply_usage_stats(&mut model_stats.usage, success, latency_ms, usage);
+    models.push(model_stats);
+}
+
 async fn record_request_stats(
     account_id: Option<&str>,
     account_email: Option<&str>,
+    model_id: Option<&str>,
     success: bool,
     latency_ms: u64,
     usage: Option<UsageCapture>,
@@ -6734,11 +6826,20 @@ async fn record_request_stats(
             usage_ref,
             now,
         );
+        upsert_model_usage_stats(
+            &mut runtime.stats.models,
+            model_id,
+            success,
+            latency_ms,
+            usage_ref,
+            now,
+        );
         append_usage_event(
             &mut runtime.stats.events,
             now,
             account_id,
             account_email,
+            model_id,
             success,
             latency_ms,
             usage_ref,
@@ -10171,6 +10272,7 @@ async fn handle_responses_websocket_create(
         }
     };
     let session_request_body = parse_request_body_json(&prepared_request.body);
+    let requested_model = requested_model_for_stats(&prepared_request, &response_adapter);
 
     match proxy_request_with_account_pool(&prepared_request, &response_adapter, collection).await {
         Ok(success) => {
@@ -10221,6 +10323,7 @@ async fn handle_responses_websocket_create(
             if let Err(err) = record_request_stats(
                 Some(success.account_id.as_str()),
                 Some(success.account_email.as_str()),
+                requested_model.as_deref(),
                 true,
                 latency_ms,
                 response_capture.usage,
@@ -10254,6 +10357,7 @@ async fn handle_responses_websocket_create(
             if let Err(err) = record_request_stats(
                 account_id.as_deref(),
                 account_email.as_deref(),
+                requested_model.as_deref(),
                 false,
                 latency_ms,
                 None,
@@ -11361,6 +11465,7 @@ async fn handle_connection(
             return Ok(());
         }
     };
+    let requested_model = requested_model_for_stats(&prepared_request, &response_adapter);
 
     match proxy_request_with_account_pool(&prepared_request, &response_adapter, &collection).await {
         Ok(success) => {
@@ -11374,6 +11479,7 @@ async fn handle_connection(
             if let Err(err) = record_request_stats(
                 Some(success.account_id.as_str()),
                 Some(success.account_email.as_str()),
+                requested_model.as_deref(),
                 true,
                 latency_ms,
                 response_capture.usage,
@@ -11421,6 +11527,7 @@ async fn handle_connection(
             if let Err(err) = record_request_stats(
                 account_id.as_deref(),
                 account_email.as_deref(),
+                requested_model.as_deref(),
                 false,
                 latency_ms,
                 None,

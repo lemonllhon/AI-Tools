@@ -77,12 +77,19 @@ export interface CodexLocalAccessProviderStats {
   updatedAt: number;
 }
 
+export interface CodexLocalAccessModelStats {
+  modelId: string;
+  usage: CodexLocalAccessUsageStats;
+  updatedAt: number;
+}
+
 export interface CodexLocalAccessStatsWindow {
   since: number;
   updatedAt: number;
   totals: CodexLocalAccessUsageStats;
   accounts: CodexLocalAccessAccountStats[];
   providers?: CodexLocalAccessProviderStats[];
+  models?: CodexLocalAccessModelStats[];
 }
 
 export interface CodexLocalAccessStats {
@@ -91,6 +98,7 @@ export interface CodexLocalAccessStats {
   totals: CodexLocalAccessUsageStats;
   accounts: CodexLocalAccessAccountStats[];
   providers?: CodexLocalAccessProviderStats[];
+  models?: CodexLocalAccessModelStats[];
   daily: CodexLocalAccessStatsWindow;
   weekly: CodexLocalAccessStatsWindow;
   monthly: CodexLocalAccessStatsWindow;

@@ -6,6 +6,14 @@ All notable changes to AI Lemon Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.68] - 2026-07-04
+### Added
+- Codex local API service statistics now record requested models and show model usage share in both the dashboard service card and the detailed service panel.
+
+### Changed
+- The dashboard API service usage panel now shows today's requests, success rate, token total, average latency, and top model shares.
+- The Codex API service "Local / LAN" address selector and backend access scope are now linked both ways: changing either control updates the other and persists the matching bind scope.
+
 ## [0.0.67] - 2026-07-04
 ### Changed
 - Codex token import help now shows both the AI Lemon Tools batch account JSON format and the Sub2API export JSON format.
