@@ -6,6 +6,16 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.0.69] - 2026-07-04
+
+### 变更
+- Codex API 服务面板现在将“本机 / 局域网”选择、访问范围、Chat Completions 地址、Responses 地址、WebSocket 地址和监听地址合并到一个接入地址卡片中，密钥和服务端口独立成卡片。
+- 仪表盘 API 服务卡片现在展示 Chat Completions、Responses 和 WebSocket 三类协议地址；切换本机 / 局域网时展示主机也会立即同步变化。
+- 仪表盘页面现在提前加载，切回仪表盘时不再等待页面 chunk 加载。
+
+### 修复
+- Codex 本地 API 端口清理在 Windows 下新增 `Get-NetTCPConnection` 兜底检测，可识别并结束 `192.168.x.x:4722` 或 `0.0.0.0:4722` 这类局域网监听占用，再继续复用原端口。
+
 ## [0.0.68] - 2026-07-04
 
 ### 新增

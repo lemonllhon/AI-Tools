@@ -6,6 +6,15 @@ All notable changes to AI Lemon Tools will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.69] - 2026-07-04
+### Changed
+- The Codex API service panel now groups Local/LAN selection, access scope, Chat Completions URL, Responses URL, WebSocket URL, and bind address into one access card, with separate cards for the API key and service port.
+- The dashboard API service card now shows protocol-specific Chat Completions, Responses, and WebSocket endpoints, and the displayed host updates immediately when switching between local and LAN access.
+- The dashboard page is now loaded eagerly so switching back to the dashboard no longer waits for the page chunk to load.
+
+### Fixed
+- Codex local API port cleanup now has a Windows `Get-NetTCPConnection` fallback so LAN-bound listeners such as `192.168.x.x:4722` or `0.0.0.0:4722` can be found and killed before reusing the same port.
+
 ## [0.0.68] - 2026-07-04
 ### Added
 - Codex local API service statistics now record requested models and show model usage share in both the dashboard service card and the detailed service panel.

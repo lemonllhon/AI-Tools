@@ -358,6 +358,29 @@
   color: var(--warning-strong);
 }
 
+.api-service-protocol-endpoints {
+  gap: 7px;
+}
+
+.api-service-protocol-row {
+  display: grid;
+  grid-template-columns: minmax(94px, 0.34fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.api-service-protocol-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.api-service-protocol-row code {
+  min-width: 0;
+}
+
 .api-service-speed-panel {
   display: flex;
   align-items: center;

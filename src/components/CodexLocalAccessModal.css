@@ -1344,7 +1344,7 @@
 
 .codex-local-access-config-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.1fr) minmax(220px, 0.8fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
   align-items: stretch;
 }
@@ -1376,8 +1376,13 @@
 
 .codex-local-access-config-card-root,
 .codex-local-access-config-card-base,
+.codex-local-access-config-card-access,
 .codex-local-access-config-card-key {
   min-height: 100%;
+}
+
+.codex-local-access-config-card-access {
+  grid-column: 1 / -1;
 }
 
 .codex-local-access-config-card-model {
@@ -1443,6 +1448,63 @@
 .codex-local-access-modal .codex-local-access-address-select .single-select-dropdown-arrow svg {
   width: 12px;
   height: 12px;
+}
+
+.codex-local-access-endpoint-list {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.codex-local-access-endpoint-row {
+  display: grid;
+  grid-template-columns: minmax(118px, 0.28fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(15, 23, 42, 0.025);
+}
+
+.codex-local-access-endpoint-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.codex-local-access-endpoint-row code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.codex-local-access-endpoint-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.codex-local-access-access-hint {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.codex-local-access-access-hint.warning {
+  color: var(--warning-strong);
 }
 
 .codex-local-access-view-only-badge {
@@ -2165,6 +2227,14 @@
     flex-wrap: wrap;
   }
 
+  .codex-local-access-endpoint-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .codex-local-access-endpoint-row > span {
+    grid-column: 1 / -1;
+  }
+
   .codex-local-access-model-stats-list {
     grid-template-columns: 1fr;
   }
@@ -2476,7 +2546,8 @@
 }
 
 [data-theme="dark"] .codex-local-access-model-stat-row,
-[data-theme="dark"] .codex-local-access-model-stats-empty {
+[data-theme="dark"] .codex-local-access-model-stats-empty,
+[data-theme="dark"] .codex-local-access-endpoint-row {
   background: rgba(15, 23, 42, 0.42);
   border-color: rgba(148, 163, 184, 0.12);
 }

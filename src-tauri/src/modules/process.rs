@@ -7813,6 +7813,20 @@ fn parse_listening_pids_from_netstat(stdout: &str, port: u16, current_pid: u32) 
     result
 }
 
+fn parse_pid_lines(stdout: &str, current_pid: u32) -> Vec<u32> {
+    let mut pids = HashSet::new();
+    for line in stdout.lines() {
+        if let Ok(pid) = line.trim().parse::<u32>() {
+            if pid != current_pid {
+                pids.insert(pid);
+            }
+        }
+    }
+    let mut result: Vec<u32> = pids.into_iter().collect();
+    result.sort_unstable();
+    result
+}
+
 fn combined_process_output(output: &std::process::Output) -> String {
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -7826,17 +7840,7 @@ fn combined_process_output(output: &std::process::Output) -> String {
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn parse_lsof_pid_lines(stdout: &str, current_pid: u32) -> Vec<u32> {
-    let mut pids = HashSet::new();
-    for line in stdout.lines() {
-        if let Ok(pid) = line.trim().parse::<u32>() {
-            if pid != current_pid {
-                pids.insert(pid);
-            }
-        }
-    }
-    let mut result: Vec<u32> = pids.into_iter().collect();
-    result.sort_unstable();
-    result
+    parse_pid_lines(stdout, current_pid)
 }
 
 #[cfg(target_os = "linux")]
@@ -7989,18 +7993,66 @@ pub fn find_pids_by_port(port: u16) -> Result<Vec<u32>, String> {
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
+        let mut pids = HashSet::new();
+        let mut probe_errors = Vec::new();
+
         let output = Command::new("netstat")
             .creation_flags(CREATE_NO_WINDOW)
             .args(["-ano", "-p", "tcp"])
-            .output()
-            .map_err(|e| format!("执行 netstat 失败: {}", e))?;
+            .output();
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        return Ok(parse_listening_pids_from_netstat(
-            &stdout,
-            port,
-            current_pid,
-        ));
+        match output {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for pid in parse_listening_pids_from_netstat(&stdout, port, current_pid) {
+                    pids.insert(pid);
+                }
+                if !output.status.success() {
+                    probe_errors.push(format!("netstat 返回异常: {}", combined_process_output(&output)));
+                }
+            }
+            Err(err) => {
+                probe_errors.push(format!("执行 netstat 失败: {}", err));
+            }
+        }
+
+        let ps_command = format!(
+            "Get-NetTCPConnection -LocalPort {} -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess",
+            port
+        );
+        match Command::new("powershell.exe")
+            .creation_flags(CREATE_NO_WINDOW)
+            .args(["-NoProfile", "-NonInteractive", "-Command", &ps_command])
+            .output()
+        {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for pid in parse_pid_lines(&stdout, current_pid) {
+                    pids.insert(pid);
+                }
+                if !output.status.success() {
+                    probe_errors.push(format!(
+                        "Get-NetTCPConnection 返回异常: {}",
+                        combined_process_output(&output)
+                    ));
+                }
+            }
+            Err(err) => {
+                probe_errors.push(format!("执行 Get-NetTCPConnection 失败: {}", err));
+            }
+        }
+
+        if pids.is_empty() && probe_errors.len() >= 2 {
+            return Err(format!(
+                "查找端口 {} 占用进程失败: {}",
+                port,
+                probe_errors.join("; ")
+            ));
+        }
+
+        let mut result: Vec<u32> = pids.into_iter().collect();
+        result.sort_unstable();
+        return Ok(result);
     }
 
     #[allow(unreachable_code)]

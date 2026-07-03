@@ -67,10 +67,8 @@ import {
   prepareProxyPoolGatewayForRestart,
   restoreProxyPoolGatewayState,
 } from './services/proxyPoolService';
+import { DashboardPage } from './pages/DashboardPage';
 
-const DashboardPage = lazy(() =>
-  import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })),
-);
 const AccountsPage = lazy(() =>
   import('./pages/AccountsPage').then((module) => ({ default: module.AccountsPage })),
 );

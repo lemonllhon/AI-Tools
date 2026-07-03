@@ -132,8 +132,8 @@ interface CodexLocalAccessModalProps {
 
 type StatsRangeKey = 'daily' | 'weekly' | 'monthly';
 type CopyableField =
-  | 'apiPortUrl'
-  | 'baseUrl'
+  | 'chatCompletionsUrl'
+  | 'responsesUrl'
   | 'webSocketUrl'
   | 'apiKey'
   | 'modelId'
@@ -152,6 +152,12 @@ const CUSTOM_ROUTING_WEIGHT_MAX = 100;
 
 function normalizeAccessScope(value: string): CodexLocalAccessScope {
   return value === 'lan' ? 'lan' : 'localhost';
+}
+
+function buildLocalAccessProtocolUrl(baseUrl: string, path: string): string {
+  const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, '');
+  if (!normalizedBaseUrl) return '';
+  return `${normalizedBaseUrl}${path}`;
 }
 
 function normalizeStatsRangeKey(value: string | null | undefined): StatsRangeKey {
@@ -318,6 +324,9 @@ export function CodexLocalAccessModal({
   const baseUrl = state?.baseUrl ?? '';
   const displayBaseUrl =
     addressKind === 'lan' && state?.lanBaseUrl ? state.lanBaseUrl : baseUrl;
+  const displayChatCompletionsUrl =
+    buildLocalAccessProtocolUrl(displayBaseUrl, '/chat/completions') || apiPortUrl;
+  const displayResponsesUrl = buildLocalAccessProtocolUrl(displayBaseUrl, '/responses');
   const webSocketUrl = state?.webSocketUrl ?? '';
   const displayWebSocketUrl =
     addressKind === 'lan' && state?.lanWebSocketUrl
@@ -2214,42 +2223,67 @@ export function CodexLocalAccessModal({
                 </div>
                 {collection ? (
                   <div className="codex-local-access-config-grid">
-                    <div className="codex-local-access-config-card codex-local-access-config-card-base">
+                    <div className="codex-local-access-config-card codex-local-access-config-card-access">
                       <div className="codex-local-access-config-head">
-                        <div className="codex-local-access-config-label codex-local-access-address-select">
+                        <span className="codex-local-access-config-label">
+                          {t('codex.localAccess.accessEndpointsTitle', '接入地址')}
+                        </span>
+                        <div className="codex-local-access-config-actions">
+                          <div className="codex-local-access-config-label codex-local-access-address-select">
+                            <SingleSelectDropdown
+                              value={addressKind}
+                              options={addressOptions}
+                              onChange={(value) => void onAddressKindChange(value)}
+                              menuClassName="codex-local-access-address-menu"
+                              menuWidth={92}
+                              menuMaxHeight={120}
+                              disabled={addressOptions.length < 2 || saving || testing}
+                              ariaLabel={t('codex.localAccess.addressKind', '地址类型')}
+                            />
+                          </div>
                           <SingleSelectDropdown
-                            value={addressKind}
-                            options={addressOptions}
-                            onChange={(value) => void onAddressKindChange(value)}
-                            menuClassName="codex-local-access-address-menu"
-                            menuWidth={92}
+                            value={accessScope}
+                            options={accessScopeOptions}
+                            onChange={(value) => void handleChangeAccessScope(value)}
+                            menuClassName="codex-local-access-scope-menu"
+                            menuWidth={132}
                             menuMaxHeight={120}
-                            disabled={addressOptions.length < 2 || saving || testing}
-                            ariaLabel={t('codex.localAccess.addressKind', '地址类型')}
+                            disabled={saving || testing}
+                            ariaLabel={t('codex.localAccess.accessScopeLabel', '访问范围')}
                           />
                         </div>
-                        <div className="codex-local-access-config-actions">
+                      </div>
+                      <div className="codex-local-access-endpoint-list">
+                        <div className="codex-local-access-endpoint-row">
+                          <span>{t('codex.localAccess.chatCompletionsUrl', 'Chat Completions')}</span>
+                          <code title={displayChatCompletionsUrl}>{displayChatCompletionsUrl}</code>
                           <button
                             type="button"
                             className="folder-icon-btn"
-                            onClick={() => void handleCopy('baseUrl', displayBaseUrl)}
+                            onClick={() => void handleCopy('chatCompletionsUrl', displayChatCompletionsUrl)}
                             title={t('common.copy', '复制')}
+                            disabled={!displayChatCompletionsUrl}
                           >
-                            {copiedField === 'baseUrl' ? <Check size={14} /> : <Copy size={14} />}
+                            {copiedField === 'chatCompletionsUrl' ? <Check size={14} /> : <Copy size={14} />}
                           </button>
                         </div>
-                      </div>
-                      <code className="codex-local-access-code" title={displayBaseUrl}>
-                        {displayBaseUrl}
-                      </code>
-                    </div>
-
-                    <div className="codex-local-access-config-card codex-local-access-config-card-base">
-                      <div className="codex-local-access-config-head">
-                        <span className="codex-local-access-config-label">
-                          {t('codex.localAccess.webSocketUrl', 'WebSocket')}
-                        </span>
-                        <div className="codex-local-access-config-actions">
+                        <div className="codex-local-access-endpoint-row">
+                          <span>{t('codex.localAccess.responsesUrl', 'Responses')}</span>
+                          <code title={displayResponsesUrl}>{displayResponsesUrl}</code>
+                          <button
+                            type="button"
+                            className="folder-icon-btn"
+                            onClick={() => void handleCopy('responsesUrl', displayResponsesUrl)}
+                            title={t('common.copy', '复制')}
+                            disabled={!displayResponsesUrl}
+                          >
+                            {copiedField === 'responsesUrl' ? <Check size={14} /> : <Copy size={14} />}
+                          </button>
+                        </div>
+                        <div className="codex-local-access-endpoint-row">
+                          <span>{t('codex.localAccess.webSocketUrl', 'WebSocket')}</span>
+                          <code title={displayWebSocketUrl}>{displayWebSocketUrl}</code>
+                          <div className="codex-local-access-endpoint-actions">
                           <span
                             className={`codex-local-access-status ${state?.webSocketEnabled ? 'running' : 'stopped'}`}
                             title={t(
@@ -2267,11 +2301,32 @@ export function CodexLocalAccessModal({
                           >
                             {copiedField === 'webSocketUrl' ? <Check size={14} /> : <Copy size={14} />}
                           </button>
+                          </div>
+                        </div>
+                        <div className="codex-local-access-endpoint-row codex-local-access-endpoint-row-scope">
+                          <span>{accessScopeAddressLabel}</span>
+                          <code title={accessScopeAddress}>{accessScopeAddress}</code>
+                          <button
+                            type="button"
+                            className="folder-icon-btn"
+                            onClick={() => void handleCopy('accessScopeAddress', accessScopeAddress)}
+                            title={
+                              accessScope === 'lan' && !lanAccessUrl
+                                ? t(
+                                    'codex.localAccess.lanAccessUnavailable',
+                                    '已监听局域网，但暂未检测到本机局域网 IP，可检查网络连接后刷新。',
+                                  )
+                                : t('common.copy', '复制')
+                            }
+                            disabled={accessScope === 'lan' && !lanAccessUrl}
+                          >
+                            {copiedField === 'accessScopeAddress' ? <Check size={14} /> : <Copy size={14} />}
+                          </button>
                         </div>
                       </div>
-                      <code className="codex-local-access-code" title={displayWebSocketUrl}>
-                        {displayWebSocketUrl}
-                      </code>
+                      <small className={`codex-local-access-access-hint ${accessScope === 'lan' && !lanAccessUrl ? 'warning' : ''}`}>
+                        {accessScopeAddressHint}
+                      </small>
                     </div>
 
                     <div className="codex-local-access-config-card codex-local-access-config-card-key">
@@ -2359,50 +2414,6 @@ export function CodexLocalAccessModal({
                       </div>
                     </div>
 
-                    <div className="codex-local-access-config-card codex-local-access-config-card-scope">
-                      <div className="codex-local-access-config-head">
-                        <span className="codex-local-access-config-label">
-                          {t('codex.localAccess.accessScopeLabel', '访问范围')}
-                        </span>
-                        <div className="codex-local-access-config-actions">
-                          <button
-                            type="button"
-                            className="folder-icon-btn"
-                            onClick={() => void handleCopy('accessScopeAddress', accessScopeAddress)}
-                            title={
-                              accessScope === 'lan' && !lanAccessUrl
-                                ? t(
-                                    'codex.localAccess.lanAccessUnavailable',
-                                    '已监听局域网，但暂未检测到本机局域网 IP，可检查网络连接后刷新。',
-                                  )
-                                : t('common.copy', '复制')
-                            }
-                            disabled={accessScope === 'lan' && !lanAccessUrl}
-                          >
-                            {copiedField === 'accessScopeAddress' ? <Check size={14} /> : <Copy size={14} />}
-                          </button>
-                          <SingleSelectDropdown
-                            value={accessScope}
-                            options={accessScopeOptions}
-                            onChange={(value) => void handleChangeAccessScope(value)}
-                            menuClassName="codex-local-access-scope-menu"
-                            menuWidth={132}
-                            menuMaxHeight={120}
-                            disabled={saving || testing}
-                            ariaLabel={t('codex.localAccess.accessScopeLabel', '访问范围')}
-                          />
-                        </div>
-                      </div>
-                      <div className="codex-local-access-scope-address">
-                        <span>{accessScopeAddressLabel}</span>
-                        <code className="codex-local-access-code" title={accessScopeAddress}>
-                          {accessScopeAddress}
-                        </code>
-                        <small className={accessScope === 'lan' && !lanAccessUrl ? 'warning' : ''}>
-                          {accessScopeAddressHint}
-                        </small>
-                      </div>
-                    </div>
                   </div>
                 ) : (
                   <div className="group-account-empty">
@@ -2414,29 +2425,6 @@ export function CodexLocalAccessModal({
                 )}
                 {collection || modelIdOptions.length > 0 ? (
                   <div className="codex-local-access-config-extra-grid">
-                    {collection ? (
-                      <div className="codex-local-access-config-card codex-local-access-config-card-root">
-                        <div className="codex-local-access-config-head">
-                          <span className="codex-local-access-config-label">
-                            {t('codex.localAccess.apiPortUrl', 'API端口URL')}
-                          </span>
-                          <div className="codex-local-access-config-actions">
-                            <button
-                              type="button"
-                              className="folder-icon-btn"
-                              onClick={() => void handleCopy('apiPortUrl', apiPortUrl)}
-                              title={t('common.copy', '复制')}
-                            >
-                              {copiedField === 'apiPortUrl' ? <Check size={14} /> : <Copy size={14} />}
-                            </button>
-                          </div>
-                        </div>
-                        <code className="codex-local-access-code" title={apiPortUrl}>
-                          {apiPortUrl}
-                        </code>
-                      </div>
-                    ) : null}
-
                     {collection ? (
                       <div className="codex-local-access-config-card codex-local-access-config-card-oauth">
                         <div className="codex-local-access-config-head">

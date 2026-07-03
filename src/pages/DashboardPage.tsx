@@ -223,6 +223,12 @@ function formatDashboardAverageLatency(usage: CodexLocalAccessUsageStats | null 
   return `${latencyMs}ms`;
 }
 
+function buildDashboardApiUrl(baseUrl: string, path: string): string {
+  const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, '');
+  if (!normalizedBaseUrl || normalizedBaseUrl === '-') return '-';
+  return `${normalizedBaseUrl}${path}`;
+}
+
 function resolveDashboardCurrentAccount<T extends { id: string }>(
   accounts: T[],
   currentId: string | null | undefined,
@@ -3592,9 +3598,8 @@ export function DashboardPage({
                 ? apiServiceState.lanWebSocketUrl
                 : apiServiceState?.webSocketUrl || '-'
               : '-';
-            const baseUrlLabel = showCodexLanEndpoint
-              ? t('codex.localAccess.lanAccessUrl', '局域网接入地址')
-              : t('codex.localAccess.baseUrl', '地址');
+            const chatCompletionsUrl = buildDashboardApiUrl(baseUrl, '/chat/completions');
+            const responsesUrl = buildDashboardApiUrl(baseUrl, '/responses');
             const wsStatus = isCodex
               ? apiServiceState?.webSocketEnabled
                 ? t('codex.localAccess.webSocketStatusReady', '可用')
@@ -3651,24 +3656,30 @@ export function DashboardPage({
                   {isCodex && <span>WS {wsStatus}</span>}
                   <span>{t('dashboard.apiServices.pageVisible', '页面可见')}</span>
                 </div>
-                <div className="api-service-endpoint" title={baseUrl}>
-                  <span>{baseUrlLabel}</span>
-                  <code>{baseUrl}</code>
-                  {showCodexLanEndpoint && (
-                    <small className={apiServiceState?.lanBaseUrl ? undefined : 'warning'}>
-                      {apiServiceState?.lanBaseUrl
-                        ? t('codex.localAccess.lanAccessHint', '同一局域网内的设备可使用这个地址接入 API 服务。')
-                        : t(
-                            'codex.localAccess.lanAccessUnavailable',
-                            '已监听局域网，但暂未检测到本机局域网 IP，可检查网络连接后刷新。',
-                          )}
-                    </small>
-                  )}
-                </div>
                 {isCodex && (
-                  <div className="api-service-endpoint" title={wsUrl}>
-                    <span>{t('codex.localAccess.webSocketUrl', 'WebSocket')}</span>
-                    <code>{wsUrl}</code>
+                  <div className="api-service-endpoint api-service-protocol-endpoints">
+                    <div className="api-service-protocol-row" title={chatCompletionsUrl}>
+                      <span>{t('codex.localAccess.chatCompletionsUrl', 'Chat Completions')}</span>
+                      <code>{chatCompletionsUrl}</code>
+                    </div>
+                    <div className="api-service-protocol-row" title={responsesUrl}>
+                      <span>{t('codex.localAccess.responsesUrl', 'Responses')}</span>
+                      <code>{responsesUrl}</code>
+                    </div>
+                    <div className="api-service-protocol-row" title={wsUrl}>
+                      <span>{t('codex.localAccess.webSocketUrl', 'WebSocket')}</span>
+                      <code>{wsUrl}</code>
+                    </div>
+                    {showCodexLanEndpoint && (
+                      <small className={apiServiceState?.lanBaseUrl ? undefined : 'warning'}>
+                        {apiServiceState?.lanBaseUrl
+                          ? t('codex.localAccess.lanAccessHint', '同一局域网内的设备可使用这个地址接入 API 服务。')
+                          : t(
+                              'codex.localAccess.lanAccessUnavailable',
+                              '已监听局域网，但暂未检测到本机局域网 IP，可检查网络连接后刷新。',
+                            )}
+                      </small>
+                    )}
                   </div>
                 )}
                 {isCodex && (
